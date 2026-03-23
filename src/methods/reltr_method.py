@@ -1,6 +1,6 @@
 # src/methods/reltr_method.py
 import torch
-from .base_model import Base_method
+from .base_method import Base_method
 
 # RelTR 依赖的工具：NestedTensor / converter
 from utils.misc import NestedTensor, nested_tensor_from_tensor_list

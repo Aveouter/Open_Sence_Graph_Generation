@@ -6,30 +6,11 @@ from fvcore.nn import FlopCountAnalysis, flop_count_table
 import torch
 
 from src.methods import method_maps
-from data.dataset.base_data import BaseDataModule
+from data.dataloaders.base_data import BaseDataModule
 from utils import (get_dataset, measure_throughput, SetupCallback, EpochEndCallback, BestCheckpointCallback)
 from lightning.pytorch.profilers import AdvancedProfiler
 from lightning import seed_everything, Trainer
 import lightning.pytorch.callbacks as lc
-
-
-"""工作流程：
-    初始化实验
-        ↓
-    设置随机种子 → 创建保存目录
-        ↓
-    加载数据集 → 封装为 DataModule
-        ↓
-    实例化预测模型（从 method_maps 选择）
-        ↓
-    配置回调函数（检查点保存、日志记录等）
-        ↓
-    初始化 Lightning Trainer
-        ↓
-    【训练模式】trainer.fit() → 保存最佳模型
-        ↓
-    【测试模式】加载最佳模型 → trainer.test() → 输出评估结果
-"""
 
 class BaseExperiment(object):
     """The basic class of PyTorch training and evaluation."""
@@ -41,7 +22,6 @@ class BaseExperiment(object):
         self.method = None
         self.args.method = self.args.method.lower()
         self._dist = self.args.dist
-
         # 创建工作目录和检查点保存路径
         base_dir = args.res_dir if args.res_dir is not None else 'results'
         save_dir = osp.join(base_dir, args.ex_name if not args.ex_name.startswith(args.res_dir) \
@@ -51,7 +31,7 @@ class BaseExperiment(object):
         seed_everything(args.seed)  # 初始化随机种子以确保实验可复现
         self.data = self._get_data(dataloaders)  # 加载数据集和数据加载器
         self.method = method_maps[self.args.method](steps_per_epoch=len(self.data.train_loader), \
-            test_mean=self.data.test_mean, test_std=self.data.test_std, save_dir=save_dir, **self.config)  # 实例化预测模型（从 method_maps 中根据方法名选择）
+            save_dir=save_dir, **self.config)  # 实例化预测模型（从 method_maps 中根据方法名选择）
 
         callbacks, self.save_dir = self._load_callbacks(args, save_dir, ckpt_dir)  # 配置回调函数（callbacks）
         self.trainer = self._init_trainer(self.args, callbacks, strategy)  # 初始化 Lightning Trainer
@@ -129,6 +109,8 @@ class BaseExperiment(object):
             device = torch.device(assign_gpu)
         T, C, H, W = args.in_shape
         if args.method in ['simvp', 'tau', 'mmvp', 'wast']:
+            input_dummy = torch.ones(1, args.pre_seq_length, C, H, W).to(device)
+        elif args.method in ['hstrnet']:
             input_dummy = torch.ones(1, args.pre_seq_length, C, H, W).to(device)
         elif args.method == 'phydnet':
             _tmp_input1 = torch.ones(1, args.pre_seq_length, C, H, W).to(device)

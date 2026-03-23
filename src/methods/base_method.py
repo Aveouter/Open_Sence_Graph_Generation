@@ -21,7 +21,8 @@ class Base_method(l.LightningModule):
 
         self.save_hyperparameters()
         self.model = self._build_model(**args)
-        self.criterion =  loss_construction(args.loss)
+        print(args)
+        self.criterion = loss_construction(args['loss'])
         self.test_outputs = []
         self.val_outputs = []
 

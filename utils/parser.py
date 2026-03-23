@@ -29,8 +29,8 @@ def create_parser():
     parser.add_argument('--val_batch_size', '-vb', default=None, type=int, help='Validation batch size')
     parser.add_argument('--num_workers', default=None, type=int)
     parser.add_argument('--data_root', default='./data')
-    parser.add_argument('--dataname', '-d', default='ThyroTriples', type=str,
-                        choices=['ThyroTriples', 'mmnist', 'moving_mnist',],
+    parser.add_argument('--dataname', '-d', default='VisualGenome', type=str,
+                        choices=['ThyroTriples', 'VisualGenome', 'OpenImage',],
                         help='Dataset name (default: "rain_fall_short_2h")')
     parser.add_argument('--pre_seq_length', default=None, type=int, help='Sequence length before prediction')
     parser.add_argument('--aft_seq_length', default=None, type=int, help='Sequence length after prediction')
@@ -43,8 +43,8 @@ def create_parser():
                         help='Whether to drop the last batch in the val data loading')
 
     # method parameters
-    parser.add_argument('--method', '-m', default='mlp', type=str,
-                        choices=['mlp', 'Hisemformer'],
+    parser.add_argument('--method', '-m', default='HSTRNet', type=str,
+                        choices=['Reltr', 'HSTRNet'],
                         help='Name of video prediction method to train (default: "SimVP")')
     parser.add_argument('--config_file', '-c', default=None, type=str,
                         help='Path to the default config file')
@@ -108,7 +108,7 @@ def default_parser():
         # Set-up parameters
         'device': 'cuda',
         'dist': False,
-        'res_dir': 'work_dirs',
+        'res_dir': 'results',
         'ex_name': 'Debug',
         'fp16': False,
         'torchscript': False,

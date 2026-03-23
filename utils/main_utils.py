@@ -1,5 +1,5 @@
 # Copyright (c) CIGIT HPC Lab. All rights reserved
-
+import traceback
 import cv2
 import os
 import logging
@@ -13,7 +13,6 @@ import torchvision
 from torch import distributed as dist
 
 from .config_utils import Config
-
 
 def collect_env():
     """Collect the information of the running environments."""
@@ -30,11 +29,10 @@ def collect_env():
 
         if CUDA_HOME is not None and os.path.isdir(CUDA_HOME):
             try:
-                nvcc = os.path.join(CUDA_HOME, 'bin/nvcc')
-                nvcc = subprocess.check_output(
-                    '"{}" -V | tail -n1'.format(nvcc), shell=True)
-                nvcc = nvcc.decode('utf-8').strip()
-            except subprocess.SubprocessError:
+                nvcc = os.path.join(CUDA_HOME, 'bin', 'nvcc.exe' if os.name == 'nt' else 'nvcc')
+                nvcc = subprocess.check_output(f'"{nvcc}" -V', shell=True, stderr=subprocess.STDOUT)
+                nvcc = nvcc.decode('utf-8', errors='ignore').strip().splitlines()[-1]
+            except Exception:
                 nvcc = 'Not Available'
             env_info['NVCC'] = nvcc
 
@@ -44,8 +42,11 @@ def collect_env():
         for name, devids in devices.items():
             env_info['GPU ' + ','.join(devids)] = name
 
-    gcc = subprocess.check_output('gcc --version | head -n1', shell=True)
-    gcc = gcc.decode('utf-8').strip()
+    try:
+        gcc = subprocess.check_output('gcc --version', shell=True, stderr=subprocess.STDOUT)
+        gcc = gcc.decode('utf-8', errors='ignore').strip().splitlines()[0]
+    except Exception:
+        gcc = 'Not Available'
     env_info['GCC'] = gcc
 
     env_info['PyTorch'] = torch.__version__
@@ -54,7 +55,6 @@ def collect_env():
     env_info['OpenCV'] = cv2.__version__
 
     return env_info
-
 
 def print_log(message):
     print(message)
@@ -77,9 +77,9 @@ def check_dir(path):
 
 
 def get_dataset(dataname, config):
-    from data.dataset.dataset_constant import dataset_parameters
-    from data.dataset.dataloader import load_data
-    # from data.dataset.dataloader_weather import load_data
+    from data.dataloaders.dataset_constant import dataset_parameters
+    from data.dataloaders.dataloader import load_data
+    # from data.dataloaders.dataloader_weather import load_data
     config.update(dataset_parameters[dataname])
     return load_data(**config)
 
@@ -134,7 +134,6 @@ def load_config(filename:str = None):
         config = dict()
         print('warning: fail to load the config!')
     return config
-
 
 def update_config(args, config, exclude_keys=list()):
     """update the args dict with a new config"""

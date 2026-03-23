@@ -1,4 +1,6 @@
-# Copyright (c) CIGIT HPC Lab. All rights reserved
+# Copyright (c) Team of XiaoguangLin, CIGIT HPC Lab. All rights reserved
+# This source code is licensed under the MIT license that can be found in the LICENSE file.
+# Author: Xinyu Liu, Xiaoguang Lin
 
 import os.path as osp
 import warnings
@@ -10,14 +12,11 @@ from utils import (create_parser, default_parser, get_dist_info, load_config,
 import torch
 import gc
 
-
-
-
 if __name__ == '__main__':
     args = create_parser().parse_args()
     config = args.__dict__
 
-    cfg_path = osp.join('./configs', args.dataname, f'{args.method}.py') \
+    cfg_path = osp.join(".", "configs", "VisualGenome", "HSTRNet.py") \
         if args.config_file is None else args.config_file
     if args.overwrite:
         config = update_config(config, load_config(cfg_path),
@@ -31,7 +30,7 @@ if __name__ == '__main__':
         for attribute in default_values.keys():
             if config[attribute] is None:
                 config[attribute] = default_values[attribute]
-
+    
     print('>'*35 + ' training ' + '<'*35)
     exp = BaseExperiment(args)
     rank, _ = get_dist_info()

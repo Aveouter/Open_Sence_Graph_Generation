@@ -1,10 +1,14 @@
 # data/
-datasets/
+data/OpenImages/
+data/VisualGenome/
+
 ckpts/
 weights/
 runs/
+results/
 logs/
 wandb/
+lightning_logs/
 
 __pycache__/
 *.pyc
