@@ -1,5 +1,4 @@
-import math
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -31,6 +30,43 @@ def batched_gather_queries(
         index=obj_idx.unsqueeze(-1).expand(B, T, K, D)
     )
     return subj, obj
+
+
+def _stack_targets_if_needed(
+    targets: Union[Dict, List[Dict], Tuple[Dict, ...]],
+    key: str,
+    ref_tensor: torch.Tensor,
+):
+    """
+    兼容两种 target 形式:
+    1) batched dict: {"object_labels": [B,...], ...}
+    2) list/tuple of dict: [{...}, {...}, ...]
+
+    如果无法安全拼接，返回 None。
+    """
+    if isinstance(targets, dict):
+        value = targets.get(key, None)
+        if torch.is_tensor(value):
+            return value.to(device=ref_tensor.device)
+        return value
+
+    if isinstance(targets, (list, tuple)):
+        if len(targets) == 0:
+            return None
+        values = []
+        for t in targets:
+            if not isinstance(t, dict) or key not in t:
+                return None
+            v = t[key]
+            if not torch.is_tensor(v):
+                return None
+            values.append(v)
+        try:
+            return torch.stack(values, dim=0).to(device=ref_tensor.device)
+        except Exception:
+            return None
+
+    return None
 
 
 # =========================================================
@@ -86,7 +122,8 @@ class PositionalEncoding2D(nn.Module):
 class QueryObjectEncoder(nn.Module):
     """
     输入:
-        images: [B, T, C, H, W]
+        pixel_values: [B, T, C, H, W]
+        pixel_mask  : [B, T, H, W] or None, True 表示 padding / invalid
     输出:
         object_queries: [B, T, Nq, D]
         object_logits : [B, T, Nq, No]
@@ -120,19 +157,37 @@ class QueryObjectEncoder(nn.Module):
 
         self.object_cls_head = nn.Linear(hidden_dim, num_object_classes)
 
-    def forward(self, images):
-        B, T, C, H, W = images.shape
-        x = images.reshape(B * T, C, H, W)
+    def forward(self, pixel_values, pixel_mask=None):
+        B, T, C, H, W = pixel_values.shape
+        x = pixel_values.reshape(B * T, C, H, W)
 
         feat = self.backbone(x)                        # [B*T, D, H', W']
         BT, D, Hf, Wf = feat.shape
 
-        tokens = feat.flatten(2).transpose(1, 2)      # [B*T, HW, D]
+        tokens = feat.flatten(2).transpose(1, 2)      # [B*T, H'W', D]
         tokens = tokens + self.pos2d(feat)
+
+        token_mask = None
+        if pixel_mask is not None:
+            # [B,T,H,W] -> [B*T,1,H,W] -> resize -> [B*T,H'W']
+            token_mask = pixel_mask.reshape(B * T, 1, H, W).float()
+            token_mask = F.interpolate(token_mask, size=(Hf, Wf), mode="nearest")
+            token_mask = token_mask.squeeze(1).to(torch.bool).flatten(1)  # True = invalid
+
+            # 避免极端情况下某一帧全部被 mask，导致 attention 产生 NaN
+            all_masked = token_mask.all(dim=1)
+            if all_masked.any():
+                token_mask = token_mask.clone()
+                token_mask[all_masked] = False
 
         q = self.object_queries.unsqueeze(0).repeat(BT, 1, 1)  # [B*T, Nq, D]
 
-        attn_out, _ = self.cross_attn(q, tokens, tokens)
+        attn_out, _ = self.cross_attn(
+            q,
+            tokens,
+            tokens,
+            key_padding_mask=token_mask
+        )
         q = self.norm1(q + attn_out)
         q = self.norm2(q + self.ffn(q))
 
@@ -402,104 +457,3 @@ class TripletCompatibilityHead(nn.Module):
 # Criterion
 # =========================================================
 
-class HSTRCriterion(nn.Module):
-    def __init__(self, args):
-        super().__init__()
-        self.loss_object_weight = getattr(args, "loss_object_weight", 1.0)
-        self.loss_relationness_weight = getattr(args, "loss_relationness_weight", 1.0)
-        self.loss_predicate_weight = getattr(args, "loss_predicate_weight", 1.0)
-        self.loss_proto_align_weight = getattr(args, "loss_proto_align_weight", 0.2)
-        self.loss_hier_consistency_weight = getattr(args, "loss_hier_consistency_weight", 0.2)
-        self.loss_energy_weight = getattr(args, "loss_energy_weight", 0.2)
-
-    def object_loss(self, object_logits, targets):
-        if "object_labels" not in targets:
-            return object_logits.new_tensor(0.0)
-        gt = targets["object_labels"]  # [B,T,Nq]
-        B, T, Nq, No = object_logits.shape
-        return F.cross_entropy(
-            object_logits.reshape(B * T * Nq, No),
-            gt.reshape(B * T * Nq),
-            ignore_index=-100
-        )
-
-    def relationness_loss(self, relationness_logits_dense, targets):
-        if "relation_labels_dense" not in targets:
-            return relationness_logits_dense.new_tensor(0.0)
-        gt = targets["relation_labels_dense"].float()
-        loss = F.binary_cross_entropy_with_logits(relationness_logits_dense, gt, reduction="mean")
-        return loss
-
-    def predicate_loss(self, final_predicate_logits, targets):
-        if "pair_predicate_labels" not in targets:
-            return final_predicate_logits.new_tensor(0.0)
-
-        gt = targets["pair_predicate_labels"]  # [B,K]
-        B, K, P = final_predicate_logits.shape
-
-        loss = F.cross_entropy(
-            final_predicate_logits.reshape(B * K, P),
-            gt.reshape(B * K),
-            ignore_index=-100
-        )
-        return loss
-
-    def prototype_alignment_loss(self, prototype_outputs):
-        probs_list = prototype_outputs["level_probs"]
-        loss = 0.0
-        for probs in probs_list:
-            entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=-1).mean()
-            loss += entropy
-        return loss / max(len(probs_list), 1)
-
-    def hierarchical_consistency_loss(self, prototype_outputs):
-        if len(prototype_outputs["parent_child_logits"]) == 0:
-            return prototype_outputs["refined_features"].new_tensor(0.0)
-
-        total_loss = 0.0
-        count = 0
-        level_probs = prototype_outputs["level_probs"]
-        trans_list = prototype_outputs["parent_child_logits"]
-
-        for i, trans_logits in enumerate(trans_list):
-            coarse_prob = level_probs[i]           # [B,K,Pc]
-            fine_prob = level_probs[i + 1]         # [B,K,Pf]
-            trans = F.softmax(trans_logits, dim=-1)
-            fine_to_coarse = torch.matmul(fine_prob, trans.t())
-            total_loss += F.mse_loss(fine_to_coarse, coarse_prob)
-            count += 1
-
-        return total_loss / max(count, 1)
-
-    def compatibility_loss(self, energy_scores, targets):
-        if "pair_compatibility_labels" not in targets:
-            return energy_scores.new_tensor(0.0)
-        gt = targets["pair_compatibility_labels"].float()
-        return F.binary_cross_entropy_with_logits(energy_scores, gt)
-
-    def forward(self, outputs, targets):
-        l_obj = self.object_loss(outputs["object_logits"], targets)
-        l_rel = self.relationness_loss(outputs["relationness_logits_dense"], targets)
-        l_pred = self.predicate_loss(outputs["final_predicate_logits"], targets)
-        l_proto = self.prototype_alignment_loss(outputs["prototype_outputs"])
-        l_hier = self.hierarchical_consistency_loss(outputs["prototype_outputs"])
-        l_energy = self.compatibility_loss(outputs["energy_scores"], targets)
-
-        total = (
-            self.loss_object_weight * l_obj
-            + self.loss_relationness_weight * l_rel
-            + self.loss_predicate_weight * l_pred
-            + self.loss_proto_align_weight * l_proto
-            + self.loss_hier_consistency_weight * l_hier
-            + self.loss_energy_weight * l_energy
-        )
-
-        return {
-            "loss_total": total,
-            "loss_object": l_obj,
-            "loss_relationness": l_rel,
-            "loss_predicate": l_pred,
-            "loss_proto_align": l_proto,
-            "loss_hier_consistency": l_hier,
-            "loss_energy": l_energy,
-        }

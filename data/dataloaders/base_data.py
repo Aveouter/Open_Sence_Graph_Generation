@@ -10,7 +10,7 @@ class BaseDataModule(l.LightningDataModule):
         # self.test_mean = test_loader.dataset.mean
         # self.test_std = test_loader.dataset.std
         # self.data_name = test_loader.dataset.data_name
-        self.data_name = test_loader.dataset.data_name
+        # self.data_name = test_loader.dataset.data_name
         # print(self.data_name)
         
     def train_dataloader(self):

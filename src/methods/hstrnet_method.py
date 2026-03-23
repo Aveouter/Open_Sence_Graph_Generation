@@ -61,6 +61,19 @@ class HSTRNet_Method(Base_method):
 
         outputs = self.forward(batch_x, batch_y)
 
+        if batch_y is not None:
+            loss_dict = self.criterion(outputs, batch_y)
+
+            if isinstance(loss_dict, dict):
+                outputs["loss_dict"] = loss_dict
+                outputs["loss"] = loss_dict.get("loss_total", None)
+                if outputs["loss"] is None:
+                    outputs["loss"] = sum(
+                        v for v in loss_dict.values() if torch.is_tensor(v)
+                    )
+            else:
+                outputs["loss"] = loss_dict
+
         if isinstance(outputs, dict):
             loss = outputs["loss"]
         elif torch.is_tensor(outputs):
@@ -82,6 +95,8 @@ class HSTRNet_Method(Base_method):
             batch_x, batch_y = batch
 
         outputs = self.forward(batch_x, batch_y)
+
+        
 
         if isinstance(outputs, dict) and "loss" in outputs:
             loss = outputs["loss"]
