@@ -117,6 +117,7 @@ class RelTR(nn.Module):
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord, outputs_class_sub, outputs_coord_sub,
                                                     outputs_class_obj, outputs_coord_obj, outputs_class_rel)
+            
         return out
 
     @torch.jit.unused
@@ -149,17 +150,18 @@ class SetCriterion(nn.Module):
         """
         super().__init__()
         self.num_classes = num_classes
+        self.num_rel_classes = num_rel_classes
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.eos_coef = eos_coef
         self.losses = losses
+
         empty_weight = torch.ones(self.num_classes + 1)
-        empty_weight[-1] = self.eos_coef
+        empty_weight[-1] = eos_coef
         self.register_buffer('empty_weight', empty_weight)
 
-        self.num_rel_classes = 51 if num_classes == 151 else 31 # Using entity class numbers to adapt rel class numbers
-        empty_weight_rel = torch.ones(num_rel_classes+1)
-        empty_weight_rel[-1] = self.eos_coef
+        empty_weight_rel = torch.ones(self.num_rel_classes + 1)
+        empty_weight_rel[-1] = eos_coef
         self.register_buffer('empty_weight_rel', empty_weight_rel)
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
@@ -375,8 +377,8 @@ class MLP(nn.Module):
 
 def build(args):
 
-    num_classes = 151 if args.dataname != 'OpenImageV6' else 289 # some entity categories in OIV6 are deactivated.
-    num_rel_classes = 51 if args.dataname != 'OpenImageV6' else 31
+    num_classes = args.entity_nums
+    num_rel_classes = args.rel_nums
 
     device = torch.device(args.device)
 

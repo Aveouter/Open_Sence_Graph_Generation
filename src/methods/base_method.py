@@ -99,7 +99,6 @@ class Base_method(l.LightningModule):
             },
             'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss
         })
-
         return total_loss
 
     def on_validation_epoch_end(self):
@@ -253,15 +252,7 @@ class Base_method(l.LightningModule):
             else:
                 total_losses.append(float(v))
         avg_total_loss = sum(total_losses) / max(len(total_losses), 1)
-
-        test_metrics = getattr(
-            self.hparams,
-            'test_metrics',
-            [
-                'sgdet_R@20', 'sgdet_R@50', 'sgdet_R@100',
-                'sgdet_mR@20', 'sgdet_mR@50', 'sgdet_mR@100'
-            ]
-        )
+        test_metrics = self.metric
 
         eval_res, eval_log = metric(
             pred=pred_all,

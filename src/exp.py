@@ -120,8 +120,10 @@ class BaseExperiment(object):
         """
         Test behavior:
         1. If args.ckpt_path is provided, use it.
+        - .ckpt: use Lightning restore
+        - .pth/.pt: manually load state_dict
         2. Else if args.test is True, try to load save_dir/checkpoints/last.ckpt first,
-           then fall back to best checkpoint in that folder.
+        then fall back to best checkpoint in that folder.
         3. Else directly test current model state.
         """
         ckpt_path = None
@@ -144,7 +146,56 @@ class BaseExperiment(object):
                     ckpt_files.sort(key=lambda x: osp.getmtime(x), reverse=True)
                     ckpt_path = ckpt_files[0]
 
-        self.trainer.test(self.method, self.data, ckpt_path=ckpt_path)
+        # 没有提供权重，直接测试当前模型
+        if ckpt_path is None:
+            print('[Info] No checkpoint provided, testing current model state.')
+            return self.trainer.test(self.method, self.data)
+
+        ext = osp.splitext(ckpt_path)[1].lower()
+
+        # 1) Lightning checkpoint
+        if ext == '.ckpt':
+            print(f'[Info] Testing with Lightning checkpoint: {ckpt_path}')
+            return self.trainer.test(self.method, self.data, ckpt_path=ckpt_path)
+
+        # 2) 普通 PyTorch 权重
+        if ext in ['.pth', '.pt']:
+            print(f'[Info] Loading PyTorch weights from: {ckpt_path}')
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+
+            if isinstance(ckpt, dict):
+                if 'state_dict' in ckpt:
+                    state_dict = ckpt['state_dict']
+                elif 'model_state_dict' in ckpt:
+                    state_dict = ckpt['model_state_dict']
+                elif 'model' in ckpt:
+                    state_dict = ckpt['model']
+                else:
+                    state_dict = ckpt
+            else:
+                state_dict = ckpt
+
+            # 去掉 module. 前缀
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith('module.'):
+                    new_state_dict[k[len('module.'):]] = v
+                else:
+                    new_state_dict[k] = v
+
+            missing, unexpected = self.method.model.load_state_dict(new_state_dict, strict=False)
+
+            print(f'[Info] Missing keys: {len(missing)}')
+            if len(missing) > 0:
+                print(missing[:20])
+
+            print(f'[Info] Unexpected keys: {len(unexpected)}')
+            if len(unexpected) > 0:
+                print(unexpected[:20])
+
+            return self.trainer.test(self.method, self.data)
+
+        raise ValueError(f'Unsupported checkpoint format: {ckpt_path}')
 
     def display_method_info(self, args):
         """

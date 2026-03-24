@@ -75,7 +75,7 @@ class RelTR_Method(Base_method):
 
             bbox_results = self.postprocessors["bbox"](outputs, target_sizes)
             out["bbox_results"] = bbox_results
-
+        
         return out
 
     # ---------- training_step ----------
@@ -93,8 +93,10 @@ class RelTR_Method(Base_method):
         targets = self._move_targets_to_device(targets)
 
         outputs = self.model(samples)
+        # print(outputs.keys())
+        # exit()
         loss_dict, total_loss = self._compute_losses(outputs, targets)
-
+        
         # logging（你可以按自己习惯改 key）
         self.log('train_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True)
 

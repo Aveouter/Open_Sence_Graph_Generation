@@ -6,20 +6,18 @@ import torch
 def metric(pred, true, metrics=('sgdet_mR@20', 'sgdet_mR@50'), rel_nums=None, entity_nums=None,
            iou_thresh=0.5, multiple_preds=False):
     """
-    统一 Scene Graph / RelTR 评测函数
+    RelTR / Scene Graph 评测函数（修正版）
 
-    参数
-    ----
     pred : dict
-        预测输出，至少包含：
+        至少包含：
             sub_boxes, obj_boxes, sub_logits, obj_logits, rel_logits
 
     true : list[dict]
-        GT，长度为 batch size，每个元素至少包含：
+        每个元素至少包含：
             boxes, labels, rel_annotations
 
     metrics : list[str]
-        形如：
+        例如：
             predcls_R@20
             predcls_mR@50
             sgcls_R@100
@@ -30,11 +28,6 @@ def metric(pred, true, metrics=('sgdet_mR@20', 'sgdet_mR@50'), rel_nums=None, en
 
     entity_nums : int
         实体类别数（不含背景）
-
-    返回
-    ----
-    eval_res : dict
-    eval_log : str
     """
     if rel_nums is None:
         raise ValueError('rel_nums 不能为空')
@@ -42,7 +35,6 @@ def metric(pred, true, metrics=('sgdet_mR@20', 'sgdet_mR@50'), rel_nums=None, en
         raise ValueError('entity_nums 不能为空')
 
     parsed_metrics = [_parse_metric_name(m) for m in metrics]
-
     tasks = sorted(set([m['task'] for m in parsed_metrics]))
     ks = sorted(set([m['k'] for m in parsed_metrics]))
 
@@ -74,12 +66,6 @@ def metric(pred, true, metrics=('sgdet_mR@20', 'sgdet_mR@50'), rel_nums=None, en
 
 
 def _parse_metric_name(metric_name):
-    """
-    解析:
-        predcls_mR@20
-        sgcls_R@50
-        sgdet_mR@100
-    """
     pattern = r'^(predcls|sgcls|sgdet)_(R|mR)@(\d+)$'
     match = re.match(pattern, metric_name)
     if match is None:
@@ -112,12 +98,14 @@ def _eval_scene_graph_task(pred, true, task, rel_nums, entity_nums, ks, iou_thre
             pred_triplets = _build_pred_triplets_predcls(
                 pred=pred, target=true[b], batch_idx=b,
                 rel_nums=rel_nums, entity_nums=entity_nums,
+                iou_thresh=iou_thresh,
                 multiple_preds=multiple_preds
             )
         elif task == 'sgcls':
             pred_triplets = _build_pred_triplets_sgcls(
                 pred=pred, target=true[b], batch_idx=b,
                 rel_nums=rel_nums, entity_nums=entity_nums,
+                iou_thresh=iou_thresh,
                 multiple_preds=multiple_preds
             )
         elif task == 'sgdet':
@@ -160,7 +148,7 @@ def _eval_scene_graph_task(pred, true, task, rel_nums, entity_nums, ks, iou_thre
 
 
 def _build_gt_triplets(target, rel_nums):
-    boxes = _as_numpy(target['boxes']).astype(np.float32)
+    boxes = _cxcywh_to_xyxy(_as_numpy(target['boxes']).astype(np.float32))
     labels = _as_numpy(target['labels']).astype(np.int64)
     rels = _as_numpy(target['rel_annotations']).astype(np.int64)
 
@@ -183,46 +171,57 @@ def _build_gt_triplets(target, rel_nums):
     return triplets
 
 
-def _build_pred_triplets_predcls(pred, target, batch_idx, rel_nums, entity_nums, multiple_preds=False):
+def _build_pred_triplets_predcls(pred, target, batch_idx, rel_nums, entity_nums,
+                                 iou_thresh=0.5, multiple_preds=False):
     """
     predcls:
-    - object label 和 object box 使用 GT
+    - 使用预测的 subject/object box 去和 GT object 匹配
+    - 匹配成功后，subject/object label 与 box 都使用 GT
     - relation 使用预测
-    注意：这里假设 query 和 GT 对齐。若你的实现不是这样，需要再改。
     """
-    gt_boxes = _as_numpy(target['boxes']).astype(np.float32)
+    gt_boxes = _cxcywh_to_xyxy(_as_numpy(target['boxes']).astype(np.float32))
     gt_labels = _as_numpy(target['labels']).astype(np.int64)
+
+    sub_boxes = _cxcywh_to_xyxy(_as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32))
+    obj_boxes = _cxcywh_to_xyxy(_as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32))
     rel_prob = torch.softmax(pred['rel_logits'][batch_idx], dim=-1).cpu().numpy()
 
-    # 默认第0类为背景关系
     if rel_prob.shape[1] == rel_nums + 1:
         rel_prob = rel_prob[:, 1:]
 
-    nq = min(len(gt_boxes), rel_prob.shape[0])
+    nq = min(len(sub_boxes), len(obj_boxes), len(rel_prob))
 
     triplets = []
     for i in range(nq):
+        sub_gt_idx, sub_iou = _find_best_gt_match(sub_boxes[i], gt_boxes)
+        obj_gt_idx, obj_iou = _find_best_gt_match(obj_boxes[i], gt_boxes)
+
+        if sub_gt_idx < 0 or obj_gt_idx < 0:
+            continue
+        if sub_iou < iou_thresh or obj_iou < iou_thresh:
+            continue
+
         if multiple_preds:
             rel_order = np.argsort(-rel_prob[i])
             for r in rel_order:
                 score = float(rel_prob[i, r])
                 triplets.append({
-                    'sub_label': int(gt_labels[i]),
-                    'obj_label': int(gt_labels[i]),
+                    'sub_label': int(gt_labels[sub_gt_idx]),
+                    'obj_label': int(gt_labels[obj_gt_idx]),
                     'rel_label': int(r),
-                    'sub_box': gt_boxes[i],
-                    'obj_box': gt_boxes[i],
+                    'sub_box': gt_boxes[sub_gt_idx],
+                    'obj_box': gt_boxes[obj_gt_idx],
                     'score': score,
                 })
         else:
             r = int(np.argmax(rel_prob[i]))
             score = float(np.max(rel_prob[i]))
             triplets.append({
-                'sub_label': int(gt_labels[i]),
-                'obj_label': int(gt_labels[i]),
+                'sub_label': int(gt_labels[sub_gt_idx]),
+                'obj_label': int(gt_labels[obj_gt_idx]),
                 'rel_label': int(r),
-                'sub_box': gt_boxes[i],
-                'obj_box': gt_boxes[i],
+                'sub_box': gt_boxes[sub_gt_idx],
+                'obj_box': gt_boxes[obj_gt_idx],
                 'score': score,
             })
 
@@ -230,25 +229,27 @@ def _build_pred_triplets_predcls(pred, target, batch_idx, rel_nums, entity_nums,
     return triplets
 
 
-def _build_pred_triplets_sgcls(pred, target, batch_idx, rel_nums, entity_nums, multiple_preds=False):
+def _build_pred_triplets_sgcls(pred, target, batch_idx, rel_nums, entity_nums,
+                               iou_thresh=0.5, multiple_preds=False):
     """
     sgcls:
-    - object box 用 GT
-    - object label / relation 用预测
-    注意：这里同样假设 query 和 GT 对齐。
+    - 使用预测的 subject/object box 去和 GT object 匹配
+    - box 使用匹配到的 GT box
+    - object label / relation 使用预测
     """
-    gt_boxes = _as_numpy(target['boxes']).astype(np.float32)
+    gt_boxes = _cxcywh_to_xyxy(_as_numpy(target['boxes']).astype(np.float32))
+
+    sub_boxes = _cxcywh_to_xyxy(_as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32))
+    obj_boxes = _cxcywh_to_xyxy(_as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32))
 
     sub_prob = torch.softmax(pred['sub_logits'][batch_idx], dim=-1).cpu().numpy()
     obj_prob = torch.softmax(pred['obj_logits'][batch_idx], dim=-1).cpu().numpy()
     rel_prob = torch.softmax(pred['rel_logits'][batch_idx], dim=-1).cpu().numpy()
 
-    # 默认 object 最后一类为背景
     if sub_prob.shape[1] == entity_nums + 1:
         sub_prob = sub_prob[:, :-1]
     if obj_prob.shape[1] == entity_nums + 1:
         obj_prob = obj_prob[:, :-1]
-    # 默认 relation 第0类为背景
     if rel_prob.shape[1] == rel_nums + 1:
         rel_prob = rel_prob[:, 1:]
 
@@ -257,10 +258,18 @@ def _build_pred_triplets_sgcls(pred, target, batch_idx, rel_nums, entity_nums, m
     pred_obj_scores = obj_prob.max(axis=1)
     pred_obj_labels = obj_prob.argmax(axis=1)
 
-    nq = min(len(gt_boxes), len(pred_sub_labels), len(pred_obj_labels), len(rel_prob))
+    nq = min(len(sub_boxes), len(obj_boxes), len(pred_sub_labels), len(pred_obj_labels), len(rel_prob))
 
     triplets = []
     for i in range(nq):
+        sub_gt_idx, sub_iou = _find_best_gt_match(sub_boxes[i], gt_boxes)
+        obj_gt_idx, obj_iou = _find_best_gt_match(obj_boxes[i], gt_boxes)
+
+        if sub_gt_idx < 0 or obj_gt_idx < 0:
+            continue
+        if sub_iou < iou_thresh or obj_iou < iou_thresh:
+            continue
+
         if multiple_preds:
             rel_order = np.argsort(-rel_prob[i])
             for r in rel_order:
@@ -269,8 +278,8 @@ def _build_pred_triplets_sgcls(pred, target, batch_idx, rel_nums, entity_nums, m
                     'sub_label': int(pred_sub_labels[i]),
                     'obj_label': int(pred_obj_labels[i]),
                     'rel_label': int(r),
-                    'sub_box': gt_boxes[i],
-                    'obj_box': gt_boxes[i],
+                    'sub_box': gt_boxes[sub_gt_idx],
+                    'obj_box': gt_boxes[obj_gt_idx],
                     'score': score,
                 })
         else:
@@ -281,8 +290,8 @@ def _build_pred_triplets_sgcls(pred, target, batch_idx, rel_nums, entity_nums, m
                 'sub_label': int(pred_sub_labels[i]),
                 'obj_label': int(pred_obj_labels[i]),
                 'rel_label': int(r),
-                'sub_box': gt_boxes[i],
-                'obj_box': gt_boxes[i],
+                'sub_box': gt_boxes[sub_gt_idx],
+                'obj_box': gt_boxes[obj_gt_idx],
                 'score': score,
             })
 
@@ -294,9 +303,10 @@ def _build_pred_triplets_sgdet(pred, target, batch_idx, rel_nums, entity_nums, m
     """
     sgdet:
     - object box / object label / relation 全预测
+    - 每个 relation query 自己构成一个 triplet proposal
     """
-    sub_boxes = _as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32)
-    obj_boxes = _as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32)
+    sub_boxes = _cxcywh_to_xyxy(_as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32))
+    obj_boxes = _cxcywh_to_xyxy(_as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32))
 
     sub_prob = torch.softmax(pred['sub_logits'][batch_idx], dim=-1).cpu().numpy()
     obj_prob = torch.softmax(pred['obj_logits'][batch_idx], dim=-1).cpu().numpy()
@@ -347,6 +357,21 @@ def _build_pred_triplets_sgdet(pred, target, batch_idx, rel_nums, entity_nums, m
     return triplets
 
 
+def _find_best_gt_match(box, gt_boxes):
+    """
+    在所有 GT boxes 中找 IoU 最大的一个
+    返回: (best_idx, best_iou)
+    """
+    best_idx = -1
+    best_iou = -1.0
+    for i, gt_box in enumerate(gt_boxes):
+        iou = _bbox_iou(box, gt_box)
+        if iou > best_iou:
+            best_iou = iou
+            best_idx = i
+    return best_idx, best_iou
+
+
 def _match_triplets(pred_triplets, gt_triplets, iou_thresh=0.5):
     matched_gt = set()
     for pred in pred_triplets:
@@ -389,6 +414,24 @@ def _bbox_iou(box1, box2, eps=1e-12):
     union = area1 + area2 - inter
 
     return inter / max(union, eps)
+
+
+def _cxcywh_to_xyxy(boxes):
+    """
+    boxes: [N,4] or [4], format = cx, cy, w, h
+    return: xyxy
+    """
+    boxes = np.asarray(boxes, dtype=np.float32)
+    if boxes.ndim == 1:
+        cx, cy, w, h = boxes
+        return np.array([cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0], dtype=np.float32)
+
+    out = np.zeros_like(boxes, dtype=np.float32)
+    out[:, 0] = boxes[:, 0] - boxes[:, 2] / 2.0
+    out[:, 1] = boxes[:, 1] - boxes[:, 3] / 2.0
+    out[:, 2] = boxes[:, 0] + boxes[:, 2] / 2.0
+    out[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.0
+    return out
 
 
 def _to_cpu_detach(x):

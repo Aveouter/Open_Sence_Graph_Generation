@@ -35,11 +35,17 @@ if __name__ == '__main__':
     print('>'*35 + ' training ' + '<'*35)
     exp = BaseExperiment(args)
     rank, _ = get_dist_info()
-    exp.train()
-
-    if rank == 0:
-        print('>'*35 + ' testing  ' + '<'*35)
-    mse = exp.test()
     
+    if args.test:
+        if rank == 0:
+            print('>' * 35 + ' testing ' + '<' * 35)
+            print(f'[Info] ckpt_path: {args.ckpt_path}')
+        result = exp.test()
+    else:
+        if rank == 0:
+            print('>' * 35 + ' training ' + '<' * 35)
+            if args.ckpt_path is not None:
+                print(f'[Info] resume / finetune from ckpt: {args.ckpt_path}')
+        exp.train()
     
     
