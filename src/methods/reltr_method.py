@@ -106,23 +106,6 @@ class RelTR_Method(Base_method):
 
         return total_loss
 
-    # ---------- optional: validation/test ----------
-
-    def validation_step(self, batch, batch_idx):
-        images, targets = batch
-        samples = self._to_nested_tensor(images)
-        targets = self._move_targets_to_device(targets)
-
-        outputs = self.model(samples)
-        loss_dict, total_loss = self._compute_losses(outputs, targets)
-
-        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True)
-        for k, v in loss_dict.items():
-            if torch.is_tensor(v):
-                self.log(f'val_{k}', v, on_step=False, on_epoch=True, prog_bar=False)
-
-        return {"loss": total_loss, "loss_dict": loss_dict}
-
     # ---------- helpers ----------
 
     def _to_nested_tensor(self, images) -> NestedTensor:

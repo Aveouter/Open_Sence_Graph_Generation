@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 def _stack_targets_if_needed(targets, key, ref_tensor):
     """
     兼容两种 target 形式:
@@ -153,11 +152,12 @@ LOSS_FACTORY = {
     "mse": nn.MSELoss,
     "bce": nn.BCEWithLogitsLoss,
     "hstrnet_loss": HSTRCriterion,
+    "reltr_loss": None,  # RelTR 的 loss 比较特殊，直接在 reltr_method.py 里写死了
 }
 
 
 def loss_construction(loss_name="ce"):
     try:
-        return LOSS_FACTORY[loss_name]()
+        return LOSS_FACTORY[loss_name]() if LOSS_FACTORY[loss_name] is not None else None
     except KeyError:
         raise ValueError(f"Unknown loss type: {loss_name}")

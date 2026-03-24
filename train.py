@@ -3,6 +3,7 @@
 # Author: Xinyu Liu, Xiaoguang Lin
 
 import os.path as osp
+from types import SimpleNamespace
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -30,7 +31,7 @@ if __name__ == '__main__':
         for attribute in default_values.keys():
             if config[attribute] is None:
                 config[attribute] = default_values[attribute]
-    
+    args = SimpleNamespace(**config)   # 关键
     print('>'*35 + ' training ' + '<'*35)
     exp = BaseExperiment(args)
     rank, _ = get_dist_info()

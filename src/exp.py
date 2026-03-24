@@ -110,7 +110,7 @@ class BaseExperiment(object):
         T, C, H, W = args.in_shape
         if args.method in ['simvp', 'tau', 'mmvp', 'wast']:
             input_dummy = torch.ones(1, args.pre_seq_length, C, H, W).to(device)
-        elif args.method in ['hstrnet']:
+        elif args.method in ['hstrnet', 'reltr']:
             input_dummy = torch.ones(1, args.pre_seq_length, C, H, W).to(device)
         elif args.method == 'phydnet':
             _tmp_input1 = torch.ones(1, args.pre_seq_length, C, H, W).to(device)
@@ -138,8 +138,13 @@ class BaseExperiment(object):
 
         dash_line = '-' * 80 + '\n'
         info = self.method.model.__repr__()
-        flops = FlopCountAnalysis(self.method.model.to(device), input_dummy)
-        flops = flop_count_table(flops)
+        if str(args.method).lower() != 'reltr':
+            flops = FlopCountAnalysis(self.method.model.to(device), input_dummy)
+            print('FLOPs of {}: \n'.format(args.method), flops)
+            flops = flop_count_table(flops)
+        else:
+            flops = "0M"
+
         if args.fps:
             fps = measure_throughput(self.method.model.to(device), input_dummy)
             fps = 'Throughputs of {}: {:.3f}\n'.format(args.method, fps)

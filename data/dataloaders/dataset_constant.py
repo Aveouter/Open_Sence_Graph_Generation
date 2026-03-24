@@ -20,7 +20,6 @@ dataset_parameters = {
         'pre_seq_length': 1,
         'aft_seq_length': 1,
         'metrics': ['mAP', 'mAR'],
-
     },
 
     'OpenImage': {

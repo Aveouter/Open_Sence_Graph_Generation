@@ -20,11 +20,16 @@ class Base_method(l.LightningModule):
             self.metric_list, self.spatial_norm, self.channel_names = args['metrics'], False, None
 
         self.save_hyperparameters()
+
+        self.criterion = self._build_criterion(**args)
         self.model = self._build_model(**args)
-        print(args)
-        self.criterion = loss_construction(args['loss'])
+
         self.test_outputs = []
         self.val_outputs = []
+
+    def _build_criterion(self, **args):
+        loss_name = args['loss'] if 'loss' in args else None
+        return loss_construction(loss_name) if loss_name is not None else None
 
     def _build_model(self):
         raise NotImplementedError
@@ -60,20 +65,28 @@ class Base_method(l.LightningModule):
         NotImplementedError
 
     def validation_step(self, batch, batch_idx):
-        batch_x, batch_y, region = batch
-        pred_y = self(batch_x, batch_y)
-        loss = self.criterion(pred_y, batch_y)
-        
-        outputs = {
-            'inputs': batch_x.cpu().numpy(),
-            'preds': pred_y.cpu().numpy(),
-            'trues': batch_y.cpu().numpy(),
-            'region': region
+        images, targets = batch
+        samples = self._to_nested_tensor(images)
+        targets = self._move_targets_to_device(targets)
+
+        outputs = self.model(samples)
+        loss_dict, total_loss = self._compute_losses(outputs, targets)
+
+        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True)
+        for k, v in loss_dict.items():
+            if torch.is_tensor(v):
+                self.log(f'val_{k}', v, on_step=False, on_epoch=True, prog_bar=False)
+
+        val_output = {
+            'total_loss': total_loss,
+            'loss_dict': loss_dict,
+            'targets': targets,
+            'outputs': outputs
         }
-        
-        self.val_outputs.append(outputs)
-        self.log('val_loss', loss, on_step=False, on_epoch=True)
-        return outputs
+
+        self.val_outputs.append(val_output)
+
+        return {"loss": total_loss, "loss_dict": loss_dict}
 
     def on_validation_epoch_end(self):
         print(f"[DEBUG] on_validation_epoch_end: total {len(self.val_outputs)} batches")
@@ -95,25 +108,14 @@ class Base_method(l.LightningModule):
                 print(f"[DEBUG] concat error on key {k}: {e}")
                 raise e
 
-        # ------- metric threshold -------
-        thr = self.hparams.get('metric_threshold', None)
-        print(f"[DEBUG] metric_threshold = {thr}")
-
-        if self.hparams.test_mean == 0 and self.hparams.test_std == 0:
-            self.hparams.test_mean = None
-            self.hparams.test_std = None
-
-        # ------- 调用 metric -------
+       # ------- 调用 metric -------
         eval_res, eval_log = metric(
             results_all['preds'],
             results_all['trues'],
             results_all['region'],
-            self.hparams.test_mean,
-            self.hparams.test_std,
             metrics=self.metric_list,
             channel_names=self.channel_names,
             spatial_norm=self.spatial_norm,
-            threshold=thr
         )
 
         print(f"[DEBUG] eval_res keys = {list(eval_res.keys())}")
@@ -129,8 +131,9 @@ class Base_method(l.LightningModule):
 
         
     def test_step(self, batch, batch_idx):
-        batch_x, batch_y ,region = batch
+        batch_x, batch_y = batch
         pred_y = self(batch_x, batch_y)
+        region = [t['rel_annotations'] for t in batch_y]
         outputs = {'inputs': batch_x.cpu().numpy(), 'preds': pred_y.cpu().numpy(), 'trues': batch_y.cpu().numpy(),'region':region}
         self.test_outputs.append(outputs)
         return outputs
