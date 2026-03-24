@@ -375,8 +375,8 @@ class MLP(nn.Module):
 
 def build(args):
 
-    num_classes = 151 if args.dataset != 'oi' else 289 # some entity categories in OIV6 are deactivated.
-    num_rel_classes = 51 if args.dataset != 'oi' else 31
+    num_classes = 151 if args.dataname != 'OpenImageV6' else 289 # some entity categories in OIV6 are deactivated.
+    num_rel_classes = 51 if args.dataname != 'OpenImageV6' else 31
 
     device = torch.device(args.device)
 

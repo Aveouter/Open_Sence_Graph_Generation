@@ -15,7 +15,7 @@ distributed: false
 drop: 0.0
 drop_last: false
 drop_path: 0.0
-epoch: 200
+epoch: 10
 eval: true
 ex_name: Debug
 filter_bias_and_bn: false
@@ -39,10 +39,10 @@ metrics:
 - mAP
 - mAR
 min_lr: 1.0e-06
-model_type: gSTA
+model_type: RelTR
 momentum: 0.9
 no_display_method_info: false
-num_workers: 0
+num_workers: 2
 opt: adam
 opt_betas: null
 opt_eps: null
@@ -52,7 +52,7 @@ res_dir: ./results
 save_dir: ./results\Debug
 sched: onecycle
 seed: 42
-steps_per_epoch: 3607
+steps_per_epoch: 1
 test: false
 torchscript: false
 total_length: null

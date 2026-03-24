@@ -96,11 +96,25 @@ class HSTRNet_Method(Base_method):
 
         outputs = self.forward(batch_x, batch_y)
 
-        
+        # 验证阶段显式计算 loss，而不是依赖 outputs 里自带 "loss"
+        if batch_y is not None:
+            loss_dict = self.criterion(outputs, batch_y)
 
-        if isinstance(outputs, dict) and "loss" in outputs:
-            loss = outputs["loss"]
+            if isinstance(loss_dict, dict):
+                loss = loss_dict.get("loss_total", None)
+                if loss is None:
+                    loss = sum(v for v in loss_dict.values() if torch.is_tensor(v))
+            else:
+                loss = loss_dict
+
             self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+
+            # 可选：把各子损失也记录出来，方便看训练过程
+            if isinstance(loss_dict, dict):
+                for k, v in loss_dict.items():
+                    if torch.is_tensor(v):
+                        self.log(f'val_{k}', v, on_step=False, on_epoch=True, prog_bar=False)
+
             return loss
 
         return outputs

@@ -30,7 +30,7 @@ def create_parser():
     parser.add_argument('--num_workers', default=None, type=int)
     parser.add_argument('--data_root', default='./data')
     parser.add_argument('--dataname', '-d', default='VisualGenome', type=str,
-                        choices=['ThyroTriples', 'VisualGenome', 'OpenImage',],
+                        choices=['ThyroTriples', 'VisualGenome', 'OpenImageV6',],
                         help='Dataset name (default: "rain_fall_short_2h")')
     parser.add_argument('--pre_seq_length', default=None, type=int, help='Sequence length before prediction')
     parser.add_argument('--aft_seq_length', default=None, type=int, help='Sequence length after prediction')
@@ -44,7 +44,7 @@ def create_parser():
 
     # method parameters
     parser.add_argument('--method', '-m', default='HSTRNet', type=str,
-                        choices=['Reltr', 'HSTRNet'],
+                        choices=['RelTR', 'HSTRNet'],
                         help='Name of video prediction method to train (default: "SimVP")')
     parser.add_argument('--config_file', '-c', default=None, type=str,
                         help='Path to the default config file')

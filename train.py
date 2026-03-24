@@ -16,7 +16,7 @@ if __name__ == '__main__':
     args = create_parser().parse_args()
     config = args.__dict__
 
-    cfg_path = osp.join(".", "configs", "VisualGenome", "HSTRNet.py") \
+    cfg_path = osp.join(".", "configs", args.dataname , args.method+".py") \
         if args.config_file is None else args.config_file
     if args.overwrite:
         config = update_config(config, load_config(cfg_path),
