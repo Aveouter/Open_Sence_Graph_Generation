@@ -23,7 +23,10 @@ class Base_method(l.LightningModule):
 
         self.criterion = self._build_criterion(**args)
         self.model = self._build_model(**args)
-
+        self.metric = args['metrics']
+        self.rel_nums = args['rel_nums']
+        self.entity_nums = args['entity_nums']
+        
         self.test_outputs = []
         self.val_outputs = []
 
@@ -72,126 +75,212 @@ class Base_method(l.LightningModule):
         outputs = self.model(samples)
         loss_dict, total_loss = self._compute_losses(outputs, targets)
 
-        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'val_{k}', v, on_step=False, on_epoch=True, prog_bar=False)
+                self.log(f'val_{k}', v, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
 
-        val_output = {
-            'total_loss': total_loss,
-            'loss_dict': loss_dict,
-            'targets': targets,
-            'outputs': outputs
-        }
+        # 只缓存评测真正需要的内容
+        self.val_outputs.append({
+            'outputs': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in outputs.items()
+            },
+            'targets': [
+                {
+                    kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
+                    for kk, vv in t.items()
+                }
+                for t in targets
+            ],
+            'loss_dict': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in loss_dict.items()
+            },
+            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss
+        })
 
-        self.val_outputs.append(val_output)
-
-        return {"loss": total_loss, "loss_dict": loss_dict}
+        return total_loss
 
     def on_validation_epoch_end(self):
-        print(f"[DEBUG] on_validation_epoch_end: total {len(self.val_outputs)} batches")
+        # print(f"[DEBUG] on_validation_epoch_end: total {len(self.val_outputs)} batches")
 
         if len(self.val_outputs) == 0:
             print("[DEBUG] Warning: val_outputs is empty!")
             return
 
-        results_all = {}
+        # 1. 聚合整个验证集的 outputs
+        pred_all = {}
+        for key in self.val_outputs[0]['outputs'].keys():
+            batch_items = [x['outputs'][key] for x in self.val_outputs]
 
-        # ------- 合并所有批次 -------
-        for k in self.val_outputs[0].keys():
-            batch_list = [b[k] for b in self.val_outputs]
-            print(f"[DEBUG] merging key '{k}', {len(batch_list)} batches")
-            try:
-                results_all[k] = np.concatenate(batch_list, axis=0)
-                print(f"[DEBUG] {k} shape = {results_all[k].shape}")
-            except Exception as e:
-                print(f"[DEBUG] concat error on key {k}: {e}")
-                raise e
+            if torch.is_tensor(batch_items[0]):
+                pred_all[key] = torch.cat(batch_items, dim=0)
+            elif isinstance(batch_items[0], np.ndarray):
+                pred_all[key] = np.concatenate(batch_items, axis=0)
+            else:
+                pred_all[key] = batch_items
 
-       # ------- 调用 metric -------
+        # 2. 聚合整个验证集的 targets（list[dict] 直接拼接列表）
+        true_all = []
+        for x in self.val_outputs:
+            true_all.extend(x['targets'])
+
+        # 3. 计算平均 loss_dict，便于日志记录
+        avg_loss_dict = {}
+        loss_keys = self.val_outputs[0]['loss_dict'].keys()
+        for k in loss_keys:
+            vals = []
+            for x in self.val_outputs:
+                v = x['loss_dict'][k]
+                if torch.is_tensor(v):
+                    vals.append(v.item())
+                else:
+                    vals.append(float(v))
+            avg_loss_dict[k] = sum(vals) / max(len(vals), 1)
+
+        total_losses = []
+        for x in self.val_outputs:
+            v = x['total_loss']
+            if torch.is_tensor(v):
+                total_losses.append(v.item())
+            else:
+                total_losses.append(float(v))
+        avg_total_loss = sum(total_losses) / max(len(total_losses), 1)
+
+        # 4. 调统一 metric 函数
+        eval_metrics = self.metric
         eval_res, eval_log = metric(
-            results_all['preds'],
-            results_all['trues'],
-            results_all['region'],
-            metrics=self.metric_list,
-            channel_names=self.channel_names,
-            spatial_norm=self.spatial_norm,
+            pred=pred_all,
+            true=true_all,
+            metrics=eval_metrics,
+            rel_nums=self.hparams.rel_nums,
+            entity_nums=self.hparams.entity_nums
         )
 
-        print(f"[DEBUG] eval_res keys = {list(eval_res.keys())}")
+        # 5. 把 loss 类信息也补进结果里
+        eval_res['val_loss'] = avg_total_loss
+        for k, v in avg_loss_dict.items():
+            eval_res[f'val_{k}'] = v
 
-        # ------- 打印验证日志 -------
-        if self.trainer.is_global_zero:
-            print_log("[VAL] " + eval_log)
+        # 6. log
+        for k, v in eval_res.items():
+            if isinstance(v, (int, float)):
+                self.log(k, v, prog_bar=('R@50' in k or 'mR@50' in k or k == 'val_loss'), sync_dist=True)
 
-        # 清空缓存
+        print(eval_log)
+
+        results_all = eval_res
+
+        # 7. 清空缓存
         self.val_outputs.clear()
 
         return results_all
 
-        
     def test_step(self, batch, batch_idx):
-        batch_x, batch_y = batch
-        pred_y = self(batch_x, batch_y)
-        region = [t['rel_annotations'] for t in batch_y]
-        outputs = {'inputs': batch_x.cpu().numpy(), 'preds': pred_y.cpu().numpy(), 'trues': batch_y.cpu().numpy(),'region':region}
-        self.test_outputs.append(outputs)
-        return outputs
+        images, targets = batch
+        samples = self._to_nested_tensor(images)
+        targets = self._move_targets_to_device(targets)
 
+        outputs = self.model(samples)
+        loss_dict, total_loss = self._compute_losses(outputs, targets)
+
+        self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        for k, v in loss_dict.items():
+            if torch.is_tensor(v):
+                self.log(f'test_{k}', v, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+        self.test_outputs.append({
+            'outputs': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in outputs.items()
+            },
+            'targets': [
+                {
+                    kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
+                    for kk, vv in t.items()
+                }
+                for t in targets
+            ],
+            'loss_dict': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in loss_dict.items()
+            },
+            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss
+        })
+
+        return total_loss
+    
     def on_test_epoch_end(self):
-        results_all = {}
+        # print(f"[DEBUG] on_test_epoch_end: total {len(self.test_outputs)} batches")
 
-        # ------- Debug 1: 检查 test_outputs -------
-        print(f"[DEBUG] len(test_outputs) = {len(self.test_outputs)}")
         if len(self.test_outputs) == 0:
-            print("[DEBUG] Warning: self.test_outputs 为空，可能 test_step 没有返回任何结果。")
+            print("[DEBUG] Warning: test_outputs is empty!")
+            return
 
-        # ------- 收集所有批次的预测结果 -------
-        for k in self.test_outputs[0].keys():
-            batch_list = [batch[k] for batch in self.test_outputs]
-            print(f"[DEBUG] merging key '{k}', {len(batch_list)} batches, type={type(batch_list[0])}")
-            try:
-                results_all[k] = np.concatenate(batch_list, axis=0)
-                print(f"[DEBUG] {k} shape after concat: {results_all[k].shape}")
-            except Exception as e:
-                print(f"[DEBUG] concat error on key {k}: {e}")
-                raise e
+        pred_all = {}
+        for key in self.test_outputs[0]['outputs'].keys():
+            batch_items = [x['outputs'][key] for x in self.test_outputs]
 
-        # ------- Debug 2: 检查传入 metric() 的参数 -------
-        thr = self.hparams.get('metric_threshold', None)
-        print(f"[DEBUG] metric_threshold from hparams = {thr}")
+            if torch.is_tensor(batch_items[0]):
+                pred_all[key] = torch.cat(batch_items, dim=0)
+            elif isinstance(batch_items[0], np.ndarray):
+                pred_all[key] = np.concatenate(batch_items, axis=0)
+            else:
+                pred_all[key] = batch_items
 
-        if thr is None:
-            print("[DEBUG] ⚠️ Warning: metric_threshold 是 None，将使用默认阈值（如 0.5）")
-        if self.hparams.test_mean == 0 and self.hparams.test_std == 0:
-            self.hparams.test_mean = None
-            self.hparams.test_std = None
-        # ------- 调用 metric 函数 -------
-        eval_res, eval_log = metric(
-            results_all['preds'],
-            results_all['trues'],
-            results_all['region'],
-            self.hparams.test_mean,
-            self.hparams.test_std,
-            metrics=self.metric_list,
-            channel_names=self.channel_names,
-            spatial_norm=self.spatial_norm,
-            threshold=thr
+        true_all = []
+        for x in self.test_outputs:
+            true_all.extend(x['targets'])
+
+        avg_loss_dict = {}
+        loss_keys = self.test_outputs[0]['loss_dict'].keys()
+        for k in loss_keys:
+            vals = []
+            for x in self.test_outputs:
+                v = x['loss_dict'][k]
+                if torch.is_tensor(v):
+                    vals.append(v.item())
+                else:
+                    vals.append(float(v))
+            avg_loss_dict[k] = sum(vals) / max(len(vals), 1)
+
+        total_losses = []
+        for x in self.test_outputs:
+            v = x['total_loss']
+            if torch.is_tensor(v):
+                total_losses.append(v.item())
+            else:
+                total_losses.append(float(v))
+        avg_total_loss = sum(total_losses) / max(len(total_losses), 1)
+
+        test_metrics = getattr(
+            self.hparams,
+            'test_metrics',
+            [
+                'sgdet_R@20', 'sgdet_R@50', 'sgdet_R@100',
+                'sgdet_mR@20', 'sgdet_mR@50', 'sgdet_mR@100'
+            ]
         )
 
-        # ------- Debug 3: 检查 metric 输出 -------
-        print(f"[DEBUG] eval_res keys = {list(eval_res.keys())}")
-        print(f"[DEBUG] eval_log type = {type(eval_log)}")
+        eval_res, eval_log = metric(
+            pred=pred_all,
+            true=true_all,
+            metrics=test_metrics,
+            rel_nums=self.hparams.rel_nums,
+            entity_nums=self.hparams.entity_nums
+        )
 
-        results_all['metrics'] = np.array([eval_res['mae'], eval_res['mse']])
+        eval_res['test_loss'] = avg_total_loss
+        for k, v in avg_loss_dict.items():
+            eval_res[f'test_{k}'] = v
 
-        # ------- 保存 -------
-        if self.trainer.is_global_zero:
-            print_log(eval_log)
-            folder_path = check_dir(osp.join(self.hparams.save_dir, 'saved'))
+        for k, v in eval_res.items():
+            if isinstance(v, (int, float)):
+                self.log(k, v, prog_bar=('R@50' in k or 'mR@50' in k or k == 'test_loss'), sync_dist=True)
 
-            for np_data in ['metrics', 'inputs', 'trues', 'preds']:
-                np.save(osp.join(folder_path, np_data + '.npy'), results_all[np_data])
-                print(f"[DEBUG] saved {np_data}.npy to {folder_path}")
+        print(eval_log)
 
+        results_all = eval_res
+        self.test_outputs.clear()
         return results_all

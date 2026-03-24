@@ -9,7 +9,7 @@ dataset_parameters = {
         # 'out_shape' : (3, 8, 64, 64),
         'pre_seq_length': 16,             # 输入：过去16帧
         'aft_seq_length': 1,              # 输出：预测一个场景图
-        'metrics': ['mse'],
+        'metrics': ['predcls_mR@20','predcls_mR@50','sgcls_R@50','sgdet_R@100'],
     },
 
     'VisualGenome': {
@@ -19,7 +19,9 @@ dataset_parameters = {
         'in_shape': (1, 3, 224, 224),     # (T, C, H, W) 单帧输入
         'pre_seq_length': 1,
         'aft_seq_length': 1,
-        'metrics': ['mAP', 'mAR'],
+        'metrics': ['predcls_mR@20','predcls_mR@50','sgcls_R@50','sgdet_R@100'],
+        'rel_nums': 111,
+        'entity_nums':111,
     },
 
     'OpenImage': {
@@ -27,7 +29,9 @@ dataset_parameters = {
         'in_shape': (1, 3, 224, 224),     # (T, C, H, W) 单帧输入
         'pre_seq_length': 1,
         'aft_seq_length': 1,
-        'metrics': ['mAP', 'mAR'],
+        'metrics': ['predcls_mR@20','predcls_mR@50','sgcls_R@50','sgdet_R@100'],
+        'rel_nums': 111,
+        'entity_nums':111,
  
     },
 }
