@@ -2,32 +2,55 @@ import re
 import numpy as np
 import torch
 
+from utils.box_ops import rescale_bboxes
+from lib.evaluation.sg_eval import BasicSceneGraphEvaluator, calculate_mR_from_evaluator_list
 
-def metric(pred, true, metrics=('sgdet_mR@20', 'sgdet_mR@50'), rel_nums=None, entity_nums=None,
-           iou_thresh=0.5, multiple_preds=False):
+
+def metric(pred,
+           true,
+           metrics=('sgdet_mR@20', 'sgdet_mR@50'),
+           rel_nums=None,
+           entity_nums=None,
+           multiple_preds=False,
+           dataset='vg'):
     """
-    RelTR / Scene Graph 评测函数（修正版）
+    基于官方 BasicSceneGraphEvaluator 的统一 metric 接口
 
+    参数
+    ----
     pred : dict
-        至少包含：
+        模型输出，至少包含：
             sub_boxes, obj_boxes, sub_logits, obj_logits, rel_logits
 
     true : list[dict]
-        每个元素至少包含：
-            boxes, labels, rel_annotations
+        GT，长度为 batch size，每个元素至少包含：
+            boxes, labels, rel_annotations, orig_size
 
-    metrics : list[str]
+    metrics : tuple/list[str]
         例如：
             predcls_R@20
             predcls_mR@50
-            sgcls_R@100
-            sgdet_mR@20
+            sgcls_R@50
+            sgdet_R@100
 
     rel_nums : int
         关系类别数（不含背景）
 
     entity_nums : int
         实体类别数（不含背景）
+        这里主要用于一致性检查，官方 evaluator 实际不直接依赖它
+
+    multiple_preds : bool
+        传给官方 evaluator 的模式，默认 False，与官方 RelTR VG 评估一致
+
+    dataset : str
+        当前默认按 'vg' 逻辑处理。
+        若以后要兼容 openimages，可再扩展。
+
+    返回
+    ----
+    eval_res : dict
+    eval_log : str
     """
     if rel_nums is None:
         raise ValueError('rel_nums 不能为空')
@@ -35,37 +58,66 @@ def metric(pred, true, metrics=('sgdet_mR@20', 'sgdet_mR@50'), rel_nums=None, en
         raise ValueError('entity_nums 不能为空')
 
     parsed_metrics = [_parse_metric_name(m) for m in metrics]
-    tasks = sorted(set([m['task'] for m in parsed_metrics]))
-    ks = sorted(set([m['k'] for m in parsed_metrics]))
+    requested_tasks = sorted(set([m['task'] for m in parsed_metrics]))
 
     pred = _to_cpu_detach(pred)
     true = _to_cpu_detach(true)
 
-    all_results = {}
-    for task in tasks:
-        task_res = _eval_scene_graph_task(
-            pred=pred,
-            true=true,
-            task=task,
-            rel_nums=rel_nums,
-            entity_nums=entity_nums,
-            ks=ks,
-            iou_thresh=iou_thresh,
-            multiple_preds=multiple_preds
+    if dataset.lower() != 'vg':
+        raise NotImplementedError(
+            f"当前这版统一 metric 先按官方 VG evaluator 重写。dataset={dataset} 暂未实现。"
         )
-        all_results.update(task_res)
 
+    # 1) 建立官方 evaluator
+    evaluator = BasicSceneGraphEvaluator.all_modes(multiple_preds=multiple_preds)
+
+    # 2) 若请求 mR，则建立 per-class evaluator_list
+    need_mr = any(m['metric'] == 'mR' for m in parsed_metrics)
+    evaluator_list = None
+    if need_mr:
+        evaluator_list = []
+        # 官方代码里 index=0 跳过，默认 0 是背景关系类
+        for rel_id in range(1, rel_nums + 1):
+            evaluator_list.append((rel_id, str(rel_id), BasicSceneGraphEvaluator.all_modes(multiple_preds=multiple_preds)))
+
+    # 3) 跑 batch 评估
+    _evaluate_rel_batch_vg(
+        outputs=pred,
+        targets=true,
+        evaluator=evaluator,
+        evaluator_list=evaluator_list,
+        rel_nums=rel_nums,
+        entity_nums=entity_nums
+    )
+
+    # 4) 汇总官方 evaluator 结果
+    all_results = _collect_results_from_official_evaluator(
+        evaluator=evaluator,
+        evaluator_list=evaluator_list,
+        requested_tasks=requested_tasks,
+        rel_nums=rel_nums
+    )
+
+    # 5) 只取用户请求的 metric
     eval_res = {}
     for m in parsed_metrics:
-        name = m['raw']
         key = f"{m['task']}_{m['metric']}@{m['k']}"
-        eval_res[name] = all_results[key]
+        if key not in all_results:
+            raise KeyError(f'官方 evaluator 结果中不存在指标: {key}')
+        eval_res[m['raw']] = float(all_results[key])
 
     eval_log = ' | '.join([f'{k}: {v:.4f}' for k, v in eval_res.items()])
     return eval_res, eval_log
 
 
 def _parse_metric_name(metric_name):
+    """
+    支持：
+        predcls_R@20
+        predcls_mR@50
+        sgcls_R@50
+        sgdet_mR@100
+    """
     pattern = r'^(predcls|sgcls|sgdet)_(R|mR)@(\d+)$'
     match = re.match(pattern, metric_name)
     if match is None:
@@ -83,355 +135,292 @@ def _parse_metric_name(metric_name):
     }
 
 
-def _eval_scene_graph_task(pred, true, task, rel_nums, entity_nums, ks, iou_thresh=0.5, multiple_preds=False):
-    total_gt = 0
-    matched_global = {k: 0 for k in ks}
+def _evaluate_rel_batch_vg(outputs, targets, evaluator, evaluator_list, rel_nums, entity_nums):
+    """
+    基本复刻官方 VG evaluate_rel_batch 逻辑，但支持统一接口。
 
-    per_rel_gt = np.zeros(rel_nums, dtype=np.int64)
-    per_rel_matched = {k: np.zeros(rel_nums, dtype=np.int64) for k in ks}
+    官方关键逻辑参考：
+    - GT box / pred box 都恢复到 orig_size
+    - pred_entry 使用：
+        sub_boxes / sub_classes / sub_scores
+        obj_boxes / obj_classes / obj_scores
+        rel_scores
+    - evaluator['sgdet'].evaluate_scene_graph_entry(...)
+    - evaluator_list 做 mR
+    """
+    required_output_keys = ['sub_boxes', 'obj_boxes', 'sub_logits', 'obj_logits', 'rel_logits']
+    for k in required_output_keys:
+        if k not in outputs:
+            raise KeyError(f'pred 缺少字段: {k}')
 
-    B = len(true)
-    for b in range(B):
-        gt_triplets = _build_gt_triplets(true[b], rel_nums)
+    for batch_idx, target in enumerate(targets):
+        _check_target_fields(target)
 
-        if task == 'predcls':
-            pred_triplets = _build_pred_triplets_predcls(
-                pred=pred, target=true[b], batch_idx=b,
-                rel_nums=rel_nums, entity_nums=entity_nums,
-                iou_thresh=iou_thresh,
-                multiple_preds=multiple_preds
+        # GT boxes: 还原到原图尺寸
+        orig_wh = torch.flip(target['orig_size'], dims=[0]).cpu()
+        gt_boxes_scaled = rescale_bboxes(target['boxes'].cpu(), orig_wh).clone().numpy()
+
+        gt_entry = {
+            'gt_classes': target['labels'].cpu().clone().numpy(),
+            'gt_relations': target['rel_annotations'].cpu().clone().numpy(),
+            'gt_boxes': gt_boxes_scaled
+        }
+
+        # pred boxes: 还原到原图尺寸
+        sub_boxes_scaled = rescale_bboxes(outputs['sub_boxes'][batch_idx].cpu(), orig_wh).clone().numpy()
+        obj_boxes_scaled = rescale_bboxes(outputs['obj_boxes'][batch_idx].cpu(), orig_wh).clone().numpy()
+
+        # object scores / classes
+        sub_prob = outputs['sub_logits'][batch_idx].softmax(-1)
+        obj_prob = outputs['obj_logits'][batch_idx].softmax(-1)
+
+        # 默认 object 最后一类是背景，按官方写法取 [:, :-1]
+        pred_sub_scores, pred_sub_classes = torch.max(sub_prob[:, :-1], dim=1)
+        pred_obj_scores, pred_obj_classes = torch.max(obj_prob[:, :-1], dim=1)
+
+        # relation scores
+        rel_logits = outputs['rel_logits'][batch_idx]
+
+        # 官方 VG 代码：
+        # rel_scores = outputs['rel_logits'][batch][:,1:-1].softmax(-1)
+        #
+        # 这意味着 relation logits 两端有特殊类位（第0类与最后1类都不参与评估）
+        # 为了兼容你当前自定义场景，做一个更稳妥的分支：
+        #
+        # 情况A: shape[-1] == rel_nums + 2  -> 使用 [1:-1]
+        # 情况B: shape[-1] == rel_nums + 1  -> 使用 [:-1] 或 [1:] 需要看你的定义
+        # 这里为了尽量贴官方 VG，优先支持 rel_nums + 2。
+        #
+        if rel_logits.shape[-1] == rel_nums + 2:
+            rel_scores = rel_logits[:, 1:-1].softmax(-1)
+        elif rel_logits.shape[-1] == rel_nums + 1:
+            # 常见自定义情况：最后一类背景
+            rel_scores = rel_logits[:, :-1].softmax(-1)
+        elif rel_logits.shape[-1] == rel_nums:
+            rel_scores = rel_logits.softmax(-1)
+        else:
+            raise ValueError(
+                f"rel_logits.shape[-1]={rel_logits.shape[-1]} 与 rel_nums={rel_nums} 不匹配，"
+                f"无法确定背景类切片方式。"
             )
-        elif task == 'sgcls':
-            pred_triplets = _build_pred_triplets_sgcls(
-                pred=pred, target=true[b], batch_idx=b,
-                rel_nums=rel_nums, entity_nums=entity_nums,
-                iou_thresh=iou_thresh,
-                multiple_preds=multiple_preds
-            )
-        elif task == 'sgdet':
-            pred_triplets = _build_pred_triplets_sgdet(
-                pred=pred, target=true[b], batch_idx=b,
-                rel_nums=rel_nums, entity_nums=entity_nums,
-                multiple_preds=multiple_preds
-            )
-        else:
-            raise ValueError(f'Unsupported task: {task}')
 
-        total_gt += len(gt_triplets)
+        pred_entry = {
+            'sub_boxes': sub_boxes_scaled,
+            'sub_classes': pred_sub_classes.cpu().clone().numpy(),
+            'sub_scores': pred_sub_scores.cpu().clone().numpy(),
+            'obj_boxes': obj_boxes_scaled,
+            'obj_classes': pred_obj_classes.cpu().clone().numpy(),
+            'obj_scores': pred_obj_scores.cpu().clone().numpy(),
+            'rel_scores': rel_scores.cpu().clone().numpy()
+        }
 
-        for gt in gt_triplets:
-            rel_label = gt['rel_label']
-            if 0 <= rel_label < rel_nums:
-                per_rel_gt[rel_label] += 1
+        # 官方 evaluator 会同时维护多个 mode
+        # 这里只评每个 mode 中实际关心的 scene graph entry
+        for mode_name, mode_eval in evaluator.items():
+            mode_eval.evaluate_scene_graph_entry(gt_entry, pred_entry)
 
-        for k in ks:
-            matched_idx = _match_triplets(pred_triplets[:k], gt_triplets, iou_thresh)
-            matched_global[k] += len(matched_idx)
+        # mR: per-class evaluator
+        if evaluator_list is not None:
+            gt_rel = gt_entry['gt_relations']
+            for pred_id, _, eval_per_rel in evaluator_list:
+                gt_entry_rel = {
+                    'gt_classes': gt_entry['gt_classes'].copy(),
+                    'gt_boxes': gt_entry['gt_boxes'].copy(),
+                    'gt_relations': gt_rel[np.in1d(gt_rel[:, -1], pred_id)]
+                }
+                if gt_entry_rel['gt_relations'].shape[0] == 0:
+                    continue
 
-            for idx in matched_idx:
-                rel_label = gt_triplets[idx]['rel_label']
-                if 0 <= rel_label < rel_nums:
-                    per_rel_matched[k][rel_label] += 1
-
-    res = {}
-    valid_rel = per_rel_gt > 0
-    for k in ks:
-        res[f'{task}_R@{k}'] = float(matched_global[k] / max(total_gt, 1))
-
-        class_recall = np.zeros(rel_nums, dtype=np.float64)
-        class_recall[valid_rel] = (
-            per_rel_matched[k][valid_rel] / np.maximum(per_rel_gt[valid_rel], 1)
-        )
-        res[f'{task}_mR@{k}'] = float(class_recall[valid_rel].mean()) if valid_rel.any() else 0.0
-
-    return res
+                for mode_name, mode_eval in eval_per_rel.items():
+                    mode_eval.evaluate_scene_graph_entry(gt_entry_rel, pred_entry)
 
 
-def _build_gt_triplets(target, rel_nums):
-    boxes = _cxcywh_to_xyxy(_as_numpy(target['boxes']).astype(np.float32))
-    labels = _as_numpy(target['labels']).astype(np.int64)
-    rels = _as_numpy(target['rel_annotations']).astype(np.int64)
+def _collect_results_from_official_evaluator(evaluator, evaluator_list, requested_tasks, rel_nums):
+    """
+    从官方 evaluator 中尽量稳妥地读取:
+        task_R@20 / task_R@50 / task_R@100
+        task_mR@20 / task_mR@50 / task_mR@100
 
-    triplets = []
-    for rel in rels:
-        s_idx, o_idx, r_label = rel.tolist()
+    不同实现版本里 BasicSceneGraphEvaluator 内部字段名可能略有差异，
+    所以这里做了兼容读取。
+    """
+    results = {}
 
-        if not (0 <= r_label < rel_nums):
+    # 先读取普通 R@K
+    for task in requested_tasks:
+        if task not in evaluator:
             continue
-        if not (0 <= s_idx < len(labels) and 0 <= o_idx < len(labels)):
+        mode_eval = evaluator[task]
+        recall_dict = _extract_recall_dict(mode_eval)
+
+        for k, v in recall_dict.items():
+            results[f'{task}_R@{k}'] = float(v)
+
+    # 再读取 mR@K
+    if evaluator_list is not None:
+        mr_dict = _extract_mean_recall_from_evaluator_list(evaluator_list, requested_tasks, rel_nums)
+        results.update(mr_dict)
+
+    return results
+
+
+def _extract_recall_dict(mode_eval):
+    """
+    从官方 evaluator 单个 mode 中抽取 recall。
+    尽量兼容不同实现版本。
+    返回:
+        {20: val, 50: val, 100: val, ...}
+    """
+    # 常见实现里可能有 result_dict
+    candidate_attrs = ['result_dict', 'results', 'res']
+    for attr in candidate_attrs:
+        if hasattr(mode_eval, attr):
+            obj = getattr(mode_eval, attr)
+            recall_dict = _parse_recall_from_result_obj(obj)
+            if len(recall_dict) > 0:
+                return recall_dict
+
+    # 也可能 evaluator 自己就有 recall dict
+    recall_dict = _parse_recall_from_result_obj(mode_eval)
+    return recall_dict
+
+
+def _parse_recall_from_result_obj(obj):
+    """
+    兼容从 dict / 类对象里提取 R@K
+    """
+    recall_dict = {}
+
+    # 情况1：dict 中直接有键名类似 'R@20' / 'recall'
+    if isinstance(obj, dict):
+        # 可能是 {'R@20': x, 'R@50': y}
+        for k, v in obj.items():
+            if isinstance(k, str):
+                m = re.match(r'^R@(\d+)$', k)
+                if m:
+                    recall_dict[int(m.group(1))] = float(v)
+
+        # 可能是 {'recall': {20: x, 50: y}}
+        if 'recall' in obj and isinstance(obj['recall'], dict):
+            for k, v in obj['recall'].items():
+                try:
+                    recall_dict[int(k)] = float(v)
+                except Exception:
+                    pass
+
+        # 可能是 {'sgdet_recall': {20: x, 50: y}}
+        for k, v in obj.items():
+            if 'recall' in str(k).lower() and isinstance(v, dict):
+                tmp = {}
+                ok = True
+                for kk, vv in v.items():
+                    try:
+                        tmp[int(kk)] = float(vv)
+                    except Exception:
+                        ok = False
+                        break
+                if ok and len(tmp) > 0:
+                    recall_dict.update(tmp)
+
+    # 情况2：对象有这些字段
+    for attr in ['recall', 'Recall', 'sgdet_recall', 'result_dict']:
+        if hasattr(obj, attr):
+            val = getattr(obj, attr)
+            if isinstance(val, dict):
+                tmp = {}
+                ok = True
+                for k, v in val.items():
+                    try:
+                        tmp[int(k)] = float(v)
+                    except Exception:
+                        ok = False
+                        break
+                if ok and len(tmp) > 0:
+                    recall_dict.update(tmp)
+
+    return recall_dict
+
+
+def _extract_mean_recall_from_evaluator_list(evaluator_list, requested_tasks, rel_nums):
+    """
+    参考官方 calculate_mR_from_evaluator_list(...) 的目标，
+    但为了统一接口，尽量直接从 evaluator_list 中读取 per-class recall 后做平均。
+
+    返回:
+        {
+            'sgdet_mR@20': ...,
+            'sgdet_mR@50': ...,
+            ...
+        }
+    """
+    results = {}
+
+    # 先尝试调用官方函数，让它内部完成统计
+    # 不同版本的 calculate_mR_from_evaluator_list 可能是打印型而不是返回型，
+    # 所以这里做兼容：如果没返回可用结果，再手工聚合。
+    for task in requested_tasks:
+        try:
+            official_ret = calculate_mR_from_evaluator_list(evaluator_list, task)
+            parsed = _parse_mr_return(official_ret, task)
+            results.update(parsed)
+        except Exception:
+            pass
+
+    # 若官方函数没返回结构化结果，则手工从 per-class evaluator 里聚合
+    for task in requested_tasks:
+        needed_keys_exist = any(k.startswith(f'{task}_mR@') for k in results.keys())
+        if needed_keys_exist:
             continue
 
-        triplets.append({
-            'sub_label': int(labels[s_idx]),
-            'obj_label': int(labels[o_idx]),
-            'rel_label': int(r_label),
-            'sub_box': boxes[s_idx],
-            'obj_box': boxes[o_idx],
-        })
-    return triplets
-
-
-def _build_pred_triplets_predcls(pred, target, batch_idx, rel_nums, entity_nums,
-                                 iou_thresh=0.5, multiple_preds=False):
-    """
-    predcls:
-    - 使用预测的 subject/object box 去和 GT object 匹配
-    - 匹配成功后，subject/object label 与 box 都使用 GT
-    - relation 使用预测
-    """
-    gt_boxes = _cxcywh_to_xyxy(_as_numpy(target['boxes']).astype(np.float32))
-    gt_labels = _as_numpy(target['labels']).astype(np.int64)
-
-    sub_boxes = _cxcywh_to_xyxy(_as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32))
-    obj_boxes = _cxcywh_to_xyxy(_as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32))
-    rel_prob = torch.softmax(pred['rel_logits'][batch_idx], dim=-1).cpu().numpy()
-
-    if rel_prob.shape[1] == rel_nums + 1:
-        rel_prob = rel_prob[:, 1:]
-
-    nq = min(len(sub_boxes), len(obj_boxes), len(rel_prob))
-
-    triplets = []
-    for i in range(nq):
-        sub_gt_idx, sub_iou = _find_best_gt_match(sub_boxes[i], gt_boxes)
-        obj_gt_idx, obj_iou = _find_best_gt_match(obj_boxes[i], gt_boxes)
-
-        if sub_gt_idx < 0 or obj_gt_idx < 0:
-            continue
-        if sub_iou < iou_thresh or obj_iou < iou_thresh:
-            continue
-
-        if multiple_preds:
-            rel_order = np.argsort(-rel_prob[i])
-            for r in rel_order:
-                score = float(rel_prob[i, r])
-                triplets.append({
-                    'sub_label': int(gt_labels[sub_gt_idx]),
-                    'obj_label': int(gt_labels[obj_gt_idx]),
-                    'rel_label': int(r),
-                    'sub_box': gt_boxes[sub_gt_idx],
-                    'obj_box': gt_boxes[obj_gt_idx],
-                    'score': score,
-                })
-        else:
-            r = int(np.argmax(rel_prob[i]))
-            score = float(np.max(rel_prob[i]))
-            triplets.append({
-                'sub_label': int(gt_labels[sub_gt_idx]),
-                'obj_label': int(gt_labels[obj_gt_idx]),
-                'rel_label': int(r),
-                'sub_box': gt_boxes[sub_gt_idx],
-                'obj_box': gt_boxes[obj_gt_idx],
-                'score': score,
-            })
-
-    triplets.sort(key=lambda x: x['score'], reverse=True)
-    return triplets
-
-
-def _build_pred_triplets_sgcls(pred, target, batch_idx, rel_nums, entity_nums,
-                               iou_thresh=0.5, multiple_preds=False):
-    """
-    sgcls:
-    - 使用预测的 subject/object box 去和 GT object 匹配
-    - box 使用匹配到的 GT box
-    - object label / relation 使用预测
-    """
-    gt_boxes = _cxcywh_to_xyxy(_as_numpy(target['boxes']).astype(np.float32))
-
-    sub_boxes = _cxcywh_to_xyxy(_as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32))
-    obj_boxes = _cxcywh_to_xyxy(_as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32))
-
-    sub_prob = torch.softmax(pred['sub_logits'][batch_idx], dim=-1).cpu().numpy()
-    obj_prob = torch.softmax(pred['obj_logits'][batch_idx], dim=-1).cpu().numpy()
-    rel_prob = torch.softmax(pred['rel_logits'][batch_idx], dim=-1).cpu().numpy()
-
-    if sub_prob.shape[1] == entity_nums + 1:
-        sub_prob = sub_prob[:, :-1]
-    if obj_prob.shape[1] == entity_nums + 1:
-        obj_prob = obj_prob[:, :-1]
-    if rel_prob.shape[1] == rel_nums + 1:
-        rel_prob = rel_prob[:, 1:]
-
-    pred_sub_scores = sub_prob.max(axis=1)
-    pred_sub_labels = sub_prob.argmax(axis=1)
-    pred_obj_scores = obj_prob.max(axis=1)
-    pred_obj_labels = obj_prob.argmax(axis=1)
-
-    nq = min(len(sub_boxes), len(obj_boxes), len(pred_sub_labels), len(pred_obj_labels), len(rel_prob))
-
-    triplets = []
-    for i in range(nq):
-        sub_gt_idx, sub_iou = _find_best_gt_match(sub_boxes[i], gt_boxes)
-        obj_gt_idx, obj_iou = _find_best_gt_match(obj_boxes[i], gt_boxes)
-
-        if sub_gt_idx < 0 or obj_gt_idx < 0:
-            continue
-        if sub_iou < iou_thresh or obj_iou < iou_thresh:
-            continue
-
-        if multiple_preds:
-            rel_order = np.argsort(-rel_prob[i])
-            for r in rel_order:
-                score = float(pred_sub_scores[i] * pred_obj_scores[i] * rel_prob[i, r])
-                triplets.append({
-                    'sub_label': int(pred_sub_labels[i]),
-                    'obj_label': int(pred_obj_labels[i]),
-                    'rel_label': int(r),
-                    'sub_box': gt_boxes[sub_gt_idx],
-                    'obj_box': gt_boxes[obj_gt_idx],
-                    'score': score,
-                })
-        else:
-            r = int(np.argmax(rel_prob[i]))
-            r_score = float(np.max(rel_prob[i]))
-            score = float(pred_sub_scores[i] * pred_obj_scores[i] * r_score)
-            triplets.append({
-                'sub_label': int(pred_sub_labels[i]),
-                'obj_label': int(pred_obj_labels[i]),
-                'rel_label': int(r),
-                'sub_box': gt_boxes[sub_gt_idx],
-                'obj_box': gt_boxes[obj_gt_idx],
-                'score': score,
-            })
-
-    triplets.sort(key=lambda x: x['score'], reverse=True)
-    return triplets
-
-
-def _build_pred_triplets_sgdet(pred, target, batch_idx, rel_nums, entity_nums, multiple_preds=False):
-    """
-    sgdet:
-    - object box / object label / relation 全预测
-    - 每个 relation query 自己构成一个 triplet proposal
-    """
-    sub_boxes = _cxcywh_to_xyxy(_as_numpy(pred['sub_boxes'][batch_idx]).astype(np.float32))
-    obj_boxes = _cxcywh_to_xyxy(_as_numpy(pred['obj_boxes'][batch_idx]).astype(np.float32))
-
-    sub_prob = torch.softmax(pred['sub_logits'][batch_idx], dim=-1).cpu().numpy()
-    obj_prob = torch.softmax(pred['obj_logits'][batch_idx], dim=-1).cpu().numpy()
-    rel_prob = torch.softmax(pred['rel_logits'][batch_idx], dim=-1).cpu().numpy()
-
-    if sub_prob.shape[1] == entity_nums + 1:
-        sub_prob = sub_prob[:, :-1]
-    if obj_prob.shape[1] == entity_nums + 1:
-        obj_prob = obj_prob[:, :-1]
-    if rel_prob.shape[1] == rel_nums + 1:
-        rel_prob = rel_prob[:, 1:]
-
-    pred_sub_scores = sub_prob.max(axis=1)
-    pred_sub_labels = sub_prob.argmax(axis=1)
-    pred_obj_scores = obj_prob.max(axis=1)
-    pred_obj_labels = obj_prob.argmax(axis=1)
-
-    nq = min(len(sub_boxes), len(obj_boxes), len(pred_sub_labels), len(pred_obj_labels), len(rel_prob))
-
-    triplets = []
-    for i in range(nq):
-        if multiple_preds:
-            rel_order = np.argsort(-rel_prob[i])
-            for r in rel_order:
-                score = float(pred_sub_scores[i] * pred_obj_scores[i] * rel_prob[i, r])
-                triplets.append({
-                    'sub_label': int(pred_sub_labels[i]),
-                    'obj_label': int(pred_obj_labels[i]),
-                    'rel_label': int(r),
-                    'sub_box': sub_boxes[i],
-                    'obj_box': obj_boxes[i],
-                    'score': score,
-                })
-        else:
-            r = int(np.argmax(rel_prob[i]))
-            r_score = float(np.max(rel_prob[i]))
-            score = float(pred_sub_scores[i] * pred_obj_scores[i] * r_score)
-            triplets.append({
-                'sub_label': int(pred_sub_labels[i]),
-                'obj_label': int(pred_obj_labels[i]),
-                'rel_label': int(r),
-                'sub_box': sub_boxes[i],
-                'obj_box': obj_boxes[i],
-                'score': score,
-            })
-
-    triplets.sort(key=lambda x: x['score'], reverse=True)
-    return triplets
-
-
-def _find_best_gt_match(box, gt_boxes):
-    """
-    在所有 GT boxes 中找 IoU 最大的一个
-    返回: (best_idx, best_iou)
-    """
-    best_idx = -1
-    best_iou = -1.0
-    for i, gt_box in enumerate(gt_boxes):
-        iou = _bbox_iou(box, gt_box)
-        if iou > best_iou:
-            best_iou = iou
-            best_idx = i
-    return best_idx, best_iou
-
-
-def _match_triplets(pred_triplets, gt_triplets, iou_thresh=0.5):
-    matched_gt = set()
-    for pred in pred_triplets:
-        for g_idx, gt in enumerate(gt_triplets):
-            if g_idx in matched_gt:
+        # 收集每个 relation 类别的 recall@k
+        per_class_recalls = {}
+        for rel_id, _, eval_per_rel in evaluator_list:
+            if task not in eval_per_rel:
                 continue
-            if _is_triplet_match(pred, gt, iou_thresh):
-                matched_gt.add(g_idx)
-                break
-    return matched_gt
+            recall_dict = _extract_recall_dict(eval_per_rel[task])
+            for k, v in recall_dict.items():
+                per_class_recalls.setdefault(k, []).append(float(v))
+
+        for k, vals in per_class_recalls.items():
+            if len(vals) > 0:
+                results[f'{task}_mR@{k}'] = float(np.mean(vals))
+            else:
+                results[f'{task}_mR@{k}'] = 0.0
+
+    return results
 
 
-def _is_triplet_match(pred, gt, iou_thresh=0.5):
-    if pred['sub_label'] != gt['sub_label']:
-        return False
-    if pred['obj_label'] != gt['obj_label']:
-        return False
-    if pred['rel_label'] != gt['rel_label']:
-        return False
-
-    if _bbox_iou(pred['sub_box'], gt['sub_box']) < iou_thresh:
-        return False
-    if _bbox_iou(pred['obj_box'], gt['obj_box']) < iou_thresh:
-        return False
-    return True
-
-
-def _bbox_iou(box1, box2, eps=1e-12):
-    x1 = max(float(box1[0]), float(box2[0]))
-    y1 = max(float(box1[1]), float(box2[1]))
-    x2 = min(float(box1[2]), float(box2[2]))
-    y2 = min(float(box1[3]), float(box2[3]))
-
-    inter_w = max(0.0, x2 - x1)
-    inter_h = max(0.0, y2 - y1)
-    inter = inter_w * inter_h
-
-    area1 = max(0.0, float(box1[2]) - float(box1[0])) * max(0.0, float(box1[3]) - float(box1[1]))
-    area2 = max(0.0, float(box2[2]) - float(box2[0])) * max(0.0, float(box2[3]) - float(box2[1]))
-    union = area1 + area2 - inter
-
-    return inter / max(union, eps)
-
-
-def _cxcywh_to_xyxy(boxes):
+def _parse_mr_return(official_ret, task):
     """
-    boxes: [N,4] or [4], format = cx, cy, w, h
-    return: xyxy
+    兼容官方 calculate_mR_from_evaluator_list 的可能返回格式
     """
-    boxes = np.asarray(boxes, dtype=np.float32)
-    if boxes.ndim == 1:
-        cx, cy, w, h = boxes
-        return np.array([cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0], dtype=np.float32)
+    out = {}
+    if official_ret is None:
+        return out
 
-    out = np.zeros_like(boxes, dtype=np.float32)
-    out[:, 0] = boxes[:, 0] - boxes[:, 2] / 2.0
-    out[:, 1] = boxes[:, 1] - boxes[:, 3] / 2.0
-    out[:, 2] = boxes[:, 0] + boxes[:, 2] / 2.0
-    out[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.0
+    if isinstance(official_ret, dict):
+        # 可能直接 {'mR@20': x, 'mR@50': y}
+        for k, v in official_ret.items():
+            if isinstance(k, str):
+                m = re.match(r'^mR@(\d+)$', k)
+                if m:
+                    out[f'{task}_mR@{int(m.group(1))}'] = float(v)
+
+        # 可能 {'sgdet': {'mR@20': x, ...}}
+        if task in official_ret and isinstance(official_ret[task], dict):
+            for k, v in official_ret[task].items():
+                m = re.match(r'^mR@(\d+)$', str(k))
+                if m:
+                    out[f'{task}_mR@{int(m.group(1))}'] = float(v)
+
     return out
+
+
+def _check_target_fields(target):
+    required = ['boxes', 'labels', 'rel_annotations', 'orig_size']
+    for k in required:
+        if k not in target:
+            raise KeyError(f'target 缺少字段: {k}')
 
 
 def _to_cpu_detach(x):
@@ -444,11 +433,3 @@ def _to_cpu_detach(x):
     if torch.is_tensor(x):
         return x.detach().cpu()
     return x
-
-
-def _as_numpy(x):
-    if isinstance(x, np.ndarray):
-        return x
-    if torch.is_tensor(x):
-        return x.detach().cpu().numpy()
-    return np.asarray(x)

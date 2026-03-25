@@ -13,7 +13,7 @@ def load_data(args=None, **kwargs):
     dataset_train = build_dataset(image_set='train', args=args)
     dataset_val = build_dataset(image_set='val', args=args)
 
-    debug_num_samples = 400
+    debug_num_samples = 1000
     if debug_num_samples is not None:
         train_n = min(debug_num_samples, len(dataset_train))
         val_n = min(debug_num_samples, len(dataset_val))
