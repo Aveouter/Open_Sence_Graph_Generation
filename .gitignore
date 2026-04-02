@@ -9,6 +9,7 @@ results/
 logs/
 wandb/
 lightning_logs/
+lib/fpn/box_intersections_cpu/
 
 __pycache__/
 *.pyc
