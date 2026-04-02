@@ -9,8 +9,8 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
-DTYPE = np.float64
-ctypedef np.float64_t DTYPE_t
+DTYPE = np.float
+ctypedef np.float_t DTYPE_t
 
 def bbox_overlaps(boxes, query_boxes):
     cdef np.ndarray[DTYPE_t, ndim=2] boxes_contig = np.ascontiguousarray(boxes, dtype=DTYPE)
