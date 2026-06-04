@@ -7,7 +7,7 @@ channels:
 
 dependencies:
   - python<=3.10.8
-  - numpy
+  - numpy<2.0
   - hickle
   - lightning
   # - pytorch-cuda=11.8
@@ -22,5 +22,6 @@ dependencies:
       - timm<=0.6.11
       - tqdm
       - einops
+      - transformers>=4.18.0
 
 # prefix: D:/Software/Miniconda/envs/hsg

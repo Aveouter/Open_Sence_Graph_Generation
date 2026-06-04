@@ -44,8 +44,8 @@ def create_parser():
 
     # method parameters
     parser.add_argument('--method', '-m', default='HSTRNet', type=str,
-                        choices=['RelTR', 'HSTRNet'],
-                        help='Name of video prediction method to train (default: "SimVP")')
+                        choices=['RelTR', 'HSTRNet', 'EGTR'],
+                        help='Name of SGG method to train (default: "HSTRNet")')
     parser.add_argument('--config_file', '-c', default=None, type=str,
                         help='Path to the default config file')
     parser.add_argument('--model_type', default=None, type=str,
@@ -100,6 +100,24 @@ def create_parser():
     parser.add_argument('--metric_for_bestckpt', default='val_loss', type=str)
     parser.add_argument('--ckpt_path', default=None, type=str)
 
+    # CLIP hierarchical alignment parameters
+    parser.add_argument('--use_alignment', action='store_true', default=False,
+                        help='Whether to use CLIP hierarchical semantic alignment')
+    parser.add_argument('--prototype_path', default='data/VisualGenome/clip_prototypes.pth', type=str,
+                        help='Path to precomputed CLIP prototypes')
+    parser.add_argument('--clip_model', default='ViT-B-32', type=str,
+                        help='OpenCLIP model name for prototype construction')
+    parser.add_argument('--clip_dim', default=512, type=int,
+                        help='CLIP text embedding dimension')
+    parser.add_argument('--num_hierarchy_levels', default=3, type=int,
+                        help='Number of hierarchy cut levels for alignment')
+    parser.add_argument('--hierarchy_weights', nargs='+', default=[0.2, 0.3, 0.5], type=float,
+                        help='Weights for each hierarchy level (coarse to fine)')
+    parser.add_argument('--temperature', default=0.07, type=float,
+                        help='Temperature for InfoNCE alignment softmax')
+    parser.add_argument('--align_loss_coef', default=0.2, type=float,
+                        help='Weight coefficient for alignment loss')
+
     return parser
 
 
@@ -153,7 +171,7 @@ def default_parser():
         'decay_rate': 0.1,
         'filter_bias_and_bn': False,
         # Lightning parameters
-        'gpus': [0,1],
+        'gpus': [2,3,4,5],
         'metric_for_bestckpt': 'val_loss'
     }
     return default_values

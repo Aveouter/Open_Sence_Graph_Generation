@@ -13,9 +13,12 @@ if __name__ == '__main__':
     import warnings
     warnings.filterwarnings('ignore')
 
+    # --- Framework imports ---
+    from utils.main_utils import get_dist_info, load_config, update_config
+    from utils.misc import is_main_process
     from src.exp import BaseExperiment
-    from utils import (create_parser, default_parser, get_dist_info, load_config,
-                               update_config)
+    from utils.parser import create_parser, default_parser
+
     import torch
     import gc
 
@@ -52,3 +55,13 @@ if __name__ == '__main__':
             if args.ckpt_path is not None:
                 print(f'[Info] resume / finetune from ckpt: {args.ckpt_path}')
         exp.train()
+
+
+
+
+
+
+
+
+
+        
