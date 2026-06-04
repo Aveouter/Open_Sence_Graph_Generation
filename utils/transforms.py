@@ -1,4 +1,4 @@
 """
-[LEGACY] Re-export shim — canonical code now at sgg.data.transforms.
+[LEGACY] Re-export shim — canonical code now at ssgoos.data.transforms.
 """
-from sgg.data.transforms import *  # noqa: F401, F403
+from ssgoos.data.transforms import *  # noqa: F401, F403

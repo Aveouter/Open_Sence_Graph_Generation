@@ -1,4 +1,4 @@
 """
-[LEGACY] 功能已迁移至 sgg.modules.layers。此文件仅为向后兼容保留。
+[LEGACY] 功能已迁移至 ssgoos.modules.layers。此文件仅为向后兼容保留。
 """
-from sgg.modules.layers.matcher import *  # noqa: F401, F403
+from ssgoos.modules.layers.matcher import *  # noqa: F401, F403

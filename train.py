@@ -13,12 +13,12 @@ if __name__ == '__main__':
     import warnings
     warnings.filterwarnings('ignore')
 
-    # --- Framework imports (sgg/ is the canonical source) ---
-    from sgg.utils.main_utils import get_dist_info, load_config, update_config
-    from sgg.utils.misc import is_main_process
+    # --- Framework imports (ssgoos/ is the canonical source) ---
+    from ssgoos.utils.main_utils import get_dist_info, load_config, update_config
+    from ssgoos.utils.misc import is_main_process
 
     # --- Legacy compat (pending Phase 3 migration) ---
-    # TODO: migrate BaseExperiment → sgg.framework.experiment.Experiment
+    # TODO: migrate BaseExperiment → ssgoos.framework.experiment.Experiment
     from src.exp import BaseExperiment
     from utils.parser import create_parser, default_parser
 
