@@ -10,9 +10,9 @@ lr_backbone = 1e-5
 weight_decay = 1e-4
 
 # ===== training =====
-epoch = 2
-batch_size = 2
-val_batch_size = 2
+epoch = 20
+batch_size = 4
+val_batch_size = 4
 clip_max_norm = 0.1
 
 # ===== backbone =====
@@ -50,6 +50,18 @@ eos_coef = 0.1
 dataset = 'VisualGenome'
 num_classes = 151
 num_rel_classes = 51
+entity_nums = 151
+rel_nums = 51
+
+# ===== CLIP alignment =====
+use_alignment = False
+clip_model = 'ViT-B-32'
+clip_dim = 512
+num_hierarchy_levels = 3
+hierarchy_weights = [0.2, 0.3, 0.5]
+temperature = 0.07
+align_loss_coef = 0.2
+prototype_path = 'data/VisualGenome/clip_prototypes.pth'
 
 # ===== misc =====
 device = 'cuda'
