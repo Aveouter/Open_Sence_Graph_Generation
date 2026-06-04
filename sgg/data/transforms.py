@@ -9,8 +9,8 @@ import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
 
-from utils.box_ops import box_xyxy_to_cxcywh
-from utils.misc import interpolate
+from sgg.utils.box_ops import box_xyxy_to_cxcywh
+from sgg.utils.misc import interpolate
 
 
 def crop(image, target, region):

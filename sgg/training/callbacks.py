@@ -3,7 +3,7 @@ import shutil
 import logging
 import os.path as osp
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
-from utils.main_utils import check_dir, collect_env, print_log, output_namespace
+from sgg.utils.main_utils import check_dir, collect_env, print_log, output_namespace
 
 
 class SetupCallback(Callback):
