@@ -77,7 +77,7 @@ def metric(
     true = _to_cpu_detach(true)
 
     # Determine which tasks we can actually evaluate
-    supported_tasks, warnings = _resolve_task_support(pred, requested_tasks)
+    supported_tasks, warnings, matched_family = _resolve_task_support(pred, requested_tasks)
     if not supported_tasks:
         return {}, "\n".join(warnings) if warnings else \
             "[metric] No supported tasks for current model outputs."
@@ -124,6 +124,16 @@ def metric(
             mr_evaluators=mr_evaluators,
             rel_nums=rel_nums,
             triplet_match_indices=triplet_match_indices,
+        )
+
+    # HSTRNet family: PredCLS evaluation using object_logits + relation_pair_indices
+    if matched_family == "hstrnet" and "predcls" in supported_tasks:
+        _evaluate_predcls_batch_hstrnet(
+            outputs=pred,
+            targets=true,
+            evaluators=evaluators,
+            mr_evaluators=mr_evaluators,
+            rel_nums=rel_nums,
         )
 
     # Collect results
@@ -179,26 +189,33 @@ def _parse_metric_names(metric_names: List[str]) -> List[Dict[str, Any]]:
 # Extend this dict to add support for new architectures.
 _MODEL_SCHEMAS = {
     "reltr": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
+    "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
 }
 
 # Which tasks each model family supports
 _MODEL_TASKS = {
     "reltr": {"sgdet", "predcls", "sgcls"},
+    "hstrnet": {"predcls"},  # HSTRNet: no predicted boxes → PredCLS only
 }
 
 
 def _resolve_task_support(
     pred: Dict[str, Any], requested_tasks: List[str]
-) -> Tuple[List[str], List[str]]:
-    """Determine which requested tasks are supported by the current model outputs."""
+) -> Tuple[List[str], List[str], str]:
+    """Determine which requested tasks are supported by the current model outputs.
+
+    Returns (supported_tasks, warnings, matched_family).
+    """
     warnings = []
     supported = []
+    matched_family = "unknown"
 
     pred_keys = set(pred.keys())
     matched = False
 
     for family, required_keys in _MODEL_SCHEMAS.items():
         if required_keys.issubset(pred_keys):
+            matched_family = family
             family_tasks = _MODEL_TASKS.get(family, set())
             supported = [t for t in requested_tasks if t in family_tasks]
             unsupported = [t for t in requested_tasks if t not in family_tasks]
@@ -217,7 +234,7 @@ def _resolve_task_support(
             f"Missing output keys (RelTR expected): {missing}"
         )
 
-    return supported, warnings
+    return supported, warnings, matched_family
 
 
 # ===========================================================================
@@ -592,7 +609,154 @@ def _evaluate_sgcls_batch(
 
 
 # ===========================================================================
-# Relation score extraction
+# Model adapter: HSTRNet → eval entries (predcls)
+# ===========================================================================
+
+def _evaluate_predcls_batch_hstrnet(
+    outputs: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+    evaluators: Dict[str, SceneGraphEvaluator],
+    mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
+    rel_nums: int,
+) -> None:
+    """HSTRNet PredCLS evaluation.
+
+    HSTRNet predicts object classes and predicate logits for relation pairs
+    but does not predict bounding boxes.  For PredCLS we use GT boxes and
+    labels for the entity components, and score predicates from HSTRNet's
+    ``final_predicate_logits``.
+
+    Matching strategy:
+      1. For each image, extract predicted subject/object classes from
+         ``object_logits`` (last temporal step).
+      2. Use ``relation_pair_indices`` to map each relation pair to its
+         subject and object query indices.
+      3. For each GT relation, find the HSTRNet pair whose predicted
+         (sub_cls, obj_cls) matches the GT (sub_cls, obj_cls).
+      4. Score the predicate from that pair's ``final_predicate_logits``.
+      5. Fall back to the top-scoring pair if no label match is found.
+    """
+    required_keys = ["final_predicate_logits", "object_logits", "relation_pair_indices"]
+    for k in required_keys:
+        if k not in outputs:
+            raise KeyError(f"HSTRNet output missing key: {k}")
+
+    for i, target in enumerate(targets):
+        _validate_target(target)
+
+        gt_relations = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        if gt_relations.ndim == 1:
+            gt_relations = gt_relations.reshape(-1, 3) if gt_relations.size > 0 else \
+                np.zeros((0, 3), dtype=np.int64)
+        if gt_relations.shape[0] == 0:
+            continue
+
+        gt_labels = _to_numpy(target["labels"]).astype(np.int64)
+        gt_boxes_xyxy = _rescale_boxes(target["boxes"], target["orig_size"])
+
+        gt_entry = {
+            "gt_classes": gt_labels,
+            "gt_relations": gt_relations,
+            "gt_boxes": gt_boxes_xyxy,
+        }
+
+        # ---- extract HSTRNet predictions ----
+        # object_logits: [B, T, Nq, No] or [B, Nq, No]
+        obj_logits = torch.as_tensor(outputs["object_logits"][i]).float()
+        if obj_logits.dim() == 4:
+            # Take last temporal step
+            obj_logits = obj_logits[-1] if obj_logits.shape[0] > 0 else obj_logits[0]
+        elif obj_logits.dim() == 3:
+            pass  # Already [Nq, No]
+        else:
+            raise ValueError(f"Unexpected object_logits dim: {obj_logits.dim()}")
+
+        pred_obj_prob = torch.softmax(obj_logits, dim=-1)
+        pred_obj_scores, pred_obj_labels = torch.max(pred_obj_prob[:, :-1], dim=-1) \
+            if pred_obj_prob.shape[-1] > 1 else (torch.zeros(obj_logits.shape[0]), torch.zeros(obj_logits.shape[0], dtype=torch.long))
+
+        # final_predicate_logits: [B, K, P] or [K, P]
+        pred_logits = torch.as_tensor(outputs["final_predicate_logits"][i]).float()
+        if pred_logits.dim() == 3:
+            pred_logits = pred_logits[0]  # take batch dim
+        pred_rel_scores_all = torch.softmax(pred_logits, dim=-1).detach().cpu().numpy()
+
+        # relation_pair_indices: [B, T, K, 2] or [T, K, 2] or [K, 2]
+        pair_idx = torch.as_tensor(outputs["relation_pair_indices"][i]).long()
+        if pair_idx.dim() == 4:
+            pair_idx = pair_idx[-1]  # last temporal step
+        elif pair_idx.dim() == 3:
+            pair_idx = pair_idx[0] if pair_idx.shape[0] == 1 else pair_idx[-1]
+        # Now pair_idx should be [K, 2]
+
+        K = pair_idx.shape[0]
+        R = gt_relations.shape[0]
+
+        # Build predicted (sub_cls, obj_cls) per pair
+        pair_sub_labels = pred_obj_labels[pair_idx[:, 0]].cpu().numpy().astype(np.int64)
+        pair_obj_labels = pred_obj_labels[pair_idx[:, 1]].cpu().numpy().astype(np.int64)
+
+        # ---- match GT relations to HSTRNet pairs ----
+        gt_sub_idx = gt_relations[:, 0]
+        gt_obj_idx = gt_relations[:, 1]
+        gt_sub_labels = gt_labels[gt_sub_idx]
+        gt_obj_labels = gt_labels[gt_obj_idx]
+
+        best_rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
+
+        for r in range(R):
+            gt_sub_l = gt_sub_labels[r]
+            gt_obj_l = gt_obj_labels[r]
+
+            # Find pairs whose predicted sub/obj labels match the GT
+            label_match = (pair_sub_labels == gt_sub_l) & (pair_obj_labels == gt_obj_l)
+            match_indices = np.where(label_match)[0]
+
+            if len(match_indices) > 0:
+                # Use the match with highest predicate confidence
+                match_scores = pred_rel_scores_all[match_indices].max(axis=1)
+                best_k = match_indices[int(np.argmax(match_scores))]
+                best_rel_scores[r] = pred_rel_scores_all[best_k].astype(np.float32)
+            else:
+                # Fallback: take the top-scoring pair overall
+                if K > 0:
+                    overall_best = int(np.argmax(pred_rel_scores_all.max(axis=1)))
+                    best_rel_scores[r] = pred_rel_scores_all[overall_best].astype(np.float32)
+                # else keep zeros
+
+        # ---- build pred_entry (PredCLS: GT boxes + GT labels + pred predicates) ----
+        pred_entry = {
+            "sub_boxes": gt_boxes_xyxy[gt_sub_idx].astype(np.float32),
+            "sub_classes": gt_sub_labels.astype(np.int64),
+            "sub_scores": np.ones(R, dtype=np.float32),
+            "obj_boxes": gt_boxes_xyxy[gt_obj_idx].astype(np.float32),
+            "obj_classes": gt_obj_labels.astype(np.int64),
+            "obj_scores": np.ones(R, dtype=np.float32),
+            "rel_scores": best_rel_scores,
+        }
+
+        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
+
+        for task_eval_key in evaluators:
+            if "predcls" in task_eval_key:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+
+        for task_mr_key, mr_eval_list in mr_evaluators.items():
+            if "predcls" not in task_mr_key:
+                continue
+            gt_rel_labels = gt_relations[:, 2]
+            for rel_id in range(1, rel_nums + 1):
+                gt_mask = (gt_rel_labels == rel_id)
+                if not gt_mask.any():
+                    continue
+                pred_mask = (pred_rel_labels == rel_id)
+                gt_entry_rel = {
+                    "gt_classes": gt_entry["gt_classes"],
+                    "gt_relations": gt_entry["gt_relations"][gt_mask],
+                    "gt_boxes": gt_entry["gt_boxes"],
+                }
+                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
+                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
 # ===========================================================================
 
 def _extract_relation_scores(rel_logits: torch.Tensor, rel_nums: int) -> np.ndarray:
