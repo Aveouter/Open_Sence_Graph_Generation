@@ -1,0 +1,74 @@
+# SGG Configuration Recipe
+# Task: Image Scene Graph Detection
+# Model: RelTR
+# Dataset: VisualGenome
+#
+# This replaces the legacy configs/VisualGenome/RelTR.py
+
+task_name: image_sgg
+max_epochs: 20
+seed: 42
+test_only: false
+gpus: [0]
+
+dataset:
+  name: visual_genome
+  data_root: ./data/VisualGenome
+  batch_size: 4
+  val_batch_size: 4
+  num_workers: 4
+  entity_nums: 151
+  rel_nums: 51
+  dataname: VisualGenome
+  metrics:
+    - sgdet_R@10
+    - sgdet_R@20
+    - sgdet_R@50
+    - sgdet_mR@10
+    - sgdet_mR@20
+    - sgdet_mR@50
+    - predcls_R@10
+    - predcls_R@20
+    - predcls_mR@10
+    - predcls_mR@20
+    - sgcls_R@10
+    - sgcls_R@20
+    - sgcls_mR@10
+    - sgcls_mR@20
+
+model:
+  name: reltr
+  backbone: resnet50
+  hidden_dim: 256
+  dropout: 0.1
+  nheads: 8
+  dim_feedforward: 2048
+  enc_layers: 6
+  dec_layers: 6
+  num_entities: 100
+  num_triplets: 200
+  aux_loss: true
+  pre_norm: false
+  dilation: false
+  position_embedding: sine
+  set_cost_class: 1.0
+  set_cost_bbox: 5.0
+  set_cost_giou: 2.0
+  set_iou_threshold: 0.7
+  bbox_loss_coef: 5.0
+  giou_loss_coef: 2.0
+  rel_loss_coef: 1.0
+  eos_coef: 0.1
+
+optimizer:
+  name: adamw
+  lr: 1.0e-4
+  lr_backbone: 1.0e-5
+  weight_decay: 1.0e-4
+  clip_max_norm: 0.1
+
+scheduler:
+  name: cosine
+  warmup_epoch: 0
+  warmup_lr: 1.0e-5
+  min_lr: 1.0e-6
