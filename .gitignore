@@ -24,3 +24,6 @@ __pycache__/
 *.tar
 *.tar.gz
 core.*
+
+*.json.resume
+.ddp_eval_cache/

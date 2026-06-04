@@ -50,21 +50,73 @@ class BaseExperiment(object):
         callbacks, self.save_dir = self._load_callbacks(args, save_dir, ckpt_dir)
         self.trainer = self._init_trainer(self.args, callbacks, strategy)
 
-    def _init_trainer(self, args, callbacks, strategy):
-        profiler = AdvancedProfiler(dirpath="logs", filename="profile.txt")
+    def _normalize_devices(self, devices):
+        if devices is None:
+            return 1
+        # Convert single-element list to int 1 to prevent Lightning from spawning DDP workers
+        # (devices=[0] causes DDP; devices=1 uses single GPU without DDP)
+        if isinstance(devices, (list, tuple)) and len(devices) == 1:
+            return 1
+        return devices
 
+    def _count_devices(self, devices):
+        if devices == "auto":
+            return torch.cuda.device_count()
+
+        if isinstance(devices, (list, tuple)):
+            return len(devices)
+
+        if isinstance(devices, str):
+            if devices == "auto":
+                return torch.cuda.device_count()
+            if "," in devices:
+                return len([d for d in devices.split(",") if d.strip() != ""])
+            return int(devices)
+
+        return int(devices)
+
+    def _resolve_trainer_runtime(self, args, strategy):
         accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
-        devices = args.gpus if accelerator == 'gpu' else 1
 
-        return Trainer(
+        if accelerator == 'gpu':
+            raw_devices = getattr(args, 'gpus', 1)
+            devices = self._normalize_devices(raw_devices)
+        else:
+            devices = 1
+
+        device_count = self._count_devices(devices)
+
+        if strategy is not None and strategy != 'auto':
+            resolved_strategy = strategy
+        else:
+            if accelerator == 'gpu' and device_count > 1:
+                resolved_strategy = 'ddp'
+            else:
+                resolved_strategy = 'auto'
+
+        return accelerator, devices, device_count, resolved_strategy
+
+    def _init_trainer(self, args, callbacks, strategy):
+        accelerator, devices, device_count, resolved_strategy = self._resolve_trainer_runtime(args, strategy)
+
+        profiler = None
+        if device_count <= 1:
+            profiler = AdvancedProfiler(dirpath="logs", filename="profile.txt")
+
+        trainer_kwargs = dict(
             devices=devices,
             max_epochs=args.epoch,
-            strategy=strategy,
+            strategy=resolved_strategy,
             profiler=profiler,
             accelerator=accelerator,
             callbacks=callbacks,
             log_every_n_steps=1,
         )
+
+        if hasattr(args, 'num_nodes'):
+            trainer_kwargs['num_nodes'] = args.num_nodes
+
+        return Trainer(**trainer_kwargs)
 
     def _load_callbacks(self, args, save_dir, ckpt_dir):
         method_info = None
@@ -146,22 +198,25 @@ class BaseExperiment(object):
                     ckpt_files.sort(key=lambda x: osp.getmtime(x), reverse=True)
                     ckpt_path = ckpt_files[0]
 
-        # 没有提供权重，直接测试当前模型
         if ckpt_path is None:
             print('[Info] No checkpoint provided, testing current model state.')
             return self.trainer.test(self.method, self.data)
 
         ext = osp.splitext(ckpt_path)[1].lower()
 
-        # 1) Lightning checkpoint
         if ext == '.ckpt':
             print(f'[Info] Testing with Lightning checkpoint: {ckpt_path}')
             return self.trainer.test(self.method, self.data, ckpt_path=ckpt_path)
 
-        # 2) 普通 PyTorch 权重
         if ext in ['.pth', '.pt']:
             print(f'[Info] Loading PyTorch weights from: {ckpt_path}')
-            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            # Try safe loading first; fall back with warning for legacy checkpoints
+            try:
+                ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+            except Exception:
+                print('[Warning] weights_only=True failed, falling back to weights_only=False. '
+                      'Only use this with trusted checkpoints.')
+                ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
 
             if isinstance(ckpt, dict):
                 if 'state_dict' in ckpt:
@@ -175,13 +230,34 @@ class BaseExperiment(object):
             else:
                 state_dict = ckpt
 
-            # 去掉 module. 前缀
             new_state_dict = {}
             for k, v in state_dict.items():
                 if k.startswith('module.'):
                     new_state_dict[k[len('module.'):]] = v
                 else:
                     new_state_dict[k] = v
+
+            # Handle size mismatches between checkpoint and current model
+            model_state = self.method.model.state_dict()
+            for k in list(new_state_dict.keys()):
+                if k in model_state and new_state_dict[k].shape != model_state[k].shape:
+                    ckpt_shape = new_state_dict[k].shape
+                    model_shape = model_state[k].shape
+                    print(f'[Info] Size mismatch for {k}: ckpt{ckpt_shape} vs model{model_shape}, adapting...')
+                    # Truncate or pad to match model shape
+                    w = new_state_dict[k]
+                    if w.dim() >= 2 and w.shape[0] > model_shape[0]:
+                        # Truncate first dim (output dim for Linear layers)
+                        w = w[:model_shape[0]]
+                    elif w.dim() >= 2 and w.shape[0] < model_shape[0]:
+                        # Pad first dim
+                        pad = torch.zeros(model_shape[0] - w.shape[0], *w.shape[1:])
+                        w = torch.cat([w, pad], dim=0)
+                    elif w.dim() == 1 and w.shape[0] > model_shape[0]:
+                        w = w[:model_shape[0]]
+                    elif w.dim() == 1 and w.shape[0] < model_shape[0]:
+                        w = torch.nn.functional.pad(w, (0, model_shape[0] - w.shape[0]))
+                    new_state_dict[k] = w
 
             missing, unexpected = self.method.model.load_state_dict(new_state_dict, strict=False)
 
@@ -203,23 +279,23 @@ class BaseExperiment(object):
         This version is adapted for RelTR-like image relation generation tasks.
         """
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        if args.device == 'cuda' and torch.cuda.is_available():
-            assign_gpu = 'cuda:' + (str(args.gpus[0]) if len(args.gpus) == 1 else '0')
+        if getattr(args, 'device', 'cuda') == 'cuda' and torch.cuda.is_available():
+            gpus = getattr(args, 'gpus', [0])
+            if isinstance(gpus, (list, tuple)) and len(gpus) > 0:
+                assign_gpu = 'cuda:' + str(gpus[0])
+            else:
+                assign_gpu = 'cuda:0'
             device = torch.device(assign_gpu)
 
         _, C, H, W = args.in_shape
         dash_line = '-' * 80 + '\n'
         info = self.method.model.__repr__()
 
-        # Dummy input specialized for RelTR/current task
         if args.method == 'reltr':
-            # RelTR expects image list -> NestedTensor
             input_dummy = torch.ones(1, C, H, W).to(device)
         else:
-            # fallback for other methods if you still use this exp.py
             input_dummy = torch.ones(1, C, H, W).to(device)
 
-        # FLOPs
         try:
             model = self.method.model.to(device)
             model.eval()
@@ -237,7 +313,6 @@ class BaseExperiment(object):
             print(f'[Warning] FLOPs calculation failed for {args.method}: {e}')
             flops = f'Unavailable ({type(e).__name__})'
 
-        # Throughput
         if args.fps:
             try:
                 if args.method == 'reltr':

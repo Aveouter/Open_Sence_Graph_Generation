@@ -6,24 +6,30 @@ from types import SimpleNamespace
 from typing import Any, Dict
 
 def _safe_call(fn, prefer: Dict[str, Any], extra: Dict[str, Any], *, verbose: bool = False):
-    """按底层函数签名做白名单过滤并去重调用。"""
+    """按底层函数签名做白名单过滤并去重调用。
+
+    prefer 中的 None 值不会覆盖 extra 中的有效值，
+    确保用户通过 kwargs 传入的参数优先于框架默认的 None 值。
+    """
     sig = inspect.signature(fn)
     allowed = set(sig.parameters.keys())
-    prefer_keys = set(prefer.keys())
+
+    # prefer 中值为 None 的 key 不参与覆盖
+    prefer_keys = {k for k, v in prefer.items() if v is not None}
     extra_keys = set(extra.keys())
-    
+
     conflict = sorted(list(prefer_keys & extra_keys))
     invalid = sorted(list(extra_keys - allowed))
-    
-    filtered_extra = {k: v for k, v in extra.items() if k in allowed and k not in prefer}
-    filtered_prefer = {k: v for k, v in prefer.items() if k in allowed}
-    
-    # if verbose:
-    #     if conflict:
-    #         print(f"[safe_call] drop duplicated keys from extra: {conflict}")
-    #     if invalid:
-    #         print(f"[safe_call] drop invalid keys (not in signature): {invalid}")
-    
+
+    if verbose:
+        if conflict:
+            print(f"[safe_call] prefer keys override extra: {conflict}")
+        if invalid:
+            print(f"[safe_call] drop invalid keys (not in signature): {invalid}")
+
+    filtered_extra = {k: v for k, v in extra.items() if k in allowed and k not in prefer_keys}
+    filtered_prefer = {k: v for k, v in prefer.items() if k in allowed and v is not None}
+
     merged = {**filtered_extra, **filtered_prefer}
     return fn(**merged)
 
@@ -73,7 +79,7 @@ def load_data(
                     'use_augment', 'use_prefetcher', 'drop_last']:
             if key in extra_kwargs:
                 del extra_kwargs[key]
-        return _safe_call(load_thyrotriples, prefer, extra_kwargs, verbose=True)  # 开启 verbose 调试
+        return _safe_call(load_thyrotriples, prefer, extra_kwargs, verbose=False)
     
 
     elif 'VisualGenome' in dataname or 'OpenImagesV6' in dataname:

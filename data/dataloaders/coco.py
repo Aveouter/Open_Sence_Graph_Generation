@@ -8,6 +8,7 @@ Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references
 """
 from pathlib import Path
 import json
+import os
 import torch
 import torch.utils.data
 import torchvision
@@ -24,8 +25,9 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         # print(f"Initialized CocoDetection with data_name: {self.data_name}")
 
 
-        #TODO load relationship
-        with open('/'.join(ann_file.split('/')[:-1])+'/rel.json', 'r') as f:
+        # load relationship annotations
+        ann_dir = os.path.dirname(ann_file)
+        with open(os.path.join(ann_dir, 'rel.json'), 'r') as f:
             all_rels = json.load(f)
         if 'train' in ann_file:
             self.rel_annotations = all_rels['train']
@@ -39,7 +41,12 @@ class CocoDetection(torchvision.datasets.CocoDetection):
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
-        rel_target = self.rel_annotations[str(image_id)]
+        # rel.json keys can be str or int depending on the split;
+        # try str first, then int as fallback.
+        rel_key = str(image_id)
+        if rel_key not in self.rel_annotations and isinstance(image_id, int):
+            rel_key = image_id
+        rel_target = self.rel_annotations[rel_key]
 
         target = {'image_id': image_id, 'annotations': target, 'rel_annotations': rel_target}
 

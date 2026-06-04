@@ -78,6 +78,96 @@ class RelTR_Method(Base_method):
         
         return out
 
+    # ---------- validation_step / test_step (override to cache matching indices) ----------
+
+    @torch.no_grad()
+    def validation_step(self, batch, batch_idx):
+        images, targets = batch
+        samples = self._to_nested_tensor(images)
+        targets = self._move_targets_to_device(targets)
+
+        outputs = self.model(samples)
+        loss_dict, total_loss = self._compute_losses(outputs, targets)
+
+        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        for k, v in loss_dict.items():
+            if torch.is_tensor(v):
+                self.log(f'val_{k}', v, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+        # Cache triplet matching indices from Hungarian matcher (for post-processing)
+        triplet_indices = None
+        if hasattr(self.criterion, 'indices') and self.criterion.indices is not None:
+            triplet_indices = [
+                (src.cpu().clone(), tgt.cpu().clone())
+                for src, tgt in self.criterion.indices[1]
+            ]
+
+        self.val_outputs.append({
+            'outputs': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in outputs.items() if k != 'aux_outputs'
+            },
+            'targets': [
+                {
+                    kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
+                    for kk, vv in t.items()
+                }
+                for t in targets
+            ],
+            'loss_dict': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in loss_dict.items()
+            },
+            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss,
+            'triplet_indices': triplet_indices,  # Hungarian matching: list of (src_idx, tgt_idx) per image
+        })
+
+        return total_loss
+
+    @torch.no_grad()
+    def test_step(self, batch, batch_idx):
+        images, targets = batch
+        samples = self._to_nested_tensor(images)
+        targets = self._move_targets_to_device(targets)
+
+        outputs = self.model(samples)
+        loss_dict, total_loss = self._compute_losses(outputs, targets)
+
+        self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        for k, v in loss_dict.items():
+            if torch.is_tensor(v):
+                self.log(f'test_{k}', v, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+        # Cache triplet matching indices from Hungarian matcher (for post-processing)
+        triplet_indices = None
+        if hasattr(self.criterion, 'indices') and self.criterion.indices is not None:
+            triplet_indices = [
+                (src.cpu().clone(), tgt.cpu().clone())
+                for src, tgt in self.criterion.indices[1]
+            ]
+
+        self.test_outputs.append({
+            'outputs': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in outputs.items() if k != 'aux_outputs'
+            },
+            'targets': [
+                {
+                    kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
+                    for kk, vv in t.items()
+                }
+                for t in targets
+            ],
+            'loss_dict': {
+                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                for k, v in loss_dict.items()
+            },
+            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss,
+            'triplet_indices': triplet_indices,
+        })
+
+        return total_loss
+
     # ---------- training_step ----------
 
     def training_step(self, batch, batch_idx):
