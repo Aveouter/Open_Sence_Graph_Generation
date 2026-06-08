@@ -44,7 +44,7 @@ def create_parser():
 
     # method parameters
     parser.add_argument('--method', '-m', default='HSTRNet', type=str,
-                        choices=['RelTR', 'HSTRNet', 'EGTR'],
+                        choices=['RelTR', 'HSTRNet', 'EGTR', 'FlowSG'],
                         help='Name of SGG method to train (default: "HSTRNet")')
     parser.add_argument('--config_file', '-c', default=None, type=str,
                         help='Path to the default config file')

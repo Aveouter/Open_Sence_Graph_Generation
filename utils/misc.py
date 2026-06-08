@@ -264,12 +264,10 @@ def get_sha():
     message = f"sha: {sha}, status: {diff}, branch: {branch}"
     return message
 
-
 def collate_fn(batch, fixed_max_size=None):
     batch = list(zip(*batch))
     batch[0] = nested_tensor_from_tensor_list(batch[0], fixed_max_size=fixed_max_size)
     return tuple(batch)
-
 
 def _max_by_axis(the_list):
     # type: (List[List[int]]) -> List[int]
