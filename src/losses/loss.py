@@ -152,7 +152,9 @@ LOSS_FACTORY = {
     "mse": nn.MSELoss,
     "bce": nn.BCEWithLogitsLoss,
     "hstrnet_loss": HSTRCriterion,
-    "reltr_loss": None,  # RelTR 的 loss 比较特殊，直接在 reltr_method.py 里写死了
+    "reltr_loss": None,  # RelTR criterion built in reltr_method._build_model
+    "egtr_loss": None,   # EGTR criterion built in egtr_method._build_model
+    "flowsg_loss": None,  # FlowSG criterion built in flowsg_method._build_model
 }
 
 

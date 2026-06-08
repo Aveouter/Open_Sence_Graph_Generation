@@ -43,7 +43,37 @@ from PIL import Image
 from torch import Tensor, nn
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
-from transformers import DetrFeatureExtractor
+
+# Compatibility: DetrFeatureExtractor was renamed to DetrImageProcessor in
+# newer versions of transformers.  Provide a shim that works with both.
+try:
+    from transformers import DetrFeatureExtractor as _DetrBase
+except ImportError:
+    from transformers.models.detr.image_processing_detr import DetrImageProcessor as _DetrBase
+
+
+class _DetrFeatureExtractorCompat(_DetrBase):
+    """Shim providing to_pil_image for newer DetrImageProcessor base."""
+
+    def to_pil_image(self, image, *args, **kwargs):
+        """Convert a tensor / numpy array to PIL Image."""
+        import numpy as np
+        if isinstance(image, Image.Image):
+            return image
+        if isinstance(image, np.ndarray):
+            if image.dtype == np.float32:
+                image = (image * 255).astype(np.uint8)
+            return Image.fromarray(image.transpose(1, 2, 0) if image.ndim == 3 else image)
+        if isinstance(image, torch.Tensor):
+            image = image.detach().cpu().numpy()
+            if image.dtype == np.float32:
+                image = (image * 255).astype(np.uint8)
+            return Image.fromarray(image.transpose(1, 2, 0) if image.ndim == 3 else image)
+        raise TypeError(f"Unsupported image type: {type(image)}")
+
+
+# Alias so the rest of the file works with either base
+DetrFeatureExtractor = _DetrFeatureExtractorCompat
 from transformers.activations import ACT2FN
 from transformers.file_utils import (
     ModelOutput,
@@ -55,7 +85,8 @@ from transformers.file_utils import (
     requires_backends,
 )
 from transformers.modeling_outputs import BaseModelOutput
-from transformers.modeling_utils import PretrainedConfig, PreTrainedModel
+from transformers.configuration_utils import PretrainedConfig
+from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import logging
 
 from src.modules.egtr import transform as T
@@ -460,7 +491,7 @@ if is_scipy_available():
     from scipy.optimize import linear_sum_assignment
 
 if is_vision_available():
-    from transformers.models.detr.feature_extraction_detr import (
+    from transformers.models.detr.image_processing_detr import (
         center_to_corners_format,
     )
 
@@ -749,7 +780,7 @@ class DeformableDetrTimmConvEncoder(nn.Module):
         out_indices = (2, 3, 4) if config.num_feature_levels > 1 else (4,)
         backbone = create_model(
             config.backbone,
-            pretrained=True,
+            pretrained=False,  # offline env — weights loaded from checkpoint
             features_only=True,
             out_indices=out_indices,
             **kwargs,

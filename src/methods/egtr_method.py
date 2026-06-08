@@ -167,6 +167,10 @@ class EGTR_Method(Base_method):
         super().__init__(**args)
         self.feature_extractor = None
 
+    def _build_criterion(self, **args):
+        """EGTR criterion is built inside _build_model. Skip base class construction."""
+        return None
+
     def _build_model(self, **args):
         model, feature_extractor = build_egtr(self.hparams)
         self.feature_extractor = feature_extractor
