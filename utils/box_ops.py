@@ -60,6 +60,46 @@ def generalized_box_iou(boxes1, boxes2):
     return iou - (area - union) / area
 
 
+def generalized_box_iou_1to1(boxes1, boxes2):
+    """Generalized IoU for 1:1 matched box pairs (no pairwise matrix).
+
+    Unlike ``generalized_box_iou`` which returns a [N, M] pairwise matrix,
+    this computes GIoU only between boxes1[i] and boxes2[i], returning a
+    [N] vector.  Use this when boxes are already paired.
+
+    Args:
+        boxes1: [N, 4] tensor in (x0, y0, x1, y1) format
+        boxes2: [N, 4] tensor in (x0, y0, x1, y1) format
+
+    Returns:
+        [N] tensor of GIoU values
+    """
+    assert (boxes1[:, 2:] >= boxes1[:, :2]).all(), boxes1
+    assert (boxes2[:, 2:] >= boxes2[:, :2]).all(), boxes2
+
+    # Intersection
+    lt = torch.max(boxes1[:, :2], boxes2[:, :2])
+    rb = torch.min(boxes1[:, 2:], boxes2[:, 2:])
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:, 0] * wh[:, 1]
+
+    # Union
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+    union = area1 + area2 - inter
+
+    # IoU
+    iou = inter / union
+
+    # Enclosing box
+    lt_c = torch.min(boxes1[:, :2], boxes2[:, :2])
+    rb_c = torch.max(boxes1[:, 2:], boxes2[:, 2:])
+    wh_c = (rb_c - lt_c).clamp(min=0)
+    area_c = wh_c[:, 0] * wh_c[:, 1]
+
+    return iou - (area_c - union) / area_c
+
+
 def masks_to_boxes(masks):
     """Compute the bounding boxes around the provided masks
 

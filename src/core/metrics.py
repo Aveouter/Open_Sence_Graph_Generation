@@ -189,12 +189,14 @@ def _parse_metric_names(metric_names: List[str]) -> List[Dict[str, Any]]:
 # Extend this dict to add support for new architectures.
 _MODEL_SCHEMAS = {
     "reltr": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
+    "flowsg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
 }
 
 # Which tasks each model family supports
 _MODEL_TASKS = {
     "reltr": {"sgdet", "predcls", "sgcls"},
+    "flowsg": {"sgdet", "predcls", "sgcls"},  # FlowSG outputs RelTR-compatible format
     "hstrnet": {"predcls"},  # HSTRNet: no predicted boxes → PredCLS only
 }
 
