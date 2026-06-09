@@ -11,6 +11,16 @@ wandb/
 lightning_logs/
 lib/fpn/box_intersections_cpu/
 
+# ---- New unified outputs (replaces scattered old dirs) ----
+outputs/runs/
+outputs/pretrained/**/*.pth
+outputs/pretrained/**/*.pt
+outputs/pretrained/**/*.ckpt
+outputs/pretrained/**/*.tar
+outputs/pretrained/**/*.tar.gz
+outputs/pretrained/**/*.zip
+!outputs/pretrained/README.md
+
 __pycache__/
 *.pyc
 

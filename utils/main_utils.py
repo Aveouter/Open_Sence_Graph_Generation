@@ -135,14 +135,21 @@ def load_config(filename:str = None):
         print('warning: fail to load the config!')
     return config
 
-def update_config(args, config, exclude_keys=list()):
-    """update the args dict with a new config"""
+def update_config(args, config, exclude_keys=None):
+    """Update the args dict with a new config dict.
+
+    CLI args (``args``) take priority: a config key is only applied when
+    the corresponding CLI arg is missing (not in args) or explicitly None.
+    Keys in ``exclude_keys`` are never overwritten by the config file.
+    """
+    if exclude_keys is None:
+        exclude_keys = []
     assert isinstance(args, dict) and isinstance(config, dict)
     for k in config.keys():
         if k in exclude_keys:
             continue  # keep command-line value, don't touch
-        if args.get(k, False):
-            if args[k] != config[k] and args[k] is not None:
+        if k in args and args[k] is not None:
+            if args[k] != config[k]:
                 print(f'overwrite config key -- {k}: {config[k]} -> {args[k]}')
         else:
             args[k] = config[k]

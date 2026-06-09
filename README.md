@@ -72,14 +72,14 @@ Config files are auto-loaded from `configs/<DatasetName>/<MethodName>.py`. Comma
 python train.py --test \
   --method RelTR \
   --dataname VisualGenome \
-  --ckpt_path results/<ex_name>/checkpoints/best-epoch=*.ckpt \
+  --ckpt_path outputs/runs/<method>/<ex_name>/checkpoints/best-epoch=*.ckpt \
   --gpus 0
 
 # Test with PyTorch checkpoint (.pth / .pt)
 python train.py --test \
   --method RelTR \
   --dataname VisualGenome \
-  --ckpt_path checkpoints/checkpoint0149.pth \
+  --ckpt_path outputs/pretrained/other/checkpoint0149.pth \
   --gpus 0
 ```
 
@@ -203,7 +203,9 @@ OpenSGG/
 ├── scripts/                          # Utility scripts
 │   ├── clip/                         # CLIP prototype/embedding builders
 │   └── cluster/                      # Clustering utilities
-└── checkpoints/                      # Pretrained checkpoints (symlink or copy)
+└── outputs/                           # All run artifacts
+    ├── pretrained/                    # Downloaded pretrained weights
+    └── runs/                          # Experiment outputs (logs, ckpts, eval)
 ```
 
 ## Evaluation Modes

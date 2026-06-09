@@ -8,6 +8,7 @@ Depends on HuggingFace transformers (DeformableDetrConfig, DeformableDetrFeature
 """
 
 import torch
+import pickle
 import torch.nn as nn
 from .base_method import Base_method
 
@@ -61,7 +62,7 @@ def build_egtr(args):
             config = DeformableDetrConfig.from_pretrained(pretrained_path)
         else:
             config = DeformableDetrConfig.from_pretrained(architecture)
-    except (OSError, ValueError, EnvironmentError):
+    except (OSError, ValueError, EnvironmentError, pickle.UnpicklingError):
         # Offline mode: create config from scratch with defaults
         config = DeformableDetrConfig(
             backbone='resnet50',
@@ -126,26 +127,21 @@ def build_egtr(args):
             ignore_mismatched_sizes=True,
             fg_matrix=fg_matrix,
         )
-    except (OSError, ValueError, EnvironmentError):
+    except (OSError, ValueError, EnvironmentError, pickle.UnpicklingError):
         # Offline: instantiate model directly without pretrained weights
         model = DetrForSceneGraphGeneration(config, fg_matrix=fg_matrix)
 
-    # Load custom checkpoint if provided (for inference)
-    ckpt_path = getattr(args, 'ckpt_path', None)
-    if ckpt_path and pretrained_path:
-        state_dict = torch.load(ckpt_path, map_location='cpu')
-        if 'state_dict' in state_dict:
-            state_dict = state_dict['state_dict']
-        # Remove "model." prefix if present
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            if k.startswith('model.'):
-                new_state_dict[k[6:]] = v
-            else:
-                new_state_dict[k] = v
-        model.load_state_dict(new_state_dict, strict=False)
-
     model.to(device)
+
+    # Load custom checkpoint if provided (handles size mismatches).
+    # When using BaseExperiment, ckpt loading is also done in
+    # BaseExperiment.test() as the authoritative step; this is a
+    # convenience path for standalone / non-Lightning usage.
+    ckpt_path = getattr(args, 'ckpt_path', None)
+    if ckpt_path:
+        from src.exp import BaseExperiment
+        state_dict = BaseExperiment._load_checkpoint_state_dict(ckpt_path)
+        BaseExperiment._adapt_state_dict(state_dict, model)
 
     return model, feature_extractor
 

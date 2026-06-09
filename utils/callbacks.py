@@ -1,18 +1,22 @@
 import json
-import shutil
 import logging
+import os
 import os.path as osp
+import shutil
+
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
-from .main_utils import check_dir, collect_env, print_log, output_namespace
+
+from .main_utils import check_dir, collect_env, output_namespace, print_log
 
 
 class SetupCallback(Callback):
-    def __init__(self, prefix, setup_time, save_dir, ckpt_dir, args, method_info, argv_content=None):
+    """Creates run directories and initialises logging on ``on_fit_start``."""
+
+    def __init__(self, prefix, setup_time, paths, args, method_info, argv_content=None):
         super().__init__()
         self.prefix = prefix
         self.setup_time = setup_time
-        self.save_dir = save_dir
-        self.ckpt_dir = ckpt_dir
+        self.paths = paths            # dict from resolve_output_paths()
         self.args = args
         self.config = args.__dict__
         self.argv_content = argv_content
@@ -24,25 +28,41 @@ class SetupCallback(Callback):
         dash_line = '-' * 60 + '\n'
 
         if trainer.global_rank == 0:
-            # check dirs
-            self.save_dir = check_dir(self.save_dir)
-            self.ckpt_dir = check_dir(self.ckpt_dir)
-            # setup log
+            run_dir = self.paths['run_dir']
+            ckpt_dir = self.paths['ckpt_dir']
+            config_dir = self.paths['config_dir']
+            log_file = self.paths['log_file']
+            config_file = self.paths['config_file']
+            args_file = self.paths['args_file']
+
+            # ensure directories
+            check_dir(run_dir)
+            check_dir(ckpt_dir)
+            check_dir(config_dir)
+
+            # setup logging
             for handler in logging.root.handlers[:]:
                 logging.root.removeHandler(handler)
-            logging.basicConfig(level=logging.INFO,
-                filename=osp.join(self.save_dir, '{}_{}.log'.format(self.prefix, self.setup_time)),
-                filemode='a', format='%(asctime)s - %(message)s')
+            logging.basicConfig(
+                level=logging.INFO,
+                filename=log_file,
+                filemode='a',
+                format='%(asctime)s - %(message)s',
+            )
+
             # print env info
             print_log('Environment info:\n' + dash_line + env_info + '\n' + dash_line)
-            sv_param = osp.join(self.save_dir, 'model_param.json')
-            with open(sv_param, 'w') as file_obj:
-                json.dump(self.config, file_obj)
+
+            # save config files
+            with open(config_file, 'w') as f:
+                json.dump(self.config, f, indent=2, default=str)
+            with open(args_file, 'w') as f:
+                json.dump({'argv': self.argv_content} if self.argv_content else {}, f, indent=2)
 
             print_log(output_namespace(self.args))
             if self.method_info is not None:
                 info, flops, fps, dash_line = self.method_info
-                print_log('Model info:\n' + info+'\n' + flops+'\n' + fps + dash_line)
+                print_log('Model info:\n' + info + '\n' + flops + '\n' + fps + dash_line)
 
 
 class EpochEndCallback(Callback):
@@ -54,7 +74,12 @@ class EpochEndCallback(Callback):
         avg_val_loss = trainer.callback_metrics.get('val_loss')
 
         if hasattr(self, 'avg_train_loss'):
-            print_log(f"Epoch {trainer.current_epoch}: Lr: {lr:.7f} | Train Loss: {self.avg_train_loss:.7f} | Vali Loss: {avg_val_loss:.7f}")
+            print_log(
+                f"Epoch {trainer.current_epoch}: "
+                f"Lr: {lr:.7f} | Train Loss: {self.avg_train_loss:.7f} | "
+                f"Vali Loss: {avg_val_loss:.7f}"
+            )
+
 
 class BestCheckpointCallback(ModelCheckpoint):
     def on_validation_epoch_end(self, trainer, pl_module):
