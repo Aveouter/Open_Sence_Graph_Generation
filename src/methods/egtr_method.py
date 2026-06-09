@@ -8,6 +8,7 @@ Depends on HuggingFace transformers (DeformableDetrConfig, DeformableDetrFeature
 """
 
 import torch
+import pickle
 import torch.nn as nn
 from .base_method import Base_method
 
@@ -61,7 +62,7 @@ def build_egtr(args):
             config = DeformableDetrConfig.from_pretrained(pretrained_path)
         else:
             config = DeformableDetrConfig.from_pretrained(architecture)
-    except (OSError, ValueError, EnvironmentError):
+    except (OSError, ValueError, EnvironmentError, pickle.UnpicklingError):
         # Offline mode: create config from scratch with defaults
         config = DeformableDetrConfig(
             backbone='resnet50',
@@ -126,7 +127,7 @@ def build_egtr(args):
             ignore_mismatched_sizes=True,
             fg_matrix=fg_matrix,
         )
-    except (OSError, ValueError, EnvironmentError):
+    except (OSError, ValueError, EnvironmentError, pickle.UnpicklingError):
         # Offline: instantiate model directly without pretrained weights
         model = DetrForSceneGraphGeneration(config, fg_matrix=fg_matrix)
 
