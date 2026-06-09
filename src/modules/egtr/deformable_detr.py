@@ -2804,8 +2804,14 @@ class DeformableDetrLoss(nn.Module):
 
         loss_giou = 1 - torch.diag(
             generalized_box_iou(
-                center_to_corners_format(source_boxes),
-                center_to_corners_format(target_boxes),
+                center_to_corners_format(torch.cat([
+                    source_boxes[..., :2],
+                    source_boxes[..., 2:].clamp(min=1e-6)
+                ], dim=-1)),
+                center_to_corners_format(torch.cat([
+                    target_boxes[..., :2],
+                    target_boxes[..., 2:].clamp(min=1e-6)
+                ], dim=-1)),
             )
         )
         losses["loss_giou"] = loss_giou.sum() / num_boxes
@@ -3009,16 +3015,21 @@ class DeformableDetrHungarianMatcher(nn.Module):
         bbox_cost = torch.cdist(out_bbox, tgt_bbox, p=1)  # min 0 max 4
 
         # Compute the giou cost between boxes.
-        # Clamp predicted wh to >= 0 so center_to_corners_format produces
-        # valid boxes (x1 <= x2, y1 <= y2).  An early-epoch checkpoint may
-        # produce negative widths/heights for some queries.
+        # Clamp predicted AND target wh to >= 1e-6 so center_to_corners_format
+        # produces valid boxes (x1 <= x2, y1 <= y2).  An early-epoch checkpoint
+        # may produce negative widths/heights; target boxes may also have
+        # degenerate (zero-area) annotations.
         out_bbox_clamped = torch.cat([
             out_bbox[..., :2],
             out_bbox[..., 2:].clamp(min=1e-6)
         ], dim=-1)
+        tgt_bbox_clamped = torch.cat([
+            tgt_bbox[..., :2],
+            tgt_bbox[..., 2:].clamp(min=1e-6)
+        ], dim=-1)
         giou_cost = -generalized_box_iou(
             center_to_corners_format(out_bbox_clamped),
-            center_to_corners_format(tgt_bbox)
+            center_to_corners_format(tgt_bbox_clamped)
         )  # min -1 max 1
 
         # Final cost matrix
@@ -3027,6 +3038,9 @@ class DeformableDetrHungarianMatcher(nn.Module):
             + self.class_cost * class_cost
             + self.giou_cost * giou_cost
         )
+        # Guard against NaN/Inf in cost matrix from degenerate boxes or
+        # numerical instability in GIoU / focal cost computation.
+        cost_matrix = torch.nan_to_num(cost_matrix, nan=1e8, posinf=1e8, neginf=-1e8)
         cost_matrix = cost_matrix.view(bs, num_queries, -1).cpu()
 
         if self.smoothing:

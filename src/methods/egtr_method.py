@@ -80,11 +80,8 @@ def build_egtr(args):
         )
 
     # Override config with args
-    entity_n = getattr(args, 'entity_nums', 150)  # EGTR official: 150 obj classes
-    rel_n = getattr(args, 'rel_nums', 50)          # EGTR official: 50 pred classes
-    print(f'[Info] build_egtr: entity_nums={entity_n}, rel_nums={rel_n}')
-    config.num_labels = entity_n     # num object classes
-    config.num_rel_labels = rel_n     # num relation classes
+    config.num_labels = getattr(args, 'entity_nums', 151)       # num object classes
+    config.num_rel_labels = getattr(args, 'rel_nums', 51)        # num relation classes
     config.num_queries = getattr(args, 'num_queries', 200)
     config.use_freq_bias = getattr(args, 'use_freq_bias', True)
     config.logit_adjustment = getattr(args, 'logit_adjustment', False)
@@ -319,29 +316,15 @@ class EGTR_Method(Base_method):
 
         OpenSGG: dict with 'labels', 'boxes', 'rel_annotations' (sparse [N,3])
         EGTR: dict with 'class_labels', 'boxes', 'rel' (dense [num_queries, num_queries, num_rel])
-
-        CRITICAL: rel_matrix MUST be padded to num_queries.  The EGTR loss
-        function extends target indices with dummy query slots up to
-        num_object_queries, so indexing a GT-sized matrix with query-sized
-        indices triggers CUDA device-side assert.
         """
-        # Resolve model's num_queries and num_rel_labels from the built model
-        model_config = getattr(self.model, 'config', None)
-        num_labels = getattr(model_config, 'num_labels', 150) if model_config is not None else 150
-        num_queries = getattr(model_config, 'num_queries', 200) if model_config is not None else 200
-        num_rel_labels = getattr(model_config, 'num_rel_labels',
-                                 50) if model_config is not None else 50
-
         adapted = []
         for t in targets:
             at = {}
-            # Map keys, clamping labels to [0, num_labels) so they stay
-            # within the model's output dimension (VG data has labels in
-            # [0, 150] but EGTR uses entity_nums=150 → valid range [0, 149]).
+            # Map keys
             if 'labels' in t:
-                at['class_labels'] = torch.clamp(t['labels'], 0, num_labels - 1)
+                at['class_labels'] = t['labels']
             elif 'class_labels' in t:
-                at['class_labels'] = torch.clamp(t['class_labels'], 0, num_labels - 1)
+                at['class_labels'] = t['class_labels']
 
             if 'boxes' in t:
                 at['boxes'] = t['boxes']
@@ -359,27 +342,29 @@ class EGTR_Method(Base_method):
             if 'iscrowd' in t:
                 at['iscrowd'] = t['iscrowd']
 
-            device = t.get('labels', t.get('class_labels')).device
+            # Convert sparse rel_annotations to dense rel matrix.
+            # MUST be padded to num_queries: EGTR loss_relations indexes
+            # target["rel"] with full_target_index (length num_object_queries),
+            # which includes dummy slots beyond the GT objects.
+            model_config = getattr(self.model, 'config', None)
+            num_queries = getattr(model_config, 'num_queries', 200) if model_config is not None else 200
+            num_rel_labels = getattr(model_config, 'num_rel_labels', 51) if model_config is not None else 51
+            pad_size = max(num_queries, len(at.get('class_labels', at.get('labels', []))))
 
-            # Convert sparse rel_annotations to dense rel matrix padded to num_queries
             if 'rel_annotations' in t and 'class_labels' in at:
-                rel_matrix = torch.zeros(num_queries, num_queries, num_rel_labels,
-                                         device=device)
+                rel_matrix = torch.zeros(pad_size, pad_size, num_rel_labels,
+                                         device=t.get('labels', t.get('class_labels')).device)
                 for ann in t['rel_annotations']:
                     s, o, p = int(ann[0]), int(ann[1]), int(ann[2])
-                    if 0 <= s < num_queries and 0 <= o < num_queries and 0 <= p < num_rel_labels:
+                    if 0 <= s < pad_size and 0 <= o < pad_size and 0 <= p < num_rel_labels:
                         rel_matrix[s, o, p] = 1.0
                 at['rel'] = rel_matrix
             elif 'rel' in t:
                 at['rel'] = t['rel']
             else:
-                at['rel'] = torch.zeros(num_queries, num_queries, num_rel_labels,
-                                        device=device)
-
-            assert at['rel'].ndim == 3, \
-                f"rel must be 3D, got shape {at['rel'].shape}"
-            assert at['rel'].shape == (num_queries, num_queries, num_rel_labels), \
-                f"rel shape mismatch: {at['rel'].shape} vs ({num_queries},{num_queries},{num_rel_labels})"
+                # Create empty rel matrix padded to num_queries
+                at['rel'] = torch.zeros(pad_size, pad_size, num_rel_labels,
+                                        device=self.device)
 
             adapted.append(at)
         return adapted

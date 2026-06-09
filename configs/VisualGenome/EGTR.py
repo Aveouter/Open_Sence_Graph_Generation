@@ -59,8 +59,8 @@ logit_adj_tau = 0.3
 # ===== dataset =====
 dataset = 'VisualGenome'
 dataname = 'VisualGenome'
-entity_nums = 150            # EGTR convention: 150 object classes, bg handled via matcher
-rel_nums = 50                # EGTR convention: 50 predicate classes, no separate bg dim
+entity_nums = 151             # 150 obj classes + 1 background
+rel_nums = 51                 # 50 pred classes + 1 background
 
 # ===== image preprocessing =====
 min_size = 800
