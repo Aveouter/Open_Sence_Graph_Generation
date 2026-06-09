@@ -327,18 +327,21 @@ class EGTR_Method(Base_method):
         """
         # Resolve model's num_queries and num_rel_labels from the built model
         model_config = getattr(self.model, 'config', None)
+        num_labels = getattr(model_config, 'num_labels', 150) if model_config is not None else 150
         num_queries = getattr(model_config, 'num_queries', 200) if model_config is not None else 200
         num_rel_labels = getattr(model_config, 'num_rel_labels',
-                                 self.hparams.rel_nums) if model_config is not None else self.hparams.rel_nums
+                                 50) if model_config is not None else 50
 
         adapted = []
         for t in targets:
             at = {}
-            # Map keys
+            # Map keys, clamping labels to [0, num_labels) so they stay
+            # within the model's output dimension (VG data has labels in
+            # [0, 150] but EGTR uses entity_nums=150 → valid range [0, 149]).
             if 'labels' in t:
-                at['class_labels'] = t['labels']
+                at['class_labels'] = torch.clamp(t['labels'], 0, num_labels - 1)
             elif 'class_labels' in t:
-                at['class_labels'] = t['class_labels']
+                at['class_labels'] = torch.clamp(t['class_labels'], 0, num_labels - 1)
 
             if 'boxes' in t:
                 at['boxes'] = t['boxes']
