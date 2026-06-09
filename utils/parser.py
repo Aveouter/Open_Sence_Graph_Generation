@@ -11,8 +11,16 @@ def create_parser():
                         help='Name of device to use for tensor computations (cuda/cpu)')
     parser.add_argument('--dist', action='store_true', default=False,
                         help='Whether to use distributed training (DDP)')
-    parser.add_argument('--res_dir', default='./results', type=str)
-    parser.add_argument('--ex_name', '-ex', default='Debug', type=str)
+    parser.add_argument('--output_dir', default='./outputs', type=str,
+                        help='Root directory for all outputs (runs, pretrained weights, etc.)')
+    parser.add_argument('--ex_name', '-ex', default='Debug', type=str,
+                        help='Experiment name. Auto-prefixed with date if not already YYYY-MM-DD_.')
+    parser.add_argument('--overwrite', action='store_true', default=False,
+                        help='Overwrite existing run directory instead of auto-incrementing (_001, _002, ...). '
+                             'Also allows CLI args to overwrite config file values.')
+    parser.add_argument('--eval_mode', default='sgdet', type=str,
+                        choices=['predcls', 'sgcls', 'sgdet'],
+                        help='Evaluation mode for saving results (default: sgdet).')
     parser.add_argument('--fp16', action='store_true', default=False,
                         help='Whether to use Native AMP for mixed precision training (PyTorch=>1.6.0)')
     parser.add_argument('--torchscript', action='store_true', default=False,
@@ -52,9 +60,6 @@ def create_parser():
                         help='Name of model for SimVP (default: None)')
     parser.add_argument('--drop', type=float, default=0.0, help='Dropout rate(default: 0.)')
     parser.add_argument('--drop_path', type=float, default=0.0, help='Drop path rate for SimVP (default: 0.)')
-    parser.add_argument('--overwrite', action='store_true', default=False,
-                        help='Whether to allow overwriting the provided config file with args')
-
     # Training parameters (optimizer)
     parser.add_argument('--epoch', '-e', default=None, type=int, help='end epochs (default: 200)')
     parser.add_argument('--log_step', default=1, type=int, help='Log interval by step')
@@ -126,7 +131,7 @@ def default_parser():
         # Set-up parameters
         'device': 'cuda',
         'dist': False,
-        'res_dir': 'results',
+        'output_dir': './outputs',
         'ex_name': 'Debug',
         'fp16': False,
         'torchscript': False,
