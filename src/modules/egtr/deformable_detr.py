@@ -3008,9 +3008,17 @@ class DeformableDetrHungarianMatcher(nn.Module):
         # Compute the L1 cost between boxes
         bbox_cost = torch.cdist(out_bbox, tgt_bbox, p=1)  # min 0 max 4
 
-        # Compute the giou cost between boxes
+        # Compute the giou cost between boxes.
+        # Clamp predicted wh to >= 0 so center_to_corners_format produces
+        # valid boxes (x1 <= x2, y1 <= y2).  An early-epoch checkpoint may
+        # produce negative widths/heights for some queries.
+        out_bbox_clamped = torch.cat([
+            out_bbox[..., :2],
+            out_bbox[..., 2:].clamp(min=1e-6)
+        ], dim=-1)
         giou_cost = -generalized_box_iou(
-            center_to_corners_format(out_bbox), center_to_corners_format(tgt_bbox)
+            center_to_corners_format(out_bbox_clamped),
+            center_to_corners_format(tgt_bbox)
         )  # min -1 max 1
 
         # Final cost matrix
