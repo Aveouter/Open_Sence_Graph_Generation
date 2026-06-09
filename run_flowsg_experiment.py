@@ -5,6 +5,7 @@ Usage:
   python run_flowsg_experiment.py [--epochs 20] [--train_size 500] [--batch_size 4]
 """
 import sys, os, json, time, gc, argparse
+from datetime import datetime
 import torch
 import numpy as np
 from torch.utils.data import DataLoader, Subset
@@ -170,12 +171,21 @@ for k, v in sorted(eval_res.items()):
     print(f"  {k}: {v:.4f}")
 
 # Save results
-result_file = f'results/flowsg_experiment_epoch{args_cli.epochs}_train{train_n}.json'
-os.makedirs('results', exist_ok=True)
-with open(result_file, 'w') as f:
-    json.dump({
-        'config': vars(args_cli),
-        'train_losses': all_train_losses,
-        'eval_results': {k: float(v) for k, v in eval_res.items()},
-    }, f, indent=2)
-print(f"\nResults saved to {result_file}")
+from utils.path_utils import (
+    resolve_output_paths, normalize_ex_name, ensure_unique_run_dir,
+    save_eval_results, collect_metadata, write_metadata,
+)
+
+raw_name = f"{args_cli.epochs}e_{args_cli.train_size}n"
+ex_name = normalize_ex_name(raw_name)
+mock_args = SimpleNamespace(method='flowsg', ex_name=ex_name, output_dir='./outputs', seed=a.seed)
+paths = resolve_output_paths(mock_args)
+run_dir, actual_ex_name = ensure_unique_run_dir(paths['run_dir'])
+paths = resolve_output_paths(mock_args, run_dir_override=run_dir)
+
+metadata = collect_metadata(mock_args, run_dir, datetime.now().isoformat())
+metadata['ex_name'] = actual_ex_name
+write_metadata(run_dir, metadata)
+
+save_eval_results(osp.join(run_dir, 'eval'), 'sgdet', eval_res)
+print(f"\nResults saved to {run_dir}/eval/sgdet/")

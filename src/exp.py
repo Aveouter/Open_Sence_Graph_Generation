@@ -2,10 +2,12 @@ import os
 import sys
 import time
 import os.path as osp
+from datetime import datetime
 
 import torch
 from fvcore.nn import FlopCountAnalysis, flop_count_table
 from lightning import seed_everything, Trainer
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.profilers import AdvancedProfiler
 import lightning.pytorch.callbacks as lc
 
@@ -17,6 +19,14 @@ from utils import (
     SetupCallback,
     EpochEndCallback,
     BestCheckpointCallback,
+)
+from utils.path_utils import (
+    resolve_output_paths,
+    normalize_ex_name,
+    ensure_unique_run_dir,
+    collect_metadata,
+    write_metadata,
+    save_eval_results,
 )
 
 
@@ -30,25 +40,35 @@ class BaseExperiment(object):
         self.args.method = self.args.method.lower()
         self._dist = self.args.dist
 
-        base_dir = args.res_dir if args.res_dir is not None else 'results'
-        save_dir = osp.join(
-            base_dir,
-            args.ex_name if not args.ex_name.startswith(args.res_dir)
-            else args.ex_name.split(args.res_dir + '/')[-1]
+        # ---- normalise & resolve output paths ----
+        args.ex_name = normalize_ex_name(args.ex_name)
+        paths = resolve_output_paths(args)
+        run_dir, actual_ex_name = ensure_unique_run_dir(
+            paths['run_dir'],
+            overwrite=getattr(args, 'overwrite', False),
         )
-        ckpt_dir = osp.join(save_dir, 'checkpoints')
+        # re-resolve with the potentially-incremented directory
+        paths = resolve_output_paths(args, run_dir_override=run_dir)
+        self.paths = paths
+        self.save_dir = run_dir  # kept for backward-compat references
+
+        # ---- metadata (written immediately so a record exists even on early failure) ----
+        start_time = datetime.now().isoformat()
+        metadata = collect_metadata(args, run_dir, start_time)
+        metadata['ex_name'] = actual_ex_name   # CRITICAL: use resolved name, not raw input
+        write_metadata(run_dir, metadata)
 
         seed_everything(args.seed)
 
         self.data = self._get_data(dataloaders)
         self.method = method_maps[self.args.method](
             steps_per_epoch=len(self.data.train_loader),
-            save_dir=save_dir,
+            save_dir=run_dir,
             **self.config
         )
 
-        callbacks, self.save_dir = self._load_callbacks(args, save_dir, ckpt_dir)
-        self.trainer = self._init_trainer(self.args, callbacks, strategy)
+        callbacks, self.save_dir = self._load_callbacks(args, paths)
+        self.trainer = self._init_trainer(self.args, callbacks, strategy, paths)
 
     def _normalize_devices(self, devices):
         if devices is None:
@@ -96,12 +116,22 @@ class BaseExperiment(object):
 
         return accelerator, devices, device_count, resolved_strategy
 
-    def _init_trainer(self, args, callbacks, strategy):
+    def _init_trainer(self, args, callbacks, strategy, paths):
         accelerator, devices, device_count, resolved_strategy = self._resolve_trainer_runtime(args, strategy)
 
         profiler = None
         if device_count <= 1:
-            profiler = AdvancedProfiler(dirpath="logs", filename="profile.txt")
+            profiler = AdvancedProfiler(
+                dirpath=paths['profiler_dir'],
+                filename="profile.txt",
+            )
+
+        # CSVLogger writes lightning metrics directly into run_dir/lightning/
+        logger = CSVLogger(
+            save_dir=paths['lightning_dir'],
+            name='',
+            version='',
+        )
 
         trainer_kwargs = dict(
             devices=devices,
@@ -110,6 +140,7 @@ class BaseExperiment(object):
             profiler=profiler,
             accelerator=accelerator,
             callbacks=callbacks,
+            logger=logger,
             log_every_n_steps=1,
         )
 
@@ -118,7 +149,7 @@ class BaseExperiment(object):
 
         return Trainer(**trainer_kwargs)
 
-    def _load_callbacks(self, args, save_dir, ckpt_dir):
+    def _load_callbacks(self, args, paths):
         method_info = None
         if self._dist == 0 and (not self.args.no_display_method_info):
             method_info = self.display_method_info(args)
@@ -126,8 +157,7 @@ class BaseExperiment(object):
         setup_callback = SetupCallback(
             prefix='train' if (not args.test) else 'test',
             setup_time=time.strftime('%Y%m%d_%H%M%S', time.localtime()),
-            save_dir=save_dir,
-            ckpt_dir=ckpt_dir,
+            paths=paths,
             args=args,
             method_info=method_info,
             argv_content=sys.argv + [f"gpus: {torch.cuda.device_count()}"],
@@ -138,7 +168,7 @@ class BaseExperiment(object):
             filename='best-{epoch:02d}-{val_loss:.3f}',
             mode='min',
             save_last=True,
-            dirpath=ckpt_dir,
+            dirpath=paths['ckpt_dir'],
             verbose=True,
             every_n_epochs=args.log_step,
         )
@@ -149,7 +179,7 @@ class BaseExperiment(object):
         if args.sched:
             callbacks.append(lc.LearningRateMonitor(logging_interval=None))
 
-        return callbacks, save_dir
+        return callbacks, paths['run_dir']
 
     def _get_data(self, dataloaders=None):
         """Prepare datasets and dataloaders."""
@@ -179,11 +209,11 @@ class BaseExperiment(object):
         3. Else directly test current model state.
         """
         ckpt_path = None
+        ckpt_dir = self.paths['ckpt_dir']
 
         if self.args.ckpt_path:
             ckpt_path = self.args.ckpt_path
         elif self.args.test:
-            ckpt_dir = osp.join(self.save_dir, 'checkpoints')
             last_ckpt = osp.join(ckpt_dir, 'last.ckpt')
 
             if osp.exists(last_ckpt):
@@ -200,13 +230,17 @@ class BaseExperiment(object):
 
         if ckpt_path is None:
             print('[Info] No checkpoint provided, testing current model state.')
-            return self.trainer.test(self.method, self.data)
+            result = self.trainer.test(self.method, self.data)
+            self._save_test_results(result)
+            return result
 
         ext = osp.splitext(ckpt_path)[1].lower()
 
         if ext == '.ckpt':
             print(f'[Info] Testing with Lightning checkpoint: {ckpt_path}')
-            return self.trainer.test(self.method, self.data, ckpt_path=ckpt_path)
+            result = self.trainer.test(self.method, self.data, ckpt_path=ckpt_path)
+            self._save_test_results(result)
+            return result
 
         if ext in ['.pth', '.pt']:
             print(f'[Info] Loading PyTorch weights from: {ckpt_path}')
@@ -269,9 +303,28 @@ class BaseExperiment(object):
             if len(unexpected) > 0:
                 print(unexpected[:20])
 
-            return self.trainer.test(self.method, self.data)
+            result = self.trainer.test(self.method, self.data)
+            self._save_test_results(result)
+            return result
 
         raise ValueError(f'Unsupported checkpoint format: {ckpt_path}')
+
+    def _save_test_results(self, result):
+        """Persist Lightning test results into ``eval/<eval_mode>/``."""
+        if result is None or len(result) == 0:
+            return
+
+        eval_mode = getattr(self.args, 'eval_mode', 'sgdet')
+        # Lightning test returns a list of dicts; merge them
+        if isinstance(result, list):
+            merged = {}
+            for d in result:
+                if isinstance(d, dict):
+                    merged.update({k: float(v) for k, v in d.items()})
+            save_eval_results(self.paths['eval_dir'], eval_mode, merged)
+        elif isinstance(result, dict):
+            save_eval_results(self.paths['eval_dir'], eval_mode,
+                              {k: float(v) for k, v in result.items()})
 
     def display_method_info(self, args):
         """

@@ -73,4 +73,4 @@ architecture = 'SenseTime/deformable-detr'
 device = 'cuda'
 num_workers = 4
 seed = 42
-egtr_pretrained_path = None  # set to pretrained DeformableDETR path for training
+egtr_pretrained_path = 'outputs/pretrained/egtr/egtr_vg.tar.gz'  # set to pretrained DeformableDETR path for training
