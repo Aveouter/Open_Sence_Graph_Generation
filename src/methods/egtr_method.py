@@ -315,7 +315,7 @@ class EGTR_Method(Base_method):
         Adapt target format from OpenSGG convention to EGTR convention.
 
         OpenSGG: dict with 'labels', 'boxes', 'rel_annotations' (sparse [N,3])
-        EGTR: dict with 'class_labels', 'boxes', 'rel' (dense [num_obj, num_obj, num_rel])
+        EGTR: dict with 'class_labels', 'boxes', 'rel' (dense [num_queries, num_queries, num_rel])
         """
         adapted = []
         for t in targets:
@@ -342,23 +342,29 @@ class EGTR_Method(Base_method):
             if 'iscrowd' in t:
                 at['iscrowd'] = t['iscrowd']
 
-            # Convert sparse rel_annotations to dense rel matrix
+            # Convert sparse rel_annotations to dense rel matrix.
+            # MUST be padded to num_queries: EGTR loss_relations indexes
+            # target["rel"] with full_target_index (length num_object_queries),
+            # which includes dummy slots beyond the GT objects.
+            model_config = getattr(self.model, 'config', None)
+            num_queries = getattr(model_config, 'num_queries', 200) if model_config is not None else 200
+            num_rel_labels = getattr(model_config, 'num_rel_labels', 51) if model_config is not None else 51
+            pad_size = max(num_queries, len(at.get('class_labels', at.get('labels', []))))
+
             if 'rel_annotations' in t and 'class_labels' in at:
-                num_obj = len(at['class_labels'])
-                num_rel = self.hparams.rel_nums  # e.g. 51
-                rel_matrix = torch.zeros(num_obj, num_obj, num_rel, device=t.get('labels', t.get('class_labels')).device)
+                rel_matrix = torch.zeros(pad_size, pad_size, num_rel_labels,
+                                         device=t.get('labels', t.get('class_labels')).device)
                 for ann in t['rel_annotations']:
-                    s, o, p = ann
-                    if s < num_obj and o < num_obj and p < num_rel:
+                    s, o, p = int(ann[0]), int(ann[1]), int(ann[2])
+                    if 0 <= s < pad_size and 0 <= o < pad_size and 0 <= p < num_rel_labels:
                         rel_matrix[s, o, p] = 1.0
                 at['rel'] = rel_matrix
             elif 'rel' in t:
                 at['rel'] = t['rel']
             else:
-                # Create empty rel matrix
-                num_obj = len(at.get('class_labels', at.get('labels', [])))
-                num_rel = self.hparams.rel_nums
-                at['rel'] = torch.zeros(num_obj, num_obj, num_rel, device=self.device)
+                # Create empty rel matrix padded to num_queries
+                at['rel'] = torch.zeros(pad_size, pad_size, num_rel_labels,
+                                        device=self.device)
 
             adapted.append(at)
         return adapted

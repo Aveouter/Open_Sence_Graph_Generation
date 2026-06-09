@@ -99,6 +99,7 @@ def box_iou(boxes1, boxes2):
     union = area1[:, None] + area2 - inter
 
     iou = inter / union
+    iou = torch.where(union > 0, iou, torch.zeros_like(iou))
     return iou, union
 
 
@@ -109,10 +110,10 @@ def generalized_box_iou(boxes1, boxes2):
     Returns:
         a [N, M] pairwise matrix, where N = len(boxes1) and M = len(boxes2)
     """
-    # degenerate boxes gives inf / nan results
-    # so do an early check
-    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
-    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
+    # Guard against degenerate boxes (negative width/height from floating-point
+    # precision or early-epoch instability) by clamping wh to non-negative.
+    boxes1 = torch.cat([boxes1[..., :2], boxes1[..., :2] + torch.clamp(boxes1[..., 2:] - boxes1[..., :2], min=0)], dim=-1)
+    boxes2 = torch.cat([boxes2[..., :2], boxes2[..., :2] + torch.clamp(boxes2[..., 2:] - boxes2[..., :2], min=0)], dim=-1)
     iou, union = box_iou(boxes1, boxes2)
 
     lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
@@ -121,7 +122,7 @@ def generalized_box_iou(boxes1, boxes2):
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     area = wh[:, :, 0] * wh[:, :, 1]
 
-    return iou - (area - union) / area
+    return iou - (area - union) / area.clamp(min=1e-12)
 
 
 # below: taken from https://github.com/facebookresearch/detr/blob/master/util/misc.py#L306

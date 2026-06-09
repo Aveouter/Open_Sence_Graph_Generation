@@ -80,7 +80,11 @@ def get_dataset(dataname, config):
     from data.dataloaders.dataset_constant import dataset_parameters
     from data.dataloaders.dataloader import load_data
     # from data.dataloaders.dataloader_weather import load_data
+    # Preserve model-specific keys (set by config file) from being
+    # overwritten by dataset-wide defaults.
+    saved = {k: config[k] for k in ('entity_nums', 'rel_nums') if k in config}
     config.update(dataset_parameters[dataname])
+    config.update(saved)  # config file values take priority over dataset defaults
     return load_data(**config)
 
 
