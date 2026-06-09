@@ -80,7 +80,10 @@ def get_dataset(dataname, config):
     from data.dataloaders.dataset_constant import dataset_parameters
     from data.dataloaders.dataloader import load_data
     # from data.dataloaders.dataloader_weather import load_data
-    config.update(dataset_parameters[dataname])
+    # Fill in dataset defaults for keys not already set by config file
+    for k, v in dataset_parameters[dataname].items():
+        if k not in config:
+            config[k] = v
     return load_data(**config)
 
 
