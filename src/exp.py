@@ -199,14 +199,12 @@ class BaseExperiment(object):
         )
 
     def test(self):
-        """
-        Test behavior:
-        1. If args.ckpt_path is provided, use it.
-        - .ckpt: use Lightning restore
-        - .pth/.pt: manually load state_dict
-        2. Else if args.test is True, try to load save_dir/checkpoints/last.ckpt first,
-        then fall back to best checkpoint in that folder.
-        3. Else directly test current model state.
+        """Test the model, loading a checkpoint if available.
+
+        Handles size mismatches between checkpoint and current model config
+        (e.g., different entity_nums / rel_nums) by truncating or padding
+        weight tensors.  Works for both Lightning (.ckpt) and raw PyTorch
+        (.pth / .pt) checkpoints.
         """
         ckpt_path = None
         ckpt_dir = self.paths['ckpt_dir']
@@ -234,80 +232,101 @@ class BaseExperiment(object):
             self._save_test_results(result)
             return result
 
-        ext = osp.splitext(ckpt_path)[1].lower()
+        # Load and adapt weights — unified for both .ckpt and .pth/.pt
+        print(f'[Info] Loading checkpoint: {ckpt_path}')
+        state_dict = self._load_checkpoint_state_dict(ckpt_path)
+        self._adapt_state_dict(state_dict, self.method.model)
+        result = self.trainer.test(self.method, self.data)
+        self._save_test_results(result)
+        return result
 
-        if ext == '.ckpt':
-            print(f'[Info] Testing with Lightning checkpoint: {ckpt_path}')
-            result = self.trainer.test(self.method, self.data, ckpt_path=ckpt_path)
-            self._save_test_results(result)
-            return result
+    # ------------------------------------------------------------------
+    # Checkpoint loading helpers (shared by train / test)
+    # ------------------------------------------------------------------
 
-        if ext in ['.pth', '.pt']:
-            print(f'[Info] Loading PyTorch weights from: {ckpt_path}')
-            # Try safe loading first; fall back with warning for legacy checkpoints
-            try:
-                ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
-            except Exception:
-                print('[Warning] weights_only=True failed, falling back to weights_only=False. '
-                      'Only use this with trusted checkpoints.')
-                ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+    @staticmethod
+    def _load_checkpoint_state_dict(ckpt_path: str):
+        """Extract a raw state dict from a .ckpt, .pth, or .pt file.
 
-            if isinstance(ckpt, dict):
-                if 'state_dict' in ckpt:
-                    state_dict = ckpt['state_dict']
-                elif 'model_state_dict' in ckpt:
-                    state_dict = ckpt['model_state_dict']
-                elif 'model' in ckpt:
-                    state_dict = ckpt['model']
-                else:
-                    state_dict = ckpt
+        Uses ``weights_only=True`` (PyTorch safe loading).  If a legacy
+        checkpoint requires ``weights_only=False``, manually import it
+        with ``torch.load(..., weights_only=False)`` and call
+        ``_adapt_state_dict`` yourself.
+        """
+        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+
+        if not isinstance(ckpt, dict):
+            return ckpt  # raw state dict
+
+        # Lightning .ckpt: state_dict is nested under 'state_dict'
+        if 'state_dict' in ckpt:
+            raw = ckpt['state_dict']
+        elif 'model_state_dict' in ckpt:
+            raw = ckpt['model_state_dict']
+        elif 'model' in ckpt:
+            raw = ckpt['model']
+        else:
+            raw = ckpt
+
+        # Strip 'model.' prefix if present (Lightning wraps the model)
+        result = {}
+        for k, v in raw.items():
+            if k.startswith('model.'):
+                result[k[6:]] = v
             else:
-                state_dict = ckpt
+                result[k] = v
+        return result
 
-            new_state_dict = {}
-            for k, v in state_dict.items():
-                if k.startswith('module.'):
-                    new_state_dict[k[len('module.'):]] = v
-                else:
-                    new_state_dict[k] = v
+    @staticmethod
+    def _adapt_state_dict(state_dict, model):
+        """Load *state_dict* into *model*, adapting mismatched tensor shapes.
 
-            # Handle size mismatches between checkpoint and current model
-            model_state = self.method.model.state_dict()
-            for k in list(new_state_dict.keys()):
-                if k in model_state and new_state_dict[k].shape != model_state[k].shape:
-                    ckpt_shape = new_state_dict[k].shape
-                    model_shape = model_state[k].shape
-                    print(f'[Info] Size mismatch for {k}: ckpt{ckpt_shape} vs model{model_shape}, adapting...')
-                    # Truncate or pad to match model shape
-                    w = new_state_dict[k]
-                    if w.dim() >= 2 and w.shape[0] > model_shape[0]:
-                        # Truncate first dim (output dim for Linear layers)
-                        w = w[:model_shape[0]]
-                    elif w.dim() >= 2 and w.shape[0] < model_shape[0]:
-                        # Pad first dim
-                        pad = torch.zeros(model_shape[0] - w.shape[0], *w.shape[1:])
-                        w = torch.cat([w, pad], dim=0)
-                    elif w.dim() == 1 and w.shape[0] > model_shape[0]:
-                        w = w[:model_shape[0]]
-                    elif w.dim() == 1 and w.shape[0] < model_shape[0]:
-                        w = torch.nn.functional.pad(w, (0, model_shape[0] - w.shape[0]))
-                    new_state_dict[k] = w
+        For each parameter whose shape differs between the checkpoint and the
+        current model config, each dimension is independently truncated (if
+        ckpt is larger) or zero-padded (if ckpt is smaller).
 
-            missing, unexpected = self.method.model.load_state_dict(new_state_dict, strict=False)
+        This allows a checkpoint trained with, e.g., entity_nums=150 to be
+        loaded into a model configured with entity_nums=151.
+        """
+        if not isinstance(state_dict, dict):
+            raise TypeError(f'Expected dict state_dict, got {type(state_dict)}')
 
-            print(f'[Info] Missing keys: {len(missing)}')
-            if len(missing) > 0:
-                print(missing[:20])
+        model_state = model.state_dict()
+        adapted = 0
+        for k in list(state_dict.keys()):
+            if k not in model_state:
+                continue
+            ckpt_w = state_dict[k]
+            model_w = model_state[k]
+            if ckpt_w.shape == model_w.shape:
+                continue
 
-            print(f'[Info] Unexpected keys: {len(unexpected)}')
-            if len(unexpected) > 0:
-                print(unexpected[:20])
+            print(f'[Info] Size mismatch for {k}: ckpt {list(ckpt_w.shape)} '
+                  f'vs model {list(model_w.shape)}, adapting...')
 
-            result = self.trainer.test(self.method, self.data)
-            self._save_test_results(result)
-            return result
+            w = ckpt_w
+            for dim_idx in range(w.dim()):
+                if w.shape[dim_idx] > model_w.shape[dim_idx]:
+                    w = w.index_select(
+                        dim_idx,
+                        torch.arange(model_w.shape[dim_idx], device=w.device))
+                elif w.shape[dim_idx] < model_w.shape[dim_idx]:
+                    pad_shape = list(w.shape)
+                    pad_shape[dim_idx] = model_w.shape[dim_idx] - w.shape[dim_idx]
+                    pad = torch.zeros(pad_shape, dtype=w.dtype, device=w.device)
+                    w = torch.cat([w, pad], dim=dim_idx)
+            state_dict[k] = w
+            adapted += 1
 
-        raise ValueError(f'Unsupported checkpoint format: {ckpt_path}')
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if adapted > 0:
+            print(f'[Info] Adapted {adapted} weight(s) with size mismatch')
+        if len(missing) > 0:
+            print(f'[Info] Missing keys ({len(missing)}): {missing[:10]}...' if len(missing) > 10
+                  else f'[Info] Missing keys ({len(missing)}): {missing}')
+        if len(unexpected) > 0:
+            print(f'[Info] Unexpected keys ({len(unexpected)}): {unexpected[:10]}...' if len(unexpected) > 10
+                  else f'[Info] Unexpected keys ({len(unexpected)}): {unexpected}')
 
     def _save_test_results(self, result):
         """Persist Lightning test results into ``eval/<eval_mode>/``."""

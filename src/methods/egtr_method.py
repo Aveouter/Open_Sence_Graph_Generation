@@ -130,49 +130,17 @@ def build_egtr(args):
         # Offline: instantiate model directly without pretrained weights
         model = DetrForSceneGraphGeneration(config, fg_matrix=fg_matrix)
 
-    # Load custom checkpoint if provided (for inference)
+    model.to(device)
+
+    # Load custom checkpoint if provided (handles size mismatches).
+    # When using BaseExperiment, ckpt loading is also done in
+    # BaseExperiment.test() as the authoritative step; this is a
+    # convenience path for standalone / non-Lightning usage.
     ckpt_path = getattr(args, 'ckpt_path', None)
     if ckpt_path:
-        state_dict = torch.load(ckpt_path, map_location='cpu')
-        if 'state_dict' in state_dict:
-            state_dict = state_dict['state_dict']
-        # Remove "model." prefix if present
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            if k.startswith('model.'):
-                new_state_dict[k[6:]] = v
-            else:
-                new_state_dict[k] = v
-
-        # Handle size mismatches: checkpoint may have been trained with
-        # different class counts.  Truncate / pad weight tensors to match
-        # the current model configuration.
-        model_state = model.state_dict()
-        for k in list(new_state_dict.keys()):
-            if k in model_state and new_state_dict[k].shape != model_state[k].shape:
-                ckpt_shape = new_state_dict[k].shape
-                model_shape = model_state[k].shape
-                print(f'[Info] Size mismatch for {k}: ckpt {list(ckpt_shape)} '
-                      f'vs model {list(model_shape)}, adapting...')
-                w = new_state_dict[k]
-                # Adapt each dimension independently
-                for dim_idx in range(w.dim()):
-                    if w.shape[dim_idx] > model_shape[dim_idx]:
-                        # Truncate this dimension
-                        w = w.index_select(
-                            dim_idx,
-                            torch.arange(model_shape[dim_idx], device=w.device))
-                    elif w.shape[dim_idx] < model_shape[dim_idx]:
-                        # Pad this dimension with zeros
-                        pad_shape = list(w.shape)
-                        pad_shape[dim_idx] = model_shape[dim_idx] - w.shape[dim_idx]
-                        pad = torch.zeros(pad_shape, dtype=w.dtype, device=w.device)
-                        w = torch.cat([w, pad], dim=dim_idx)
-                new_state_dict[k] = w
-
-        model.load_state_dict(new_state_dict, strict=False)
-
-    model.to(device)
+        from src.exp import BaseExperiment
+        state_dict = BaseExperiment._load_checkpoint_state_dict(ckpt_path)
+        BaseExperiment._adapt_state_dict(state_dict, model)
 
     return model, feature_extractor
 
