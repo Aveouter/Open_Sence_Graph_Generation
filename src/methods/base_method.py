@@ -271,15 +271,19 @@ class Base_method(l.LightningModule):
         pred_all, true_all, avg_loss_dict, avg_total_loss, triplet_match_indices = \
             self._aggregate_step_outputs(step_outputs)
 
-        # rel_nums from config includes background class (e.g. 51 = 50 preds + 1 bg).
-        # The metric evaluator expects only the actual predicate count (50), so we
-        # subtract 1.  This is consistent with the official RelTR evaluation protocol
-        # and the standalone run_flowsg_experiment.py script.
+        # rel_nums convention differs by model:
+        #   RelTR / FlowSG / HSTRNet: 51 = 50 preds + 1 bg  →  eval needs 50
+        #   EGTR (official):          50 = 50 preds (no bg) →  eval needs 50
+        # Heuristic: if rel_nums > 50, bg is included and we subtract 1;
+        # otherwise rel_nums is already the pure predicate count.
+        rel_nums = self.hparams.rel_nums
+        if rel_nums is not None and rel_nums > 50:
+            rel_nums = rel_nums - 1
         eval_res, eval_log = metric(
             pred=pred_all,
             true=true_all,
             metrics=self.metric,
-            rel_nums=self.hparams.rel_nums - 1,
+            rel_nums=rel_nums,
             entity_nums=self.hparams.entity_nums,
             triplet_match_indices=triplet_match_indices,
         )
