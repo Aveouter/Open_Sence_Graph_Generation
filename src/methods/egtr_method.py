@@ -238,88 +238,109 @@ class EGTR_Method(Base_method):
 
         return total_loss
 
+    def _egtr_to_compact(self, outputs, targets_orig):
+        """Convert EGTR dense per-query outputs to compact per-relation format.
+
+        dense:  pred_rel [Q,Q,P]≈7.8MB, pred_boxes [Q,4], pred_logits [Q,C]
+        compact: rel_scores [R,P]≈0.004MB (R=GT relations≈20)
+        """
+        import numpy as np
+        from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+
+        compact = []
+        for out, tgt in zip(outputs, targets_orig):
+            pred_boxes = out['pred_boxes'].float()
+            pred_logits = out['pred_logits'].float()
+            pred_rel = out['pred_rel'].float()
+            # Squeeze batch dim
+            while pred_boxes.dim() > 2 and pred_boxes.shape[0] == 1:
+                pred_boxes = pred_boxes.squeeze(0)
+                pred_logits = pred_logits.squeeze(0)
+                pred_rel = pred_rel.squeeze(0)
+
+            gt_boxes = tgt['boxes'].float()
+            gt_rels = tgt['rel_annotations'].cpu().numpy().astype(np.int64)
+            if gt_rels.ndim == 1:
+                gt_rels = gt_rels.reshape(-1, 3) if gt_rels.size > 0 else np.zeros((0, 3), dtype=np.int64)
+            R, P = gt_rels.shape[0], pred_rel.shape[-1]
+            if R == 0:
+                compact.append({'rel_scores': np.zeros((0, P), dtype=np.float32),
+                                'sub_boxes': np.zeros((0, 4), dtype=np.float32),
+                                'obj_boxes': np.zeros((0, 4), dtype=np.float32),
+                                'sub_scores': np.zeros(0, dtype=np.float32),
+                                'obj_scores': np.zeros(0, dtype=np.float32),
+                                'sub_classes': np.zeros(0, dtype=np.int64),
+                                'obj_classes': np.zeros(0, dtype=np.int64)})
+                continue
+
+            # IoU matching: pred queries → GT objects
+            pred_xyxy = box_cxcywh_to_xyxy(pred_boxes)
+            gt_xyxy = box_cxcywh_to_xyxy(gt_boxes)
+            iou, _ = box_iou(pred_xyxy, gt_xyxy)
+            matched = torch.argmax(iou, dim=0)
+
+            rel_scores = np.zeros((R, P), dtype=np.float32)
+            sub_boxes = np.zeros((R, 4), dtype=np.float32)
+            obj_boxes = np.zeros((R, 4), dtype=np.float32)
+            sub_labels = np.zeros(R, dtype=np.int64)
+            obj_labels = np.zeros(R, dtype=np.int64)
+            pr = pred_rel.cpu().numpy()
+            orig_wh = torch.flip(torch.as_tensor(tgt['orig_size']).cpu(), dims=[0])
+
+            for r in range(R):
+                si, oi = int(gt_rels[r, 0]), int(gt_rels[r, 1])
+                if si >= len(matched) or oi >= len(matched):
+                    continue
+                sq, oq = int(matched[si]), int(matched[oi])
+                sv = pr[sq, oq, :].astype(np.float64)
+                sv -= sv.max(); sv = np.exp(sv) / np.exp(sv).sum()
+                rel_scores[r] = sv.astype(np.float32)
+                sub_boxes[r] = rescale_bboxes(pred_boxes[sq].unsqueeze(0), orig_wh).squeeze(0).numpy()
+                obj_boxes[r] = rescale_bboxes(pred_boxes[oq].unsqueeze(0), orig_wh).squeeze(0).numpy()
+                sub_labels[r] = int(torch.softmax(pred_logits[sq, :-1], dim=-1).argmax()) + 1
+                obj_labels[r] = int(torch.softmax(pred_logits[oq, :-1], dim=-1).argmax()) + 1
+
+            compact.append({'rel_scores': rel_scores, 'sub_boxes': sub_boxes,
+                            'obj_boxes': obj_boxes, 'sub_scores': np.ones(R, dtype=np.float32),
+                            'obj_scores': np.ones(R, dtype=np.float32),
+                            'sub_classes': sub_labels, 'obj_classes': obj_labels})
+        return compact
+
+    def _cache_step(self, store, outputs, targets_orig, loss_dict, total_loss):
+        compact = self._egtr_to_compact([outputs], targets_orig)
+        store.append({
+            'outputs': compact[0],
+            'targets': [{kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
+                         for kk, vv in t.items() if kk not in {'rel', 'iscrowd', 'area'}}
+                        for t in targets_orig],
+            'loss_dict': {k: (v.detach().cpu() if torch.is_tensor(v) else v) for k, v in loss_dict.items()},
+            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss,
+        })
+
     def validation_step(self, batch, batch_idx):
         images, targets_orig = batch
         targets = self._adapt_targets(targets_orig)
-
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
         total_loss = result.get('loss', torch.tensor(0.0, device=self.device))
-
         self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
                 self.log(f'val_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
-
-        outputs = result['outputs']
-        _skip_outputs = {'pred_connectivity', 'aux_outputs'}
-        _skip_targets = {'rel', 'iscrowd', 'area'}
-        self.val_outputs.append({
-            'outputs': {
-                k: (v.detach().cpu().half() if torch.is_tensor(v) and v.is_floating_point()
-                    and k == 'pred_rel'
-                    else v.detach().cpu() if torch.is_tensor(v)
-                    else v)
-                for k, v in outputs.items() if k not in _skip_outputs
-            },
-            'targets': [
-                {
-                    kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
-                    for kk, vv in t.items() if kk not in _skip_targets
-                }
-                for t in targets_orig  # ← original targets, not adapted
-            ],
-            'loss_dict': {
-                k: (v.detach().cpu() if torch.is_tensor(v) else v)
-                for k, v in loss_dict.items()
-            },
-            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss,
-        })
-
+        self._cache_step(self.val_outputs, result['outputs'], targets_orig, loss_dict, total_loss)
         return total_loss
 
     def test_step(self, batch, batch_idx):
         images, targets_orig = batch
         targets = self._adapt_targets(targets_orig)
-
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
         total_loss = result.get('loss', torch.tensor(0.0, device=self.device))
-
         self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
                 self.log(f'test_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
-
-        outputs = result['outputs']
-        # Memory-optimized caching:
-        #   pred_rel [200,200,51] fp32 = 7.8MB → fp16 = 3.9MB (halved)
-        #   pred_connectivity → skip
-        #   targets: use ORIGINAL (adapted targets contain dense rel [200,200,51] = 7.8MB)
-        _skip_outputs = {'pred_connectivity', 'aux_outputs'}
-        _skip_targets = {'rel', 'iscrowd', 'area'}
-        self.test_outputs.append({
-            'outputs': {
-                k: (v.detach().cpu().half() if torch.is_tensor(v) and v.is_floating_point()
-                    and k == 'pred_rel'  # fp16 for the big tensor
-                    else v.detach().cpu() if torch.is_tensor(v)
-                    else v)
-                for k, v in outputs.items() if k not in _skip_outputs
-            },
-            'targets': [
-                {
-                    kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
-                    for kk, vv in t.items() if kk not in _skip_targets
-                }
-                for t in targets_orig
-            ],
-            'loss_dict': {
-                k: (v.detach().cpu() if torch.is_tensor(v) else v)
-                for k, v in loss_dict.items()
-            },
-            'total_loss': total_loss.detach().cpu() if torch.is_tensor(total_loss) else total_loss,
-        })
-
+        self._cache_step(self.test_outputs, result['outputs'], targets_orig, loss_dict, total_loss)
         return total_loss
 
     # ---------- helpers ----------

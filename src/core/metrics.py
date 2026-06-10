@@ -202,7 +202,7 @@ _MODEL_SCHEMAS = {
     "reltr": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "flowsg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
-    "egtr": {"pred_logits", "pred_boxes", "pred_rel"},
+    "egtr": {"rel_scores", "sub_boxes", "obj_boxes", "sub_scores", "obj_scores", "sub_classes", "obj_classes"},
 }
 
 # Which tasks each model family supports
