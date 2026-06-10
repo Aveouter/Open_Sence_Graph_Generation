@@ -136,6 +136,17 @@ def metric(
             rel_nums=rel_nums,
         )
 
+    # EGTR family: PredCLS evaluation using pred_rel + query→GT matching
+    if matched_family == "egtr" and "predcls" in supported_tasks:
+        _evaluate_predcls_batch_egtr(
+            outputs=pred,
+            targets=true,
+            evaluators=evaluators,
+            mr_evaluators=mr_evaluators,
+            rel_nums=rel_nums,
+            entity_nums=entity_nums,
+        )
+
     # Collect results
     all_results = {}
     all_results.update(_collect_main_recall(evaluators))
@@ -191,13 +202,15 @@ _MODEL_SCHEMAS = {
     "reltr": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "flowsg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
+    "egtr": {"pred_logits", "pred_boxes", "pred_rel"},
 }
 
 # Which tasks each model family supports
 _MODEL_TASKS = {
     "reltr": {"sgdet", "predcls", "sgcls"},
-    "flowsg": {"sgdet", "predcls", "sgcls"},  # FlowSG outputs RelTR-compatible format
-    "hstrnet": {"predcls"},  # HSTRNet: no predicted boxes → PredCLS only
+    "flowsg": {"sgdet", "predcls", "sgcls"},
+    "hstrnet": {"predcls"},
+    "egtr": {"predcls"},
 }
 
 
@@ -759,6 +772,151 @@ def _evaluate_predcls_batch_hstrnet(
                 }
                 pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
                 mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+
+
+# ===========================================================================
+# EGTR adapter: query-based outputs → standard PredCLS format
+# ===========================================================================
+
+def _evaluate_predcls_batch_egtr(
+    outputs: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+    evaluators: Dict[str, SceneGraphEvaluator],
+    mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
+    rel_nums: int,
+    entity_nums: int,
+) -> None:
+    """EGTR PredCLS evaluation.
+
+    EGTR outputs per-query predictions (pred_logits, pred_boxes) and a dense
+    relation matrix (pred_rel [Q, Q, P]).  We match queries to GT objects via
+    box IoU, then extract per-GT-relation predicate scores from pred_rel.
+
+    Matching strategy:
+      1. For each image, compute IoU between pred_boxes [Q, 4] and GT boxes [N, 4].
+      2. For each GT box, select the query with highest IoU → query_idx = matched[N].
+      3. For each GT relation (s, o, pred_label):
+         - s_query = matched[s]; o_query = matched[o]
+         - relation score vector = pred_rel[s_query, o_query, :]
+      4. Build standard pred_entry format.
+    """
+    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+
+    required_keys = ["pred_logits", "pred_boxes", "pred_rel"]
+    for k in required_keys:
+        if k not in outputs:
+            raise KeyError(f"EGTR output missing key: {k}")
+
+    for i, target in enumerate(targets):
+        _validate_target(target)
+
+        gt_relations = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        if gt_relations.ndim == 1:
+            gt_relations = gt_relations.reshape(-1, 3) if gt_relations.size > 0 else \
+                np.zeros((0, 3), dtype=np.int64)
+        if gt_relations.shape[0] == 0:
+            continue
+
+        gt_labels = _to_numpy(target["labels"]).astype(np.int64)
+        gt_boxes_xyxy = _rescale_boxes(target["boxes"], target["orig_size"])
+        gt_entry = {"gt_classes": gt_labels, "gt_relations": gt_relations, "gt_boxes": gt_boxes_xyxy}
+
+        # ---- EGTR predictions ----
+        pred_boxes_norm = torch.as_tensor(outputs["pred_boxes"][i]).float()  # [Q, 4] cxcywh
+        pred_logits = torch.as_tensor(outputs["pred_logits"][i]).float()      # [Q, C]
+        pred_rel = torch.as_tensor(outputs["pred_rel"][i]).float()             # [Q, Q, P] (may be fp16 from cache)
+
+        Q = pred_boxes_norm.shape[0]
+        R = gt_relations.shape[0]
+
+        # ---- Match queries to GT boxes ----
+        # Convert both to xyxy for IoU
+        pred_xyxy = box_cxcywh_to_xyxy(pred_boxes_norm)                       # [Q, 4]
+        gt_boxes_t = torch.as_tensor(target["boxes"]).float()                  # [N, 4] cxcywh
+        gt_xyxy = box_cxcywh_to_xyxy(gt_boxes_t)                              # [N, 4]
+
+        iou_matrix, _ = box_iou(pred_xyxy, gt_xyxy)                           # [Q, N]
+        iou_matrix = torch.where(iou_matrix.isfinite(), iou_matrix,
+                                 torch.zeros_like(iou_matrix))                 # guard NaN
+        matched_query = torch.argmax(iou_matrix, dim=0)                        # [N]
+
+        # ---- Extract per-relation predictions (single loop) ----
+        rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
+        sub_boxes = np.zeros((R, 4), dtype=np.float32)
+        obj_boxes = np.zeros((R, 4), dtype=np.float32)
+        pred_sub_scores = np.ones(R, dtype=np.float32)
+        pred_obj_scores = np.ones(R, dtype=np.float32)
+        pred_sub_labels = np.zeros(R, dtype=np.int64)
+        pred_obj_labels = np.zeros(R, dtype=np.int64)
+        pred_rel_np = pred_rel.numpy()                                         # already CPU from cache
+
+        orig_t = torch.as_tensor(target["orig_size"]).cpu()
+        orig_wh = torch.flip(orig_t, dims=[0])
+
+        for r in range(R):
+            s_idx = int(gt_relations[r, 0])
+            o_idx = int(gt_relations[r, 1])
+
+            if s_idx < len(matched_query) and o_idx < len(matched_query):
+                s_q = int(matched_query[s_idx])
+                o_q = int(matched_query[o_idx])
+
+                # Predicate scores
+                score_vec = pred_rel_np[s_q, o_q, :].astype(np.float64)
+                score_vec -= score_vec.max()
+                score_vec = np.exp(score_vec) / np.exp(score_vec).sum()
+                rel_scores[r] = score_vec.astype(np.float32)
+
+                # Subject box + labels
+                s_box_norm = pred_boxes_norm[s_q]
+                sub_boxes[r] = rescale_bboxes(s_box_norm.unsqueeze(0), orig_wh).squeeze(0).numpy()
+                s_logits = pred_logits[s_q]
+                pred_sub_scores[r], pred_sub_labels[r] = torch.max(
+                    torch.softmax(s_logits[:-1], dim=-1), dim=0)
+
+                # Object box + labels
+                o_box_norm = pred_boxes_norm[o_q]
+                obj_boxes[r] = rescale_bboxes(o_box_norm.unsqueeze(0), orig_wh).squeeze(0).numpy()
+                o_logits = pred_logits[o_q]
+                pred_obj_scores[r], pred_obj_labels[r] = torch.max(
+                    torch.softmax(o_logits[:-1], dim=-1), dim=0)
+
+        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1)
+        pred_sub_labels = pred_sub_labels + 1
+        pred_obj_labels = pred_obj_labels + 1
+
+        pred_entry = {
+            "sub_boxes": sub_boxes,
+            "obj_boxes": obj_boxes,
+            "sub_scores": pred_sub_scores,
+            "obj_scores": pred_obj_scores,
+            "sub_classes": pred_sub_labels,
+            "obj_classes": pred_obj_labels,
+            "rel_scores": rel_scores,
+        }
+
+        for task_eval_key in evaluators:
+            if "predcls" in task_eval_key:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+
+        for task_mr_key, mr_eval_list in mr_evaluators.items():
+            if "predcls" not in task_mr_key:
+                continue
+            gt_rel_labels = gt_relations[:, 2]
+            for rel_id in range(1, rel_nums + 1):
+                gt_mask = (gt_rel_labels == rel_id)
+                if not gt_mask.any():
+                    continue
+                pred_mask = (pred_rel_labels == rel_id)
+                gt_entry_rel = {
+                    "gt_classes": gt_entry["gt_classes"],
+                    "gt_relations": gt_entry["gt_relations"][gt_mask],
+                    "gt_boxes": gt_entry["gt_boxes"],
+                }
+                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
+                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+
+
 # ===========================================================================
 
 def _extract_relation_scores(rel_logits: torch.Tensor, rel_nums: int) -> np.ndarray:

@@ -1,20 +1,27 @@
-# Pretrained Weights
+# Checkpoints
 
-Download pretrained model weights into the corresponding subdirectories:
+Pre-trained model weights for evaluation and fine-tuning.
 
-## EGTR
+## Directory Layout
 
-- **File:** `egtr/egtr_vg.tar.gz`
-- **Source:** Extract from the official EGTR repository checkpoint.
-- **Usage:** Set `egtr_pretrained_path` in the EGTR config, or pass `--egtr_pretrained_path outputs/pretrained/egtr/egtr_vg.tar.gz`.
+```
+checkpoints/
+├── reltr/
+│   └── reltr_vg.pth              # RelTR checkpoint (VisualGenome)
+├── egtr/
+│   └── egtr__.../                 # EGTR PyTorch Lightning checkpoint dir
+└── README.md
+```
 
-## RelTR
+## Download Links
 
-- **File:** `reltr/reltr_vg.pth`
-- **Source:** Official RelTR Visual Genome checkpoint.
-- **Usage:** Pass via `--ckpt_path outputs/pretrained/reltr/reltr_vg.pth` for evaluation.
+| Model | Dataset | Path | Source |
+|---|---|---|---|
+| RelTR | VisualGenome | `reltr/reltr_vg.pth` | Official RelTR release |
+| EGTR | VisualGenome | `egtr/` | See `submodules/EGTR/` |
 
-## Other
+## Adding a New Checkpoint
 
-- **File:** `other/checkpoint0149.pth`
-- **Usage:** Miscellaneous checkpoints — kept for reference.
+1. Create a subdirectory: `checkpoints/<model_name>/`
+2. Place `.pth`, `.pt`, or `.ckpt` files inside
+3. Update this README with download link/source

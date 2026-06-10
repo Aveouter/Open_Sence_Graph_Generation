@@ -155,6 +155,8 @@ LOSS_FACTORY = {
     "reltr_loss": None,  # RelTR criterion built in reltr_method._build_model
     "egtr_loss": None,   # EGTR criterion built in egtr_method._build_model
     "flowsg_loss": None,  # FlowSG criterion built in flowsg_method._build_model
+    "motifs_loss": None,  # Motifs/VCTree/TDE criterion built in _build_criterion
+    "cvc_loss": None,     # CVC criterion built in _build_criterion
 }
 
 

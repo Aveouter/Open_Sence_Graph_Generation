@@ -239,8 +239,8 @@ class EGTR_Method(Base_method):
         return total_loss
 
     def validation_step(self, batch, batch_idx):
-        images, targets = batch
-        targets = self._adapt_targets(targets)
+        images, targets_orig = batch
+        targets = self._adapt_targets(targets_orig)
 
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
@@ -252,17 +252,22 @@ class EGTR_Method(Base_method):
                 self.log(f'val_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
 
         outputs = result['outputs']
+        _skip_outputs = {'pred_connectivity', 'aux_outputs'}
+        _skip_targets = {'rel', 'iscrowd', 'area'}
         self.val_outputs.append({
             'outputs': {
-                k: (v.detach().cpu() if torch.is_tensor(v) else v)
-                for k, v in outputs.items()
+                k: (v.detach().cpu().half() if torch.is_tensor(v) and v.is_floating_point()
+                    and k == 'pred_rel'
+                    else v.detach().cpu() if torch.is_tensor(v)
+                    else v)
+                for k, v in outputs.items() if k not in _skip_outputs
             },
             'targets': [
                 {
                     kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
-                    for kk, vv in t.items()
+                    for kk, vv in t.items() if kk not in _skip_targets
                 }
-                for t in targets
+                for t in targets_orig  # ← original targets, not adapted
             ],
             'loss_dict': {
                 k: (v.detach().cpu() if torch.is_tensor(v) else v)
@@ -274,8 +279,8 @@ class EGTR_Method(Base_method):
         return total_loss
 
     def test_step(self, batch, batch_idx):
-        images, targets = batch
-        targets = self._adapt_targets(targets)
+        images, targets_orig = batch
+        targets = self._adapt_targets(targets_orig)
 
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
@@ -287,17 +292,26 @@ class EGTR_Method(Base_method):
                 self.log(f'test_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
 
         outputs = result['outputs']
+        # Memory-optimized caching:
+        #   pred_rel [200,200,51] fp32 = 7.8MB → fp16 = 3.9MB (halved)
+        #   pred_connectivity → skip
+        #   targets: use ORIGINAL (adapted targets contain dense rel [200,200,51] = 7.8MB)
+        _skip_outputs = {'pred_connectivity', 'aux_outputs'}
+        _skip_targets = {'rel', 'iscrowd', 'area'}
         self.test_outputs.append({
             'outputs': {
-                k: (v.detach().cpu() if torch.is_tensor(v) else v)
-                for k, v in outputs.items()
+                k: (v.detach().cpu().half() if torch.is_tensor(v) and v.is_floating_point()
+                    and k == 'pred_rel'  # fp16 for the big tensor
+                    else v.detach().cpu() if torch.is_tensor(v)
+                    else v)
+                for k, v in outputs.items() if k not in _skip_outputs
             },
             'targets': [
                 {
                     kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
-                    for kk, vv in t.items()
+                    for kk, vv in t.items() if kk not in _skip_targets
                 }
-                for t in targets
+                for t in targets_orig
             ],
             'loss_dict': {
                 k: (v.detach().cpu() if torch.is_tensor(v) else v)
