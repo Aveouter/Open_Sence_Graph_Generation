@@ -43,8 +43,9 @@ class TDE_Method(Motifs_Method):
         print("[TDE] Computing mean visual features for counterfactual...")
 
         with torch.no_grad():
-            if hasattr(self, '_visual_embed'):
-                embed_weight = self._visual_embed.weight.data
+            visual_extractor = getattr(self, '_visual_extractor', None)
+            if isinstance(visual_extractor, torch.nn.Embedding):
+                embed_weight = visual_extractor.weight.data
                 mean_feat = embed_weight.mean(dim=0).to(self.device)
                 self._tde_model.set_mean_visual_feat(mean_feat)
                 print(f"[TDE] Mean visual feature set (dim={mean_feat.size(0)})")
