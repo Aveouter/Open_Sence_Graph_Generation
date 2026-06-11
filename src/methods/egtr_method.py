@@ -425,10 +425,10 @@ class EGTR_Method(Base_method):
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
         total_loss = result.get('loss', torch.tensor(0.0, device=self.device))
-        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=False)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'val_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
+                self.log(f'val_{k}', v, on_step=False, on_epoch=True, sync_dist=False)
         self._cache_step(self.val_outputs, result['outputs'], targets_orig, loss_dict, total_loss)
         return total_loss
 
@@ -439,10 +439,13 @@ class EGTR_Method(Base_method):
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
         total_loss = result.get('loss', torch.tensor(0.0, device=self.device))
-        self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        # NOTE: sync_dist=False — metrics are re-computed from gathered outputs
+        # in _run_epoch_end, so per-step DDP sync is unnecessary overhead that
+        # causes NCCL timeouts with heterogeneous GPUs.
+        self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=False)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'test_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
+                self.log(f'test_{k}', v, on_step=False, on_epoch=True, sync_dist=False)
         self._cache_step(self.test_outputs, result['outputs'], targets_orig, loss_dict, total_loss)
         return total_loss
 
