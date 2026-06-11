@@ -287,9 +287,10 @@ class EGTR_Method(Base_method):
             gt_rels = tgt['rel_annotations'].detach().cpu().numpy().astype(np.int64)
             if gt_rels.ndim == 1:
                 gt_rels = gt_rels.reshape(-1, 3) if gt_rels.size > 0 else np.zeros((0, 3), dtype=np.int64)
-            R, P = gt_rels.shape[0], pred_rel.shape[-1]
+            R = gt_rels.shape[0]
+            num_preds = pred_rel.shape[-1] - 1  # exclude bg class at index 0
             if R == 0:
-                compact.append({'rel_scores': np.zeros((0, P), dtype=np.float32),
+                compact.append({'rel_scores': np.zeros((0, num_preds), dtype=np.float32),
                                 'sub_boxes': np.zeros((0, 4), dtype=np.float32),
                                 'obj_boxes': np.zeros((0, 4), dtype=np.float32),
                                 'sub_scores': np.zeros(0, dtype=np.float32),
@@ -300,7 +301,7 @@ class EGTR_Method(Base_method):
 
             # Guard: if pred_boxes has fewer entries than matched GT objects
             if pred_boxes.shape[0] == 0:
-                compact.append({'rel_scores': np.zeros((R, P), dtype=np.float32),
+                compact.append({'rel_scores': np.zeros((R, num_preds), dtype=np.float32),
                                 'sub_boxes': np.zeros((R, 4), dtype=np.float32),
                                 'obj_boxes': np.zeros((R, 4), dtype=np.float32),
                                 'sub_scores': np.zeros(R, dtype=np.float32),
@@ -321,7 +322,7 @@ class EGTR_Method(Base_method):
             iou = torch.where(iou.isfinite(), iou, torch.zeros_like(iou))
             matched = torch.argmax(iou, dim=0)
 
-            rel_scores = np.zeros((R, P), dtype=np.float32)
+            rel_scores = np.zeros((R, num_preds), dtype=np.float32)
             sub_boxes = np.zeros((R, 4), dtype=np.float32)
             obj_boxes = np.zeros((R, 4), dtype=np.float32)
             sub_labels = np.zeros(R, dtype=np.int64)
@@ -335,7 +336,9 @@ class EGTR_Method(Base_method):
                 if si >= len(matched) or oi >= len(matched):
                     continue
                 sq, oq = int(matched[si]), int(matched[oi])
-                sv = pr[sq, oq, :].astype(np.float64)
+                # pred_rel convention: index 0 = bg/no-relation, indices 1..P-1 = 50 predicates.
+                # Skip bg so softmax is computed over the 50 predicate classes only.
+                sv = pr[sq, oq, 1:].astype(np.float64)
                 sv -= sv.max(); sv = np.exp(sv) / np.exp(sv).sum()
                 rel_scores[r] = sv.astype(np.float32)
                 sub_boxes[r] = rescale_bboxes(pred_boxes[sq].unsqueeze(0), orig_wh).squeeze(0).numpy()

@@ -885,8 +885,8 @@ def _evaluate_predcls_batch_egtr(
                 s_q = int(matched_query[s_idx])
                 o_q = int(matched_query[o_idx])
 
-                # Predicate scores
-                score_vec = pred_rel_np[s_q, o_q, :].astype(np.float64)
+                # Predicate scores — skip bg at index 0 (EGTR convention)
+                score_vec = pred_rel_np[s_q, o_q, 1:].astype(np.float64)
                 score_vec -= score_vec.max()
                 score_vec = np.exp(score_vec) / np.exp(score_vec).sum()
                 rel_scores[r] = score_vec.astype(np.float32)
@@ -998,7 +998,8 @@ def _evaluate_predcls_batch_compact(
         if rel_scores.ndim == 1:
             rel_scores = rel_scores.reshape(1, -1)
         if rel_scores.shape[-1] > rel_nums:
-            rel_scores = rel_scores[:, :rel_nums]
+            # EGTR convention: bg at index 0 → keep [1:rel_nums+1]
+            rel_scores = rel_scores[:, 1:rel_nums + 1]
 
         R = gt_relations.shape[0]
         gt_sub_idx = gt_relations[:, 0]
