@@ -293,6 +293,7 @@ class BaseExperiment(object):
 
         model_state = model.state_dict()
         adapted = 0
+        adapted_shapes = set()
         for k in list(state_dict.keys()):
             if k not in model_state:
                 continue
@@ -301,9 +302,7 @@ class BaseExperiment(object):
             if ckpt_w.shape == model_w.shape:
                 continue
 
-            print(f'[Info] Size mismatch for {k}: ckpt {list(ckpt_w.shape)} '
-                  f'vs model {list(model_w.shape)}, adapting...')
-
+            adapted_shapes.add((tuple(ckpt_w.shape), tuple(model_w.shape)))
             w = ckpt_w
             for dim_idx in range(w.dim()):
                 if w.shape[dim_idx] > model_w.shape[dim_idx]:
@@ -320,7 +319,8 @@ class BaseExperiment(object):
 
         missing, unexpected = model.load_state_dict(state_dict, strict=False)
         if adapted > 0:
-            print(f'[Info] Adapted {adapted} weight(s) with size mismatch')
+            shape_desc = ', '.join(f'{list(s)}→{list(t)}' for s, t in sorted(adapted_shapes))
+            print(f'[Info] Adapted {adapted} weight(s): {shape_desc}')
         if len(missing) > 0:
             print(f'[Info] Missing keys ({len(missing)}): {missing[:10]}...' if len(missing) > 10
                   else f'[Info] Missing keys ({len(missing)}): {missing}')

@@ -37,3 +37,16 @@ core.*
 
 *.json.resume
 .ddp_eval_cache/
+
+# Build artifacts
+*.ninja_*
+*.so
+*.cuda.o
+*.cpu.o
+build.ninja
+.ninja_deps
+.ninja_log
+
+# Reports
+reports/
+migration_report.md

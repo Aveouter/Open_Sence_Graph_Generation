@@ -107,7 +107,7 @@ def metric(
             rel_nums=rel_nums,
             triplet_match_indices=triplet_match_indices,
         )
-    if "predcls" in supported_tasks:
+    if matched_family in {"reltr", "flowsg"} and "predcls" in supported_tasks:
         _evaluate_predcls_batch(
             outputs=pred,
             targets=true,
@@ -129,6 +129,36 @@ def metric(
     # HSTRNet family: PredCLS evaluation using object_logits + relation_pair_indices
     if matched_family == "hstrnet" and "predcls" in supported_tasks:
         _evaluate_predcls_batch_hstrnet(
+            outputs=pred,
+            targets=true,
+            evaluators=evaluators,
+            mr_evaluators=mr_evaluators,
+            rel_nums=rel_nums,
+        )
+
+    # EGTR family: PredCLS evaluation using pred_rel + query→GT matching
+    if matched_family == "egtr" and "predcls" in supported_tasks:
+        _evaluate_predcls_batch_egtr(
+            outputs=pred,
+            targets=true,
+            evaluators=evaluators,
+            mr_evaluators=mr_evaluators,
+            rel_nums=rel_nums,
+        )
+
+    # EGTR compact cache: already converted to evaluator fields per image
+    if matched_family == "egtr_compact" and "predcls" in supported_tasks:
+        _evaluate_predcls_batch_compact(
+            outputs=pred,
+            targets=true,
+            evaluators=evaluators,
+            mr_evaluators=mr_evaluators,
+            rel_nums=rel_nums,
+        )
+
+    # Motifs family: PredCLS evaluation using direct pair_indices -> GT relation mapping
+    if matched_family in {"motifs", "cvc"} and "predcls" in supported_tasks:
+        _evaluate_predcls_batch_pair_indices(
             outputs=pred,
             targets=true,
             evaluators=evaluators,
@@ -191,13 +221,21 @@ _MODEL_SCHEMAS = {
     "reltr": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "flowsg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
+    "egtr_compact": {"rel_scores", "sub_boxes", "obj_boxes", "sub_scores", "obj_scores", "sub_classes", "obj_classes"},
+    "egtr": {"pred_logits", "pred_boxes", "pred_rel"},
+    "motifs": {"rel_logits", "pair_indices", "sub_boxes", "obj_boxes", "obj_labels"},
+    "cvc": {"pred_logits", "pair_indices", "sub_boxes", "obj_boxes"},
 }
 
 # Which tasks each model family supports
 _MODEL_TASKS = {
     "reltr": {"sgdet", "predcls", "sgcls"},
-    "flowsg": {"sgdet", "predcls", "sgcls"},  # FlowSG outputs RelTR-compatible format
-    "hstrnet": {"predcls"},  # HSTRNet: no predicted boxes → PredCLS only
+    "flowsg": {"sgdet", "predcls", "sgcls"},
+    "hstrnet": {"predcls"},
+    "egtr_compact": {"predcls"},
+    "egtr": {"predcls"},
+    "motifs": {"predcls"},
+    "cvc": {"predcls"},
 }
 
 
@@ -759,6 +797,371 @@ def _evaluate_predcls_batch_hstrnet(
                 }
                 pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
                 mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+
+
+# ===========================================================================
+# EGTR adapter: query-based outputs → standard PredCLS format
+# ===========================================================================
+
+def _evaluate_predcls_batch_egtr(
+    outputs: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+    evaluators: Dict[str, SceneGraphEvaluator],
+    mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
+    rel_nums: int,
+) -> None:
+    """EGTR PredCLS evaluation.
+
+    EGTR outputs per-query predictions (pred_logits, pred_boxes) and a dense
+    relation matrix (pred_rel [Q, Q, P]).  We match queries to GT objects via
+    box IoU, then extract per-GT-relation predicate scores from pred_rel.
+
+    Matching strategy:
+      1. For each image, compute IoU between pred_boxes [Q, 4] and GT boxes [N, 4].
+      2. For each GT box, select the query with highest IoU → query_idx = matched[N].
+      3. For each GT relation (s, o, pred_label):
+         - s_query = matched[s]; o_query = matched[o]
+         - relation score vector = pred_rel[s_query, o_query, :]
+      4. Build standard pred_entry format.
+    """
+    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+
+    required_keys = ["pred_logits", "pred_boxes", "pred_rel"]
+    for k in required_keys:
+        if k not in outputs:
+            raise KeyError(f"EGTR output missing key: {k}")
+
+    for i, target in enumerate(targets):
+        _validate_target(target)
+
+        gt_relations = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        if gt_relations.ndim == 1:
+            gt_relations = gt_relations.reshape(-1, 3) if gt_relations.size > 0 else \
+                np.zeros((0, 3), dtype=np.int64)
+        if gt_relations.shape[0] == 0:
+            continue
+
+        gt_labels = _to_numpy(target["labels"]).astype(np.int64)
+        gt_boxes_xyxy = _rescale_boxes(target["boxes"], target["orig_size"])
+        gt_entry = {"gt_classes": gt_labels, "gt_relations": gt_relations, "gt_boxes": gt_boxes_xyxy}
+
+        # ---- EGTR predictions ----
+        pred_boxes_norm = torch.as_tensor(outputs["pred_boxes"][i]).float()  # [Q, 4] cxcywh
+        pred_logits = torch.as_tensor(outputs["pred_logits"][i]).float()      # [Q, C]
+        pred_rel = torch.as_tensor(outputs["pred_rel"][i]).float()             # [Q, Q, P] (may be fp16 from cache)
+
+        Q = pred_boxes_norm.shape[0]
+        R = gt_relations.shape[0]
+
+        # ---- Match queries to GT boxes ----
+        # Convert both to xyxy for IoU
+        pred_xyxy = box_cxcywh_to_xyxy(pred_boxes_norm)                       # [Q, 4]
+        gt_boxes_t = torch.as_tensor(target["boxes"]).float()                  # [N, 4] cxcywh
+        gt_xyxy = box_cxcywh_to_xyxy(gt_boxes_t)                              # [N, 4]
+
+        iou_matrix, _ = box_iou(pred_xyxy, gt_xyxy)                           # [Q, N]
+        iou_matrix = torch.where(iou_matrix.isfinite(), iou_matrix,
+                                 torch.zeros_like(iou_matrix))                 # guard NaN
+        matched_query = torch.argmax(iou_matrix, dim=0)                        # [N]
+
+        # ---- Extract per-relation predictions (single loop) ----
+        rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
+        sub_boxes = np.zeros((R, 4), dtype=np.float32)
+        obj_boxes = np.zeros((R, 4), dtype=np.float32)
+        pred_sub_scores = np.ones(R, dtype=np.float32)
+        pred_obj_scores = np.ones(R, dtype=np.float32)
+        pred_sub_labels = np.zeros(R, dtype=np.int64)
+        pred_obj_labels = np.zeros(R, dtype=np.int64)
+        pred_rel_np = pred_rel.numpy()                                         # already CPU from cache
+
+        orig_t = torch.as_tensor(target["orig_size"]).cpu()
+        orig_wh = torch.flip(orig_t, dims=[0])
+
+        for r in range(R):
+            s_idx = int(gt_relations[r, 0])
+            o_idx = int(gt_relations[r, 1])
+
+            if s_idx < len(matched_query) and o_idx < len(matched_query):
+                s_q = int(matched_query[s_idx])
+                o_q = int(matched_query[o_idx])
+
+                # Predicate scores
+                score_vec = pred_rel_np[s_q, o_q, :].astype(np.float64)
+                score_vec -= score_vec.max()
+                score_vec = np.exp(score_vec) / np.exp(score_vec).sum()
+                rel_scores[r] = score_vec.astype(np.float32)
+
+                # Subject box + labels
+                s_box_norm = pred_boxes_norm[s_q]
+                sub_boxes[r] = rescale_bboxes(s_box_norm.unsqueeze(0), orig_wh).squeeze(0).numpy()
+                s_logits = pred_logits[s_q]
+                pred_sub_scores[r], pred_sub_labels[r] = torch.max(
+                    torch.softmax(s_logits[:-1], dim=-1), dim=0)
+
+                # Object box + labels
+                o_box_norm = pred_boxes_norm[o_q]
+                obj_boxes[r] = rescale_bboxes(o_box_norm.unsqueeze(0), orig_wh).squeeze(0).numpy()
+                o_logits = pred_logits[o_q]
+                pred_obj_scores[r], pred_obj_labels[r] = torch.max(
+                    torch.softmax(o_logits[:-1], dim=-1), dim=0)
+
+        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1)
+        pred_sub_labels = pred_sub_labels + 1
+        pred_obj_labels = pred_obj_labels + 1
+
+        pred_entry = {
+            "sub_boxes": sub_boxes,
+            "obj_boxes": obj_boxes,
+            "sub_scores": pred_sub_scores,
+            "obj_scores": pred_obj_scores,
+            "sub_classes": pred_sub_labels,
+            "obj_classes": pred_obj_labels,
+            "rel_scores": rel_scores,
+        }
+
+        for task_eval_key in evaluators:
+            if "predcls" in task_eval_key:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+
+        for task_mr_key, mr_eval_list in mr_evaluators.items():
+            if "predcls" not in task_mr_key:
+                continue
+            gt_rel_labels = gt_relations[:, 2]
+            for rel_id in range(1, rel_nums + 1):
+                gt_mask = (gt_rel_labels == rel_id)
+                if not gt_mask.any():
+                    continue
+                pred_mask = (pred_rel_labels == rel_id)
+                gt_entry_rel = {
+                    "gt_classes": gt_entry["gt_classes"],
+                    "gt_relations": gt_entry["gt_relations"][gt_mask],
+                    "gt_boxes": gt_entry["gt_boxes"],
+                }
+                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
+                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+
+
+# ===========================================================================
+
+def _per_image_values(value: Any) -> List[Any]:
+    """Normalize per-image cached values after epoch aggregation."""
+    if isinstance(value, list):
+        flat = []
+        for item in value:
+            if isinstance(item, list):
+                flat.extend(item)
+            else:
+                flat.append(item)
+        return flat
+    return [value]
+
+
+def _evaluate_predcls_batch_compact(
+    outputs: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+    evaluators: Dict[str, SceneGraphEvaluator],
+    mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
+    rel_nums: int,
+) -> None:
+    """Evaluate compact per-image predictions already in sg_eval field format."""
+    required_keys = [
+        "rel_scores", "sub_boxes", "obj_boxes", "sub_scores", "obj_scores",
+        "sub_classes", "obj_classes",
+    ]
+    for k in required_keys:
+        if k not in outputs:
+            raise KeyError(f"Compact output missing key: {k}")
+
+    per_key = {k: _per_image_values(outputs[k]) for k in required_keys}
+
+    for i, target in enumerate(targets):
+        if i >= len(per_key["rel_scores"]):
+            break
+        _validate_target(target)
+
+        gt_relations = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        if gt_relations.ndim == 1:
+            gt_relations = gt_relations.reshape(-1, 3) if gt_relations.size > 0 else \
+                np.zeros((0, 3), dtype=np.int64)
+        if gt_relations.shape[0] == 0:
+            continue
+
+        gt_labels = _to_numpy(target["labels"]).astype(np.int64)
+        gt_boxes_xyxy = _rescale_boxes(target["boxes"], target["orig_size"])
+        gt_entry = {
+            "gt_classes": gt_labels,
+            "gt_relations": gt_relations,
+            "gt_boxes": gt_boxes_xyxy,
+        }
+
+        rel_scores = np.asarray(per_key["rel_scores"][i], dtype=np.float32)
+        if rel_scores.ndim == 1:
+            rel_scores = rel_scores.reshape(1, -1)
+        if rel_scores.shape[-1] > rel_nums:
+            rel_scores = rel_scores[:, :rel_nums]
+
+        R = gt_relations.shape[0]
+        gt_sub_idx = gt_relations[:, 0]
+        gt_obj_idx = gt_relations[:, 1]
+
+        # PredCLS: use GT boxes + GT labels, only predicate comes from the model.
+        # The compact cache stores exactly R entries aligned with GT relations.
+        pred_entry_predcls = {
+            "sub_boxes": gt_boxes_xyxy[gt_sub_idx].astype(np.float32),
+            "sub_classes": gt_labels[gt_sub_idx].astype(np.int64),
+            "sub_scores": np.ones(R, dtype=np.float32),
+            "obj_boxes": gt_boxes_xyxy[gt_obj_idx].astype(np.float32),
+            "obj_classes": gt_labels[gt_obj_idx].astype(np.int64),
+            "obj_scores": np.ones(R, dtype=np.float32),
+            "rel_scores": rel_scores,
+        }
+
+        # SGDet: use predicted boxes + labels from the model output.
+        # This is what the compact cache actually stores (predicted entity info).
+        pred_entry_sgdet = {
+            "sub_boxes": np.asarray(per_key["sub_boxes"][i], dtype=np.float32),
+            "obj_boxes": np.asarray(per_key["obj_boxes"][i], dtype=np.float32),
+            "sub_scores": np.asarray(per_key["sub_scores"][i], dtype=np.float32),
+            "obj_scores": np.asarray(per_key["obj_scores"][i], dtype=np.float32),
+            "sub_classes": np.asarray(per_key["sub_classes"][i], dtype=np.int64),
+            "obj_classes": np.asarray(per_key["obj_classes"][i], dtype=np.int64),
+            "rel_scores": rel_scores,
+        }
+
+        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1) if rel_scores.size else \
+            np.zeros(0, dtype=np.int64)
+        for task_eval_key in evaluators:
+            if "predcls" in task_eval_key:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_predcls)
+            if "sgdet" in task_eval_key:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_sgdet)
+
+        for task_mr_key, mr_eval_list in mr_evaluators.items():
+            gt_rel_labels = gt_relations[:, 2]
+            if "predcls" in task_mr_key:
+                for rel_id in range(1, rel_nums + 1):
+                    gt_mask = (gt_rel_labels == rel_id)
+                    if not gt_mask.any():
+                        continue
+                    pred_mask = (pred_rel_labels == rel_id)
+                    gt_entry_rel = {
+                        "gt_classes": gt_entry["gt_classes"],
+                        "gt_relations": gt_entry["gt_relations"][gt_mask],
+                        "gt_boxes": gt_entry["gt_boxes"],
+                    }
+                    pred_entry_rel = _filter_by_mask(pred_entry_predcls, pred_mask)
+                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+            if "sgdet" in task_mr_key:
+                for rel_id in range(1, rel_nums + 1):
+                    gt_mask = (gt_rel_labels == rel_id)
+                    if not gt_mask.any():
+                        continue
+                    pred_mask = (pred_rel_labels == rel_id)
+                    gt_entry_rel = {
+                        "gt_classes": gt_entry["gt_classes"],
+                        "gt_relations": gt_entry["gt_relations"][gt_mask],
+                        "gt_boxes": gt_entry["gt_boxes"],
+                    }
+                    pred_entry_rel = _filter_by_mask(pred_entry_sgdet, pred_mask)
+                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+
+
+# ===========================================================================
+
+def _evaluate_predcls_batch_pair_indices(
+    outputs: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+    evaluators: Dict[str, SceneGraphEvaluator],
+    mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
+    rel_nums: int,
+) -> None:
+    """Motifs/CVC-style PredCLS evaluation.
+
+    These models score predicates for directed GT object pairs and expose
+    ``pair_indices`` in target object-index space. PredCLS can therefore match
+    each GT relation by its exact ``(subject_idx, object_idx)`` pair, without
+    IoU or Hungarian matching.
+    """
+    logits_key = "rel_logits" if "rel_logits" in outputs else "pred_logits"
+    required_keys = [logits_key, "pair_indices"]
+    for k in required_keys:
+        if k not in outputs:
+            raise KeyError(f"Pair-index output missing key: {k}")
+
+    for i, target in enumerate(targets):
+        _validate_target(target)
+
+        gt_relations = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        if gt_relations.ndim == 1:
+            gt_relations = gt_relations.reshape(-1, 3) if gt_relations.size > 0 else \
+                np.zeros((0, 3), dtype=np.int64)
+        if gt_relations.shape[0] == 0:
+            continue
+
+        gt_labels = _to_numpy(target["labels"]).astype(np.int64)
+        gt_boxes_xyxy = _rescale_boxes(target["boxes"], target["orig_size"])
+        gt_entry = {
+            "gt_classes": gt_labels,
+            "gt_relations": gt_relations,
+            "gt_boxes": gt_boxes_xyxy,
+        }
+
+        rel_logits = torch.as_tensor(outputs[logits_key][i]).float()
+        pair_indices = torch.as_tensor(outputs["pair_indices"][i]).long()
+        if rel_logits.dim() == 3:
+            rel_logits = rel_logits.squeeze(0)
+        if pair_indices.dim() == 3:
+            pair_indices = pair_indices.squeeze(0)
+
+        R = gt_relations.shape[0]
+        best_rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
+        if rel_logits.numel() > 0 and pair_indices.numel() > 0:
+            rel_scores_all = _extract_relation_scores(rel_logits, rel_nums)
+            pair_to_idx = {
+                (int(pair_indices[p, 0]), int(pair_indices[p, 1])): p
+                for p in range(pair_indices.shape[0])
+            }
+            for r in range(R):
+                key = (int(gt_relations[r, 0]), int(gt_relations[r, 1]))
+                p_idx = pair_to_idx.get(key)
+                if p_idx is not None and p_idx < rel_scores_all.shape[0]:
+                    best_rel_scores[r] = rel_scores_all[p_idx]
+
+        gt_sub_idx = gt_relations[:, 0]
+        gt_obj_idx = gt_relations[:, 1]
+        pred_entry = {
+            "sub_boxes": gt_boxes_xyxy[gt_sub_idx].astype(np.float32),
+            "sub_classes": gt_labels[gt_sub_idx].astype(np.int64),
+            "sub_scores": np.ones(R, dtype=np.float32),
+            "obj_boxes": gt_boxes_xyxy[gt_obj_idx].astype(np.float32),
+            "obj_classes": gt_labels[gt_obj_idx].astype(np.int64),
+            "obj_scores": np.ones(R, dtype=np.float32),
+            "rel_scores": best_rel_scores,
+        }
+
+        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
+        for task_eval_key in evaluators:
+            if "predcls" in task_eval_key:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+
+        for task_mr_key, mr_eval_list in mr_evaluators.items():
+            if "predcls" not in task_mr_key:
+                continue
+            gt_rel_labels = gt_relations[:, 2]
+            for rel_id in range(1, rel_nums + 1):
+                gt_mask = (gt_rel_labels == rel_id)
+                if not gt_mask.any():
+                    continue
+                pred_mask = (pred_rel_labels == rel_id)
+                gt_entry_rel = {
+                    "gt_classes": gt_entry["gt_classes"],
+                    "gt_relations": gt_entry["gt_relations"][gt_mask],
+                    "gt_boxes": gt_entry["gt_boxes"],
+                }
+                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
+                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+
+
 # ===========================================================================
 
 def _extract_relation_scores(rel_logits: torch.Tensor, rel_nums: int) -> np.ndarray:
