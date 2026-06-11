@@ -337,10 +337,9 @@ class EGTR_Method(Base_method):
                     continue
                 sq, oq = int(matched[si]), int(matched[oi])
                 # pred_rel convention: index 0 = bg/no-relation, indices 1..P-1 = 50 predicates.
-                # Skip bg so softmax is computed over the 50 predicate classes only.
-                sv = pr[sq, oq, 1:].astype(np.float64)
-                sv -= sv.max(); sv = np.exp(sv) / np.exp(sv).sum()
-                rel_scores[r] = sv.astype(np.float32)
+                # Skip bg.  Model already applies sigmoid, so these are calibrated
+                # per-class probabilities — use directly (no additional softmax).
+                rel_scores[r] = pr[sq, oq, 1:].astype(np.float32)
                 sub_boxes[r] = rescale_bboxes(pred_boxes[sq].unsqueeze(0), orig_wh).squeeze(0).numpy()
                 obj_boxes[r] = rescale_bboxes(pred_boxes[oq].unsqueeze(0), orig_wh).squeeze(0).numpy()
                 sub_labels[r] = int(torch.softmax(pred_logits[sq, :-1], dim=-1).argmax()) + 1

@@ -885,11 +885,9 @@ def _evaluate_predcls_batch_egtr(
                 s_q = int(matched_query[s_idx])
                 o_q = int(matched_query[o_idx])
 
-                # Predicate scores — skip bg at index 0 (EGTR convention)
-                score_vec = pred_rel_np[s_q, o_q, 1:].astype(np.float64)
-                score_vec -= score_vec.max()
-                score_vec = np.exp(score_vec) / np.exp(score_vec).sum()
-                rel_scores[r] = score_vec.astype(np.float32)
+                # Predicate scores — skip bg at index 0 (EGTR convention).
+                # Model already applies sigmoid → use directly.
+                rel_scores[r] = pred_rel_np[s_q, o_q, 1:].astype(np.float32)
 
                 # Subject box + labels
                 s_box_norm = pred_boxes_norm[s_q]
