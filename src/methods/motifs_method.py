@@ -150,6 +150,9 @@ class Motifs_Method(Base_method):
     def _build_model(self, **args):
         return build_motifs(self.hparams)
 
+    def _extra_model_kwargs(self, target, boxes, labels, return_obj_preds):
+        return {}
+
     @property
     def _use_backbone(self):
         return isinstance(self._visual_extractor, nn.Module) and \
@@ -198,7 +201,11 @@ class Motifs_Method(Base_method):
                 images, boxes_list, labels_list, image_sizes)
 
             for i, (box, lab, vis) in enumerate(zip(boxes_list, labels_list, visual_feats_list)):
-                out = self.model(vis, box, lab, return_obj_preds=return_obj_preds)
+                extra_kwargs = self._extra_model_kwargs(
+                    targets[i], box, lab, return_obj_preds)
+                out = self.model(
+                    vis, box, lab, return_obj_preds=return_obj_preds,
+                    **extra_kwargs)
                 all_outputs.append(out)
 
             # Batch outputs
@@ -211,6 +218,18 @@ class Motifs_Method(Base_method):
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]
+
+            add_losses = {}
+            for o in all_outputs:
+                for name, value in o.get("add_losses", {}).items():
+                    add_losses.setdefault(name, []).append(value)
+            if add_losses:
+                batched["add_losses"] = {
+                    name: torch.stack(values).mean()
+                    if all(torch.is_tensor(v) for v in values)
+                    else values
+                    for name, values in add_losses.items()
+                }
 
             out = {"outputs": batched}
 
