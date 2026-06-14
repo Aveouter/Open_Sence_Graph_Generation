@@ -36,6 +36,12 @@ def create_parser():
     parser.add_argument('--batch_size', '-b', default=None, type=int, help='Training batch size')
     parser.add_argument('--val_batch_size', '-vb', default=None, type=int, help='Validation batch size')
     parser.add_argument('--num_workers', default=None, type=int)
+    parser.add_argument('--dataset_size', default=None, type=int,
+                        help='Optional train subset size for quick smoke tests')
+    parser.add_argument('--val_dataset_size', default=None, type=int,
+                        help='Optional val/test subset size for quick smoke tests')
+    parser.add_argument('--test_dataset_size', default=None, type=int,
+                        help='Optional test subset size; overrides val_dataset_size in eval mode')
     parser.add_argument('--data_root', default='./data')
     parser.add_argument('--dataname', '-d', default='VisualGenome', type=str,
                         choices=['ThyroTriples', 'VisualGenome', 'OpenImageV6',],
@@ -52,7 +58,12 @@ def create_parser():
 
     # method parameters
     parser.add_argument('--method', '-m', default='HSTRNet', type=str,
-                        choices=['RelTR', 'HSTRNet', 'EGTR', 'FlowSG'],
+                        choices=[
+                            'RelTR', 'HSTRNet', 'EGTR', 'FlowSG',
+                            'Motifs', 'VCTree', 'TDE', 'IMP', 'Transformer',
+                            'GPS_Net', 'PE_NET', 'SQUAT', 'SHA_GCL', 'REACT',
+                            'CVC',
+                        ],
                         help='Name of SGG method to train (default: "HSTRNet")')
     parser.add_argument('--config_file', '-c', default=None, type=str,
                         help='Path to the default config file')

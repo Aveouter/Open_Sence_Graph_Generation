@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .reweight_loss import EdgeDensityLoss, FocalLoss
 
 def _stack_targets_if_needed(targets, key, ref_tensor):
     """
@@ -151,17 +152,23 @@ LOSS_FACTORY = {
     "ce": nn.CrossEntropyLoss,
     "mse": nn.MSELoss,
     "bce": nn.BCEWithLogitsLoss,
+    "focal": FocalLoss,
+    "focal_loss": FocalLoss,
+    "edge_density": EdgeDensityLoss,
+    "edge_density_loss": EdgeDensityLoss,
     "hstrnet_loss": HSTRCriterion,
     "reltr_loss": None,  # RelTR criterion built in reltr_method._build_model
     "egtr_loss": None,   # EGTR criterion built in egtr_method._build_model
     "flowsg_loss": None,  # FlowSG criterion built in flowsg_method._build_model
-    "motifs_loss": None,  # Motifs/VCTree/TDE criterion built in _build_criterion
+    "motifs_loss": None,  # Motifs/VCTree/TDE/IMP/Transformer/GPSNet/PENet/SQUAT/SHAGCL criterion built in _build_criterion
+    "react_loss": None,   # REACT criterion built in react_method._build_criterion
     "cvc_loss": None,     # CVC criterion built in _build_criterion
 }
 
 
-def loss_construction(loss_name="ce"):
+def loss_construction(loss_name="ce", **kwargs):
     try:
-        return LOSS_FACTORY[loss_name]() if LOSS_FACTORY[loss_name] is not None else None
+        factory = LOSS_FACTORY[loss_name]
+        return factory(**kwargs) if factory is not None else None
     except KeyError:
         raise ValueError(f"Unknown loss type: {loss_name}")

@@ -33,7 +33,7 @@ dec_layers = 6
 num_queries = 200
 
 # ===== loss / matcher =====
-aux_loss = True
+aux_loss = False
 bbox_loss_coef = 5
 giou_loss_coef = 2
 ce_loss_coef = 2.0
@@ -53,7 +53,7 @@ freq_bias_eps = 1e-12
 use_log_softmax = False
 
 # ===== logit adjustment =====
-logit_adjustment = True
+logit_adjustment = False
 logit_adj_tau = 0.3
 
 # ===== dataset =====
@@ -61,6 +61,9 @@ dataset = 'VisualGenome'
 dataname = 'VisualGenome'
 entity_nums = 151             # 150 obj classes + 1 background
 rel_nums = 51                 # 50 pred classes + 1 background
+egtr_num_labels = 150         # EGTR object logits, no background channel
+egtr_num_rel_labels = 50      # EGTR predicate logits, no background channel
+egtr_sgdet_postprocess = 'query'  # 'query' reproduces EGTR R@20; 'qc_topk' matches DETR Q*C top-k
 
 # ===== image preprocessing =====
 min_size = 800

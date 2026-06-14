@@ -20,12 +20,18 @@ def load_data(args=None, **kwargs):
     dataset_train = build_dataset(image_set='train', args=args)
     dataset_val = build_dataset(image_set='val', args=args)
 
-    # Debuging and testing code: 只取前 N 个样本，快速跑通流程
-    debug_num_samples = None
-    if debug_num_samples is not None:
-        train_n = min(debug_num_samples, len(dataset_train))
-        val_n = min(debug_num_samples, len(dataset_val))
+    # Optional small subsets for smoke tests. In eval mode dataset_val points to
+    # the test split, so test_dataset_size/val_dataset_size controls test size.
+    train_size = getattr(args, 'dataset_size', None)
+    eval_size = getattr(args, 'test_dataset_size', None)
+    if eval_size is None:
+        eval_size = getattr(args, 'val_dataset_size', None)
+
+    if train_size is not None:
+        train_n = min(int(train_size), len(dataset_train))
         dataset_train = Subset(dataset_train, list(range(train_n)))
+    if eval_size is not None:
+        val_n = min(int(eval_size), len(dataset_val))
         dataset_val = Subset(dataset_val, list(range(val_n)))
 
     if args.distributed:

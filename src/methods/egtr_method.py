@@ -79,9 +79,22 @@ def build_egtr(args):
             num_queries=200,
         )
 
-    # Override config with args
-    config.num_labels = getattr(args, 'entity_nums', 151)       # num object classes
-    config.num_rel_labels = getattr(args, 'rel_nums', 51)        # num relation classes
+    # Override config with args. OpenSGG keeps VisualGenome labels 1-indexed
+    # with an explicit background count (151 objects, 51 predicates), while
+    # EGTR follows the official checkpoint convention: 150 object logits and
+    # 50 predicate logits, both 0-indexed internally.
+    entity_nums = getattr(args, 'entity_nums', 151)
+    rel_nums = getattr(args, 'rel_nums', 51)
+    config.num_labels = getattr(
+        args, 'egtr_num_labels',
+        entity_nums - 1 if getattr(args, 'egtr_entity_nums_include_bg', entity_nums > 150)
+        else entity_nums,
+    )
+    config.num_rel_labels = getattr(
+        args, 'egtr_num_rel_labels',
+        rel_nums - 1 if getattr(args, 'egtr_rel_nums_include_bg', rel_nums > 50)
+        else rel_nums,
+    )
     config.num_queries = getattr(args, 'num_queries', 200)
     config.use_freq_bias = getattr(args, 'use_freq_bias', True)
     config.logit_adjustment = getattr(args, 'logit_adjustment', False)
@@ -200,7 +213,9 @@ class EGTR_Method(Base_method):
 
         pixel_values = pixel_values.to(self.device)
         if pixel_mask is not None:
-            pixel_mask = pixel_mask.to(self.device)
+            # OpenSGG/DETR NestedTensor masks use True for padding.
+            # HuggingFace Deformable DETR expects 1/True for valid pixels.
+            pixel_mask = (~pixel_mask).to(self.device)
 
         result = self.model(
             pixel_values=pixel_values,
@@ -252,6 +267,46 @@ class EGTR_Method(Base_method):
         import numpy as np
         from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
 
+        def empty_compact(num_rels, num_preds):
+            return {
+                'rel_scores': np.zeros((num_rels, num_preds), dtype=np.float32),
+                'sub_boxes': np.zeros((num_rels, 4), dtype=np.float32),
+                'obj_boxes': np.zeros((num_rels, 4), dtype=np.float32),
+                'sub_scores': np.zeros(num_rels, dtype=np.float32),
+                'obj_scores': np.zeros(num_rels, dtype=np.float32),
+                'sub_classes': np.zeros(num_rels, dtype=np.int64),
+                'obj_classes': np.zeros(num_rels, dtype=np.int64),
+                'sgdet_rel_scores': np.zeros((0, num_preds), dtype=np.float32),
+                'sgdet_sub_boxes': np.zeros((0, 4), dtype=np.float32),
+                'sgdet_obj_boxes': np.zeros((0, 4), dtype=np.float32),
+                'sgdet_sub_scores': np.zeros(0, dtype=np.float32),
+                'sgdet_obj_scores': np.zeros(0, dtype=np.float32),
+                'sgdet_sub_classes': np.zeros(0, dtype=np.int64),
+                'sgdet_obj_classes': np.zeros(0, dtype=np.int64),
+            }
+
+        # Normalize outputs/targets to per-image lists. Model forward returns
+        # batched tensors, but the compact evaluator cache stores one entry per
+        # image so Base_method aggregation can concatenate/flatten correctly.
+        if isinstance(outputs_list, dict):
+            batch_size = outputs_list['pred_boxes'].shape[0]
+            outputs_list = [
+                {k: (v[i] if torch.is_tensor(v) and v.shape[0] == batch_size else v)
+                 for k, v in outputs_list.items()}
+                for i in range(batch_size)
+            ]
+        elif isinstance(outputs_list, (tuple, list)) and len(outputs_list) == 1 \
+                and isinstance(outputs_list[0], dict) \
+                and torch.is_tensor(outputs_list[0].get('pred_boxes', None)) \
+                and outputs_list[0]['pred_boxes'].dim() == 3:
+            batched = outputs_list[0]
+            batch_size = batched['pred_boxes'].shape[0]
+            outputs_list = [
+                {k: (v[i] if torch.is_tensor(v) and v.shape[0] == batch_size else v)
+                 for k, v in batched.items()}
+                for i in range(batch_size)
+            ]
+
         # Normalize targets_list to always be a list of dicts
         if isinstance(targets_list, (tuple, list)):
             targets_list = list(targets_list)
@@ -259,23 +314,32 @@ class EGTR_Method(Base_method):
             targets_list = [targets_list]
 
         compact = []
-        for out, tgt in zip(outputs_list, targets_list):
+        for image_idx, (out, tgt) in enumerate(zip(outputs_list, targets_list)):
             if not isinstance(tgt, dict):
-                continue  # skip non-dict entries (e.g. from list-format batch)
+                raise TypeError(
+                    f"EGTR compact conversion expected dict target at index {image_idx}, "
+                    f"got {type(tgt).__name__}"
+                )
 
             pred_boxes = out['pred_boxes'].detach().float().cpu()
             pred_logits = out['pred_logits'].detach().float().cpu()
             pred_rel = out['pred_rel'].detach().float().cpu()
+            pred_connectivity = out.get('pred_connectivity', None)
+            if pred_connectivity is not None:
+                pred_connectivity = pred_connectivity.detach().float().cpu()
             # Remove all leading batch/singleton dims until exactly 2D/3D
             while pred_boxes.dim() > 2 and pred_boxes.shape[0] == 1:
                 pred_boxes = pred_boxes.squeeze(0)
                 pred_logits = pred_logits.squeeze(0)
                 pred_rel = pred_rel.squeeze(0)
+                if pred_connectivity is not None:
+                    pred_connectivity = pred_connectivity.squeeze(0)
             # Safety: if still >2D after squeeze, flatten remaining batch dims
             if pred_boxes.dim() > 2:
-                pred_boxes = pred_boxes.reshape(-1, pred_boxes.shape[-1])
-                pred_logits = pred_logits.reshape(-1, pred_logits.shape[-1])
-                pred_rel = pred_rel.reshape(-1, -1, pred_rel.shape[-1])
+                raise ValueError(
+                    "EGTR compact conversion expects one image at a time; "
+                    f"got pred_boxes shape {tuple(pred_boxes.shape)}"
+                )
 
             # Normalize gt_boxes to 2D [N,4]
             gt_boxes = tgt['boxes'].detach().float().cpu()
@@ -287,26 +351,15 @@ class EGTR_Method(Base_method):
             gt_rels = tgt['rel_annotations'].detach().cpu().numpy().astype(np.int64)
             if gt_rels.ndim == 1:
                 gt_rels = gt_rels.reshape(-1, 3) if gt_rels.size > 0 else np.zeros((0, 3), dtype=np.int64)
-            R, P = gt_rels.shape[0], pred_rel.shape[-1]
+            R = gt_rels.shape[0]
+            num_preds = pred_rel.shape[-1]
             if R == 0:
-                compact.append({'rel_scores': np.zeros((0, P), dtype=np.float32),
-                                'sub_boxes': np.zeros((0, 4), dtype=np.float32),
-                                'obj_boxes': np.zeros((0, 4), dtype=np.float32),
-                                'sub_scores': np.zeros(0, dtype=np.float32),
-                                'obj_scores': np.zeros(0, dtype=np.float32),
-                                'sub_classes': np.zeros(0, dtype=np.int64),
-                                'obj_classes': np.zeros(0, dtype=np.int64)})
+                compact.append(empty_compact(0, num_preds))
                 continue
 
             # Guard: if pred_boxes has fewer entries than matched GT objects
             if pred_boxes.shape[0] == 0:
-                compact.append({'rel_scores': np.zeros((R, P), dtype=np.float32),
-                                'sub_boxes': np.zeros((R, 4), dtype=np.float32),
-                                'obj_boxes': np.zeros((R, 4), dtype=np.float32),
-                                'sub_scores': np.zeros(R, dtype=np.float32),
-                                'obj_scores': np.zeros(R, dtype=np.float32),
-                                'sub_classes': np.zeros(R, dtype=np.int64),
-                                'obj_classes': np.zeros(R, dtype=np.int64)})
+                compact.append(empty_compact(R, num_preds))
                 continue
 
             # IoU matching: pred queries → GT objects
@@ -321,7 +374,7 @@ class EGTR_Method(Base_method):
             iou = torch.where(iou.isfinite(), iou, torch.zeros_like(iou))
             matched = torch.argmax(iou, dim=0)
 
-            rel_scores = np.zeros((R, P), dtype=np.float32)
+            rel_scores = np.zeros((R, num_preds), dtype=np.float32)
             sub_boxes = np.zeros((R, 4), dtype=np.float32)
             obj_boxes = np.zeros((R, 4), dtype=np.float32)
             sub_labels = np.zeros(R, dtype=np.int64)
@@ -335,18 +388,71 @@ class EGTR_Method(Base_method):
                 if si >= len(matched) or oi >= len(matched):
                     continue
                 sq, oq = int(matched[si]), int(matched[oi])
-                sv = pr[sq, oq, :].astype(np.float64)
-                sv -= sv.max(); sv = np.exp(sv) / np.exp(sv).sum()
-                rel_scores[r] = sv.astype(np.float32)
+                # Official EGTR predicts 50 sigmoid predicate probabilities
+                # with no background channel. OpenSGG GT labels remain 1..50;
+                # sg_eval adds +1 after argmax, so we store columns 0..49.
+                rel_scores[r] = pr[sq, oq, :].astype(np.float32)
                 sub_boxes[r] = rescale_bboxes(pred_boxes[sq].unsqueeze(0), orig_wh).squeeze(0).numpy()
                 obj_boxes[r] = rescale_bboxes(pred_boxes[oq].unsqueeze(0), orig_wh).squeeze(0).numpy()
-                sub_labels[r] = int(torch.softmax(pred_logits[sq, :-1], dim=-1).argmax()) + 1
-                obj_labels[r] = int(torch.softmax(pred_logits[oq, :-1], dim=-1).argmax()) + 1
+                sub_labels[r] = int(torch.sigmoid(pred_logits[sq]).argmax()) + 1
+                obj_labels[r] = int(torch.sigmoid(pred_logits[oq]).argmax()) + 1
 
-            compact.append({'rel_scores': rel_scores, 'sub_boxes': sub_boxes,
-                            'obj_boxes': obj_boxes, 'sub_scores': np.ones(R, dtype=np.float32),
-                            'obj_scores': np.ones(R, dtype=np.float32),
-                            'sub_classes': sub_labels, 'obj_classes': obj_labels})
+            sgdet_rel = pred_rel.clamp(0.0, 1.0)
+            if pred_connectivity is not None:
+                sgdet_rel = sgdet_rel * pred_connectivity.clamp(0.0, 1.0)
+
+            postprocess_mode = getattr(self.hparams, 'egtr_sgdet_postprocess', 'query')
+            if postprocess_mode == 'qc_topk':
+                # Deformable DETR-style object detections: top scores over the
+                # flattened Q*C sigmoid probabilities.
+                obj_prob = torch.sigmoid(pred_logits)
+                num_queries, num_classes = obj_prob.shape
+                det_topk = min(100, obj_prob.numel())
+                det_scores, det_indexes = torch.topk(obj_prob.reshape(-1), det_topk)
+                det_queries = torch.div(det_indexes, num_classes, rounding_mode='trunc')
+                det_classes = det_indexes % num_classes
+            elif postprocess_mode == 'query':
+                # EGTR reproduction mode: one object class per query. This is
+                # the path that matches the observed VisualGenome R@20 target.
+                det_scores, det_classes = torch.max(torch.sigmoid(pred_logits), dim=-1)
+                det_queries = torch.arange(
+                    pred_logits.shape[0], device=pred_logits.device, dtype=torch.long)
+            else:
+                raise ValueError(
+                    "egtr_sgdet_postprocess must be 'query' or 'qc_topk', "
+                    f"got {postprocess_mode!r}"
+                )
+
+            pair_scores = torch.outer(det_scores, det_scores)
+            same_query = det_queries[:, None] == det_queries[None, :]
+            pair_scores[same_query] = 0.0
+            det_pair_rel = sgdet_rel[det_queries[:, None], det_queries[None, :]]
+            triplet_scores = det_pair_rel.max(-1)[0] * pair_scores
+            topk = min(100, triplet_scores.numel())
+            top_scores, top_idx = torch.topk(triplet_scores.reshape(-1), topk)
+            top_sub = torch.div(top_idx, triplet_scores.shape[1], rounding_mode='trunc')
+            top_obj = top_idx % triplet_scores.shape[1]
+            all_boxes = rescale_bboxes(pred_boxes, orig_wh).numpy().astype(np.float32)
+            sgdet_rel_scores = det_pair_rel[top_sub, top_obj].numpy().astype(np.float32)
+            top_sub_queries = det_queries[top_sub]
+            top_obj_queries = det_queries[top_obj]
+
+            compact.append({
+                'rel_scores': rel_scores,
+                'sub_boxes': sub_boxes,
+                'obj_boxes': obj_boxes,
+                'sub_scores': np.ones(R, dtype=np.float32),
+                'obj_scores': np.ones(R, dtype=np.float32),
+                'sub_classes': sub_labels,
+                'obj_classes': obj_labels,
+                'sgdet_rel_scores': sgdet_rel_scores,
+                'sgdet_sub_boxes': all_boxes[top_sub_queries.numpy()],
+                'sgdet_obj_boxes': all_boxes[top_obj_queries.numpy()],
+                'sgdet_sub_scores': det_scores[top_sub].numpy().astype(np.float32),
+                'sgdet_obj_scores': det_scores[top_obj].numpy().astype(np.float32),
+                'sgdet_sub_classes': (det_classes[top_sub].numpy() + 1).astype(np.int64),
+                'sgdet_obj_classes': (det_classes[top_obj].numpy() + 1).astype(np.int64),
+            })
         return compact
 
     def _cache_step(self, store, outputs, targets_orig, loss_dict, total_loss):
@@ -355,11 +461,12 @@ class EGTR_Method(Base_method):
             targets_list = list(targets_orig)
         else:
             targets_list = [targets_orig]
-        compact = self._egtr_to_compact([outputs], targets_list)
+        compact = self._egtr_to_compact(outputs, targets_list)
         if len(compact) == 0:
             return
+        output_keys = sorted({k for entry in compact for k in entry.keys()})
         store.append({
-            'outputs': {k: [v] for k, v in compact[0].items()},
+            'outputs': {k: [c[k] for c in compact] for k in output_keys},
             'targets': [{kk: (vv.detach().cpu() if torch.is_tensor(vv) else vv)
                          for kk, vv in t.items() if kk not in {'rel', 'iscrowd', 'area'}}
                         for t in targets_list if isinstance(t, dict)],
@@ -423,10 +530,10 @@ class EGTR_Method(Base_method):
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
         total_loss = result.get('loss', torch.tensor(0.0, device=self.device))
-        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('val_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=False)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'val_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
+                self.log(f'val_{k}', v, on_step=False, on_epoch=True, sync_dist=False)
         self._cache_step(self.val_outputs, result['outputs'], targets_orig, loss_dict, total_loss)
         return total_loss
 
@@ -437,10 +544,13 @@ class EGTR_Method(Base_method):
         result = self.forward(images, targets)
         loss_dict = result.get('loss_dict', {})
         total_loss = result.get('loss', torch.tensor(0.0, device=self.device))
-        self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        # NOTE: sync_dist=False — metrics are re-computed from gathered outputs
+        # in _run_epoch_end, so per-step DDP sync is unnecessary overhead that
+        # causes NCCL timeouts with heterogeneous GPUs.
+        self.log('test_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=False)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'test_{k}', v, on_step=False, on_epoch=True, sync_dist=True)
+                self.log(f'test_{k}', v, on_step=False, on_epoch=True, sync_dist=False)
         self._cache_step(self.test_outputs, result['outputs'], targets_orig, loss_dict, total_loss)
         return total_loss
 
@@ -458,7 +568,8 @@ class EGTR_Method(Base_method):
             at = {}
             # Map keys
             if 'labels' in t:
-                at['class_labels'] = t['labels']
+                labels = t['labels']
+                at['class_labels'] = labels - 1 if labels.numel() and labels.min() >= 1 else labels
             elif 'class_labels' in t:
                 at['class_labels'] = t['class_labels']
 
@@ -492,6 +603,8 @@ class EGTR_Method(Base_method):
                                          device=t.get('labels', t.get('class_labels')).device)
                 for ann in t['rel_annotations']:
                     s, o, p = int(ann[0]), int(ann[1]), int(ann[2])
+                    if p >= 1:
+                        p -= 1
                     if 0 <= s < pad_size and 0 <= o < pad_size and 0 <= p < num_rel_labels:
                         rel_matrix[s, o, p] = 1.0
                 at['rel'] = rel_matrix

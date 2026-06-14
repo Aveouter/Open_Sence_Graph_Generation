@@ -312,7 +312,9 @@ class BaseExperiment(object):
                 elif w.shape[dim_idx] < model_w.shape[dim_idx]:
                     pad_shape = list(w.shape)
                     pad_shape[dim_idx] = model_w.shape[dim_idx] - w.shape[dim_idx]
-                    pad = torch.zeros(pad_shape, dtype=w.dtype, device=w.device)
+                    # Use eps (1e-12) instead of 0 to prevent -inf in log/softmax
+                    # operations on frequency-distribution parameters (e.g. rel_dist).
+                    pad = torch.full(pad_shape, 1e-12, dtype=w.dtype, device=w.device)
                     w = torch.cat([w, pad], dim=dim_idx)
             state_dict[k] = w
             adapted += 1
