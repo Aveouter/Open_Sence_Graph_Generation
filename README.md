@@ -9,8 +9,63 @@ OpenSGG unifies multiple state-of-the-art SGG methods under one training and eva
 | Method | Venue | Description | Status |
 |--------|-------|-------------|--------|
 | **RelTR** | ECCV 2022 | Relation Transformer — triplet-query-based SGG with Hungarian matching | Stable |
-| **EGTR** | CVPR 2024 | Extracting Graph from Transformer — Deformable DETR backbone + lightweight relation head | Beta |
+| **EGTR** | CVPR 2024 | Extracting Graph from Transformer — Deformable DETR backbone + lightweight relation head | Reproduced on VG |
 | **HSTRNet** | Custom | Hierarchical prototype relation learning with temporal encoding | Experimental |
+| **Motifs** | CVPR 2018 | Neural Motifs two-stage SGG baseline | Experimental |
+| **VCTree** | CVPR 2019 | Tree-structured object context for SGG | Experimental |
+| **TDE** | CVPR 2020 | Total Direct Effect debiasing variant built on Motifs | Experimental |
+| **IMP** | CVPR 2017 | Iterative Message Passing for scene graph generation | Experimental |
+| **Transformer** | CVPR 2020 | Transformer context predictor for two-stage SGG | Experimental |
+| **GPSNet** | CVPR 2020 | Graph property sensing network | Experimental |
+| **PENet** | CVPR 2023 | Prototype-based embedding network | Experimental |
+| **REACT** | BMVC 2025 | Prototype-regularized efficient SGG model | Experimental |
+| **SHA-GCL** | CVPR 2022 | Hybrid attention with group collaborative learning | Experimental |
+| **SQUAT** | CVPR 2023 | Selective quad attention for edge modeling | Experimental |
+
+## EGTR VisualGenome Reproduction
+
+The EGTR VisualGenome evaluation path has been aligned with the pretrained
+VisualGenome checkpoint convention:
+
+- OpenSGG labels remain 1-indexed with background counts (`entity_nums=151`,
+  `rel_nums=51`).
+- EGTR logits use explicit no-background dimensions
+  (`egtr_num_labels=150`, `egtr_num_rel_labels=50`).
+- The VisualGenome checkpoint loads non-zero `rel_dist` and `triplet_dist`
+  frequency-bias parameters.
+- `egtr_sgdet_postprocess='query'` is the default because it matches the
+  observed EGTR SGDet reproduction result. `qc_topk` is available for
+  Deformable-DETR-style `Q*C` object top-k experiments.
+
+Full VisualGenome test with the pretrained EGTR checkpoint reached:
+
+| Metric | Value |
+|--------|-------|
+| PredCLS R@20 | 51.10 |
+| PredCLS mR@20 | 18.87 |
+| SGDet R@20 | 23.47 |
+| SGDet R@50 | 30.08 |
+| SGDet mR@20 | 9.72 |
+
+Example command:
+
+```bash
+python train.py -m EGTR -d VisualGenome --test \
+  --ckpt_path outputs/pretrained/egtr/<run>/checkpoints/epoch=03-validation_loss=1.71.ckpt \
+  --val_batch_size 1 \
+  --gpus 0
+```
+
+For quick smoke tests, use:
+
+```bash
+python train.py -m EGTR -d VisualGenome --test \
+  --ckpt_path outputs/pretrained/egtr/<run>/checkpoints/epoch=03-validation_loss=1.71.ckpt \
+  --val_batch_size 1 \
+  --test_dataset_size 20 \
+  --num_workers 0 \
+  --gpus 0
+```
 
 ## Installation
 
@@ -61,6 +116,9 @@ python train.py --method EGTR --dataname VisualGenome --gpus 0 --batch_size 4
 
 # Train HSTRNet on VisualGenome
 python train.py --method HSTRNet --dataname VisualGenome --gpus 0 --batch_size 16
+
+# Train a two-stage baseline, e.g. Neural Motifs
+python train.py --method Motifs --dataname VisualGenome --gpus 0 --batch_size 8
 ```
 
 Config files are auto-loaded from `configs/<DatasetName>/<MethodName>.py`. Command-line arguments override config values.
@@ -112,9 +170,12 @@ configs/
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `method` | Model method (RelTR / EGTR / HSTRNet) | — |
+| `method` | Model method, e.g. RelTR / EGTR / HSTRNet / Motifs / IMP / REACT | — |
 | `dataname` | Dataset (VisualGenome / OpenImageV6) | VisualGenome |
 | `batch_size` | Training batch size | 4 |
+| `dataset_size` | Optional train subset size for smoke tests | None |
+| `val_dataset_size` | Optional val/test subset size for smoke tests | None |
+| `test_dataset_size` | Optional test subset size; overrides `val_dataset_size` in test mode | None |
 | `epoch` | Max training epochs | 200 |
 | `lr` | Learning rate | 1e-4 |
 | `lr_backbone` | Backbone learning rate | 1e-5 |
@@ -126,6 +187,9 @@ configs/
 | `num_triplets` | Number of triplet queries (RelTR) | 200 |
 | `entity_nums` | Number of entity classes (+ bg) | 151 |
 | `rel_nums` | Number of predicate classes (+ bg) | 51 |
+| `egtr_num_labels` | EGTR object logit classes without background | 150 |
+| `egtr_num_rel_labels` | EGTR predicate logit classes without background | 50 |
+| `egtr_sgdet_postprocess` | EGTR SGDet object postprocess: `query` or `qc_topk` | query |
 
 ### Evaluation Metrics
 
@@ -151,7 +215,9 @@ OpenSGG/
 │   └── VisualGenome/
 │       ├── RelTR.py
 │       ├── EGTR.py
-│       └── HSTRNet.py
+│       ├── HSTRNet.py
+│       ├── Motifs.py / VCTree.py / TDE.py
+│       └── IMP.py / Transformer.py / GPS_Net.py / PE_NET.py / REACT.py / SHA_GCL.py / SQUAT.py
 ├── src/                              # Core framework
 │   ├── exp.py                        # Experiment class (train/test orchestration)
 │   ├── loss.py                       # Loss backward-compat shim
@@ -164,10 +230,12 @@ OpenSGG/
 │   │   ├── base_method.py            # Base class (DDP eval, loss averaging)
 │   │   ├── reltr_method.py           # RelTR wrapper
 │   │   ├── egtr_method.py            # EGTR wrapper
-│   │   └── hstrnet_method.py         # HSTRNet wrapper
+│   │   ├── hstrnet_method.py         # HSTRNet wrapper
+│   │   └── *_method.py               # Two-stage baseline wrappers
 │   ├── models/                       # Model definitions
 │   │   ├── reltr.py                  # RelTR model + criterion + postprocess
-│   │   └── HSTRNet.py                # HSTRNet model
+│   │   ├── HSTRNet.py                # HSTRNet model
+│   │   └── motifs.py / imp.py / gpsnet.py / react_sgg.py / ...
 │   ├── modules/                      # Reusable building blocks
 │   │   ├── layers/                   # Backbone, Transformer, Matcher, CLIP alignment
 │   │   └── egtr/                     # EGTR model components
@@ -177,7 +245,8 @@ OpenSGG/
 │   │       ├── transform.py          # Data augmentation transforms
 │   │       └── load_custom.py        # CUDA kernel loader
 │   └── losses/                       # Loss function registry
-│       └── loss.py                   # HSTRCriterion + LOSS_FACTORY
+│       ├── loss.py                   # HSTRCriterion + LOSS_FACTORY
+│       └── reweight_loss.py          # Focal, class-balanced, and reweighting losses
 ├── data/                             # Data loading
 │   └── dataloaders/
 │       ├── dataloader.py             # Routing to dataset-specific loaders
@@ -217,7 +286,10 @@ Full end-to-end: predict bounding boxes, object labels, and predicates from raw 
 Given ground-truth bounding boxes, predict object labels and predicates.
 
 ### PredCLS (Predicate Classification)
-Given ground-truth boxes and labels, predict predicates only. HSTRNet currently supports this mode.
+Given ground-truth boxes and labels, predict predicates only.
+
+EGTR currently reports PredCLS and SGDet through its compact evaluator cache.
+SGCLS is skipped for EGTR unless a dedicated adapter is added.
 
 ## How to Add a New Method
 
@@ -237,3 +309,5 @@ If you use this framework in your research, please cite the original papers for 
 
 - **RelTR**: Cong et al., "RelTR: Relation Transformer for Scene Graph Generation", ECCV 2022
 - **EGTR**: Im et al., "EGTR: Extracting Graph from Transformer for Scene Graph Generation", CVPR 2024
+- **Neural Motifs**: Zellers et al., "Neural Motifs: Scene Graph Parsing with Global Context", CVPR 2018
+- **IMP**: Xu et al., "Scene Graph Generation by Iterative Message Passing", CVPR 2017
