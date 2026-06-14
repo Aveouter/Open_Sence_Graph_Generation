@@ -98,7 +98,7 @@ def metric(
         }
 
     # Dispatch to model-specific evaluation
-    if "sgdet" in supported_tasks:
+    if matched_family in {"reltr", "flowsg"} and "sgdet" in supported_tasks:
         _evaluate_sgdet_batch(
             outputs=pred,
             targets=true,
@@ -116,7 +116,7 @@ def metric(
             rel_nums=rel_nums,
             triplet_match_indices=triplet_match_indices,
         )
-    if "sgcls" in supported_tasks:
+    if matched_family in {"reltr", "flowsg"} and "sgcls" in supported_tasks:
         _evaluate_sgcls_batch(
             outputs=pred,
             targets=true,
@@ -147,7 +147,7 @@ def metric(
         )
 
     # EGTR compact cache: already converted to evaluator fields per image
-    if matched_family == "egtr_compact" and "predcls" in supported_tasks:
+    if matched_family == "egtr_compact" and {"predcls", "sgdet"}.intersection(supported_tasks):
         _evaluate_predcls_batch_compact(
             outputs=pred,
             targets=true,
@@ -232,7 +232,7 @@ _MODEL_TASKS = {
     "reltr": {"sgdet", "predcls", "sgcls"},
     "flowsg": {"sgdet", "predcls", "sgcls"},
     "hstrnet": {"predcls"},
-    "egtr_compact": {"predcls"},
+    "egtr_compact": {"predcls", "sgdet"},
     "egtr": {"predcls"},
     "motifs": {"predcls"},
     "cvc": {"predcls"},
@@ -865,14 +865,22 @@ def _evaluate_predcls_batch_egtr(
         matched_query = torch.argmax(iou_matrix, dim=0)                        # [N]
 
         # ---- Extract per-relation predictions (single loop) ----
-        rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
+        pred_rel_np = pred_rel.numpy()                                         # already CPU from cache
+        pred_rel_dim = pred_rel_np.shape[-1]
+        if pred_rel_dim == rel_nums + 1:
+            eval_rel_nums = rel_nums
+            rel_slice = slice(1, rel_nums + 1)
+        else:
+            eval_rel_nums = min(rel_nums, pred_rel_dim)
+            rel_slice = slice(0, eval_rel_nums)
+
+        rel_scores = np.zeros((R, eval_rel_nums), dtype=np.float32)
         sub_boxes = np.zeros((R, 4), dtype=np.float32)
         obj_boxes = np.zeros((R, 4), dtype=np.float32)
         pred_sub_scores = np.ones(R, dtype=np.float32)
         pred_obj_scores = np.ones(R, dtype=np.float32)
         pred_sub_labels = np.zeros(R, dtype=np.int64)
         pred_obj_labels = np.zeros(R, dtype=np.int64)
-        pred_rel_np = pred_rel.numpy()                                         # already CPU from cache
 
         orig_t = torch.as_tensor(target["orig_size"]).cpu()
         orig_wh = torch.flip(orig_t, dims=[0])
@@ -885,23 +893,24 @@ def _evaluate_predcls_batch_egtr(
                 s_q = int(matched_query[s_idx])
                 o_q = int(matched_query[o_idx])
 
-                # Predicate scores — skip bg at index 0 (EGTR convention).
-                # Model already applies sigmoid → use directly.
-                rel_scores[r] = pred_rel_np[s_q, o_q, 1:].astype(np.float32)
+                # Official EGTR predicts 50 sigmoid predicate probabilities
+                # with no background channel. Keep a small compatibility path
+                # for older local checkpoints that added bg at index 0.
+                rel_scores[r] = pred_rel_np[s_q, o_q, rel_slice].astype(np.float32)
 
                 # Subject box + labels
                 s_box_norm = pred_boxes_norm[s_q]
                 sub_boxes[r] = rescale_bboxes(s_box_norm.unsqueeze(0), orig_wh).squeeze(0).numpy()
                 s_logits = pred_logits[s_q]
                 pred_sub_scores[r], pred_sub_labels[r] = torch.max(
-                    torch.softmax(s_logits[:-1], dim=-1), dim=0)
+                    torch.sigmoid(s_logits), dim=0)
 
                 # Object box + labels
                 o_box_norm = pred_boxes_norm[o_q]
                 obj_boxes[r] = rescale_bboxes(o_box_norm.unsqueeze(0), orig_wh).squeeze(0).numpy()
                 o_logits = pred_logits[o_q]
                 pred_obj_scores[r], pred_obj_labels[r] = torch.max(
-                    torch.softmax(o_logits[:-1], dim=-1), dim=0)
+                    torch.sigmoid(o_logits), dim=0)
 
         pred_rel_labels = 1 + np.argmax(rel_scores, axis=1)
         pred_sub_labels = pred_sub_labels + 1
@@ -971,6 +980,15 @@ def _evaluate_predcls_batch_compact(
             raise KeyError(f"Compact output missing key: {k}")
 
     per_key = {k: _per_image_values(outputs[k]) for k in required_keys}
+    sgdet_keys = [
+        "sgdet_rel_scores", "sgdet_sub_boxes", "sgdet_obj_boxes",
+        "sgdet_sub_scores", "sgdet_obj_scores",
+        "sgdet_sub_classes", "sgdet_obj_classes",
+    ]
+    has_sgdet_cache = all(k in outputs for k in sgdet_keys)
+    if has_sgdet_cache:
+        for k in sgdet_keys:
+            per_key[k] = _per_image_values(outputs[k])
 
     for i, target in enumerate(targets):
         if i >= len(per_key["rel_scores"]):
@@ -1015,20 +1033,39 @@ def _evaluate_predcls_batch_compact(
             "rel_scores": rel_scores,
         }
 
-        # SGDet: use predicted boxes + labels from the model output.
-        # This is what the compact cache actually stores (predicted entity info).
-        pred_entry_sgdet = {
-            "sub_boxes": np.asarray(per_key["sub_boxes"][i], dtype=np.float32),
-            "obj_boxes": np.asarray(per_key["obj_boxes"][i], dtype=np.float32),
-            "sub_scores": np.asarray(per_key["sub_scores"][i], dtype=np.float32),
-            "obj_scores": np.asarray(per_key["obj_scores"][i], dtype=np.float32),
-            "sub_classes": np.asarray(per_key["sub_classes"][i], dtype=np.int64),
-            "obj_classes": np.asarray(per_key["obj_classes"][i], dtype=np.int64),
-            "rel_scores": rel_scores,
-        }
-
         pred_rel_labels = 1 + np.argmax(rel_scores, axis=1) if rel_scores.size else \
             np.zeros(0, dtype=np.int64)
+        if has_sgdet_cache:
+            sgdet_rel_scores = np.asarray(per_key["sgdet_rel_scores"][i], dtype=np.float32)
+            if sgdet_rel_scores.ndim == 1:
+                sgdet_rel_scores = sgdet_rel_scores.reshape(1, -1)
+            if sgdet_rel_scores.shape[-1] > rel_nums:
+                sgdet_rel_scores = sgdet_rel_scores[:, 1:rel_nums + 1]
+            pred_entry_sgdet = {
+                "sub_boxes": np.asarray(per_key["sgdet_sub_boxes"][i], dtype=np.float32),
+                "obj_boxes": np.asarray(per_key["sgdet_obj_boxes"][i], dtype=np.float32),
+                "sub_scores": np.asarray(per_key["sgdet_sub_scores"][i], dtype=np.float32),
+                "obj_scores": np.asarray(per_key["sgdet_obj_scores"][i], dtype=np.float32),
+                "sub_classes": np.asarray(per_key["sgdet_sub_classes"][i], dtype=np.int64),
+                "obj_classes": np.asarray(per_key["sgdet_obj_classes"][i], dtype=np.int64),
+                "rel_scores": sgdet_rel_scores,
+            }
+            pred_rel_labels_sgdet = 1 + np.argmax(sgdet_rel_scores, axis=1) \
+                if sgdet_rel_scores.size else np.zeros(0, dtype=np.int64)
+        else:
+            # Legacy compact cache: use predicted boxes + labels aligned with GT
+            # relations. New EGTR runs should provide the sgdet_* top-pair cache.
+            pred_entry_sgdet = {
+                "sub_boxes": np.asarray(per_key["sub_boxes"][i], dtype=np.float32),
+                "obj_boxes": np.asarray(per_key["obj_boxes"][i], dtype=np.float32),
+                "sub_scores": np.asarray(per_key["sub_scores"][i], dtype=np.float32),
+                "obj_scores": np.asarray(per_key["obj_scores"][i], dtype=np.float32),
+                "sub_classes": np.asarray(per_key["sub_classes"][i], dtype=np.int64),
+                "obj_classes": np.asarray(per_key["obj_classes"][i], dtype=np.int64),
+                "rel_scores": rel_scores,
+            }
+            pred_rel_labels_sgdet = pred_rel_labels
+
         for task_eval_key in evaluators:
             if "predcls" in task_eval_key:
                 evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_predcls)
@@ -1055,7 +1092,7 @@ def _evaluate_predcls_batch_compact(
                     gt_mask = (gt_rel_labels == rel_id)
                     if not gt_mask.any():
                         continue
-                    pred_mask = (pred_rel_labels == rel_id)
+                    pred_mask = (pred_rel_labels_sgdet == rel_id)
                     gt_entry_rel = {
                         "gt_classes": gt_entry["gt_classes"],
                         "gt_relations": gt_entry["gt_relations"][gt_mask],

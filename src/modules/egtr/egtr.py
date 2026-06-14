@@ -185,15 +185,15 @@ class DetrForSceneGraphGeneration(DeformableDetrPreTrainedModel):
             self.rel_dist = nn.Parameter(rel_dist, requires_grad=False)
             self.triplet_dist = nn.Parameter(triplet_dist, requires_grad=False)
             del rel_dist, triplet_dist
-        else:  # when infer
+        else:  # when infer without precomputed foreground statistics
             self.triplet_dist = nn.Parameter(
-                torch.Tensor(
+                torch.zeros(
                     config.num_labels + 1, config.num_labels + 1, config.num_rel_labels
                 ),
                 requires_grad=False,
             )
             self.rel_dist = nn.Parameter(
-                torch.Tensor(config.num_rel_labels), requires_grad=False
+                torch.zeros(config.num_rel_labels), requires_grad=False
             )
 
         self.proj_q = nn.ModuleList(
