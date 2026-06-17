@@ -127,7 +127,11 @@ class Base_method(l.LightningModule):
         """
         entry = {
             'outputs': {
-                k: (v.detach().cpu() if torch.is_tensor(v) else v)
+                k: (
+                    [t.detach().cpu() if torch.is_tensor(t) else t for t in v]
+                    if isinstance(v, list)
+                    else (v.detach().cpu() if torch.is_tensor(v) else v)
+                )
                 for k, v in outputs.items()
                 if k != 'aux_outputs'  # skip auxiliary decoder outputs to save memory
             },
@@ -225,7 +229,11 @@ class Base_method(l.LightningModule):
             elif isinstance(batch_items[0], np.ndarray):
                 pred_all[key] = np.concatenate(batch_items, axis=0)
             else:
-                pred_all[key] = batch_items
+                # Flatten per-batch lists into a flat per-image list
+                if isinstance(batch_items[0], list):
+                    pred_all[key] = sum(batch_items, [])
+                else:
+                    pred_all[key] = batch_items
 
         true_all = []
         for x in step_outputs:

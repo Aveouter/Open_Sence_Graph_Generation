@@ -36,8 +36,8 @@ class MotifsCriterion(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(ignore_index=-1, reduction='sum')
 
     def forward(self, outputs: dict, targets: list) -> dict:
-        total_pred_loss = 0.0
-        total_obj_loss = 0.0
+        total_pred_loss = torch.tensor(0.0)
+        total_obj_loss = torch.tensor(0.0)
         total_pairs = 0
         total_objs = 0
 

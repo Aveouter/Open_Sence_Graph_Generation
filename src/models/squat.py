@@ -322,12 +322,9 @@ class SquatModel(nn.Module):
 
         sparse_edges = sparse_edges_seq.squeeze(0)  # [K, H]
 
-        # Scatter sparse edges back to full tensor
-        full_edge_feats = self._scatter_edges(sparse_edges, sparse_idx, P)
-
-        # If not all edges were selected, run a light update on remaining edges
-        # Remaining edges keep their original features with a small update
-        edge_feats = full_edge_feats  # [P, H]
+        # Scatter sparse-edge updates back into the original edge features.
+        # Non-selected edges keep their original features.
+        edge_feats[sparse_idx] = sparse_edges
 
         # Predicate classification
         rel_logits = self.pred_classifier(edge_feats)

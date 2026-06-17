@@ -26,6 +26,7 @@ class TDE_Method(Motifs_Method):
     def __init__(self, **args):
         # TDE uses the same criterion but model is TDEModel
         self._tde_model = None
+        self._mean_feat_set = False
         super().__init__(**args)
 
     def _build_model(self, **args):
@@ -48,12 +49,14 @@ class TDE_Method(Motifs_Method):
                 embed_weight = visual_extractor.weight.data
                 mean_feat = embed_weight.mean(dim=0).to(self.device)
                 self._tde_model.set_mean_visual_feat(mean_feat)
+                self._mean_feat_set = True
                 print(f"[TDE] Mean visual feature set (dim={mean_feat.size(0)})")
                 return
 
         # Fallback: zero features
         visual_dim = getattr(self.hparams, 'visual_dim', 2048)
         self._tde_model.set_mean_visual_feat(torch.zeros(visual_dim, device=self.device))
+        self._mean_feat_set = True
         print("[TDE] Using zero mean visual feature (fallback)")
 
     def on_test_start(self):
@@ -65,5 +68,5 @@ class TDE_Method(Motifs_Method):
     def on_validation_epoch_start(self):
         """Ensure TDE baseline is set."""
         if self._tde_model is not None:
-            if self._tde_model.mean_visual_feat.sum() == 0:
+            if not self._mean_feat_set:
                 self._compute_mean_visual_feat()

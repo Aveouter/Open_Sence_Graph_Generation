@@ -301,7 +301,14 @@ class TreeConstructor(nn.Module):
 
         # Ensure all original nodes are covered (even if they weren't merged)
         if len(tree) == 0 and N > 0:
-            tree = [(0, -1, -1)] * N
+            # Build a proper binary chain tree so every node gets context
+            tree = []
+            next_id = N
+            current = 0
+            for i in range(1, N):
+                tree.append((next_id, current, i))
+                current = next_id
+                next_id += 1
 
         return tree
 

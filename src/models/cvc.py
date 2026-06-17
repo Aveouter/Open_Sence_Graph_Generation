@@ -200,6 +200,7 @@ class CVCModule(nn.Module):
 
     def __init__(self, visual_dim: int, class_embed_dim: int,
                  num_predicates: int = 51, hidden_dim: int = 512,
+                 num_classes: int = 151,
                  num_compositions: int = 10068,
                  bias_lambda: float = 0.5,
                  dropout: float = 0.1):
@@ -210,7 +211,7 @@ class CVCModule(nn.Module):
         self.bias_lambda = bias_lambda
 
         # Class embeddings (shared subject/object embedding space)
-        self.class_embed = nn.Embedding(151, class_embed_dim)  # 150 classes + bg
+        self.class_embed = nn.Embedding(num_classes, class_embed_dim)  # 150 classes + bg
 
         # Branches
         self.visual_branch = VisualBranch(visual_dim, hidden_dim, dropout)
@@ -439,7 +440,17 @@ class CVCLoss(nn.Module):
         if z_v_list is None:
             z_v_list = [None] * len(targets)
 
-        device = pred_list[0].device if pred_list[0] is not None else torch.device('cpu')
+        # Find device from first non-None tensor in pred_list, or targets
+        device = torch.device('cpu')
+        for t in pred_list:
+            if t is not None:
+                device = t.device
+                break
+        if device.type == 'cpu':
+            for t in targets:
+                if isinstance(t, dict) and 'boxes' in t:
+                    device = t['boxes'].device
+                    break
         total_pred_loss = torch.tensor(0.0, device=device)
         total_align_loss = torch.tensor(0.0, device=device)
         total_diverse_loss = torch.tensor(0.0, device=device)
@@ -539,6 +550,7 @@ def build_cvc(args) -> CVCModule:
         visual_dim=getattr(args, 'cvc_visual_dim', hdim),
         class_embed_dim=getattr(args, 'class_embed_dim', 256),
         num_predicates=getattr(args, 'rel_nums', 51),
+        num_classes=getattr(args, 'entity_nums', 151),
         hidden_dim=hdim,
         num_compositions=getattr(args, 'cvc_num_compositions', 10068),
         bias_lambda=getattr(args, 'cvc_bias_lambda', 0.5),

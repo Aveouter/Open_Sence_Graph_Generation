@@ -63,10 +63,7 @@ class ClassBalancedCELoss(nn.Module):
         self.loss_type = loss_type
 
     def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        if self.loss_type == 'ce':
-            return F.cross_entropy(logits, labels, weight=self.weights.to(logits.device))
-        else:
-            return F.cross_entropy(logits, labels, weight=self.weights.to(logits.device))
+        return F.cross_entropy(logits, labels, weight=self.weights.to(logits.device))
 
 
 class CBFocalLoss(nn.Module):

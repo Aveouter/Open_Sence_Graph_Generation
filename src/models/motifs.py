@@ -49,7 +49,7 @@ class FrequencyBias(nn.Module):
     def __init__(self, num_predicates: int, eps: float = 1e-12):
         super().__init__()
         self.eps = eps
-        self.bias = nn.Parameter(torch.zeros(num_predicates), requires_grad=False)
+        self.register_buffer('bias', torch.zeros(num_predicates))
 
     def load_freq_bias(self, distribution: torch.Tensor):
         """Load pre-computed frequency distribution.
@@ -62,7 +62,7 @@ class FrequencyBias(nn.Module):
 
     def forward(self, logits: torch.Tensor) -> torch.Tensor:
         """Add frequency bias to logits."""
-        return logits + self.bias.to(logits.device)
+        return logits + self.bias
 
 
 class ObjectEncoder(nn.Module):

@@ -253,7 +253,7 @@ class REACTModel(nn.Module):
         rel_rep_norm = rel_rep / (rel_rep.norm(dim=1, keepdim=True) + 1e-8)
         pred_proto_norm = predicate_proto / (predicate_proto.norm(dim=1, keepdim=True) + 1e-8)
 
-        rel_logits = rel_rep_norm @ pred_proto_norm.t() * self.logit_scale.exp()
+        rel_logits = rel_rep_norm @ pred_proto_norm.t() * self.logit_scale.exp().clamp(max=100.0)
 
         # Prototype regularization (training only)
         if self.training:
@@ -265,7 +265,7 @@ class REACTModel(nn.Module):
             # Distance loss: keep prototypes well-separated
             gamma2 = 7.0
             proto_a = predicate_proto.unsqueeze(1).expand(-1, self.num_predicates, -1)
-            proto_b = predicate_proto.detach().unsqueeze(0).expand(self.num_predicates, -1, -1)
+            proto_b = predicate_proto.unsqueeze(0).expand(self.num_predicates, -1, -1)
             proto_dis = (proto_a - proto_b).norm(dim=2) ** 2
             sorted_dis, _ = torch.sort(proto_dis, dim=1)
             topK_dis = sorted_dis[:, :2].sum(dim=1) / 1.0
@@ -325,7 +325,7 @@ class REACTModel(nn.Module):
         rel_rep_norm = rel_rep / (rel_rep.norm(dim=1, keepdim=True) + 1e-8)
         pred_proto_norm = predicate_proto / (predicate_proto.norm(dim=1, keepdim=True) + 1e-8)
 
-        rel_logits = rel_rep_norm @ pred_proto_norm.t() * self.logit_scale.exp()
+        rel_logits = rel_rep_norm @ pred_proto_norm.t() * self.logit_scale.exp().clamp(max=100.0)
 
         if self.freq_bias is not None:
             rel_logits = self.freq_bias(rel_logits)
