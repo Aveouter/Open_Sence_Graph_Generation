@@ -19,7 +19,7 @@ class SHAGCLCriterion(MotifsCriterion):
         add_losses = outputs.get("add_losses", {})
         if isinstance(add_losses, dict) and "gcl_loss" in add_losses:
             gcl = add_losses["gcl_loss"]
-            if torch.is_tensor(gcl) and gcl.item() != 0:
+            if torch.is_tensor(gcl):
                 loss_dict["loss_gcl"] = gcl * self.gcl_weight
                 loss_dict["loss_total"] = loss_dict["loss_total"] + loss_dict["loss_gcl"]
 

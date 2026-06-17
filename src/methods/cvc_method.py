@@ -121,7 +121,7 @@ class CVC_Method(Motifs_Method):
             if is_training:
                 for k in ["bias_logits", "z_v", "z_b"]:
                     if k in all_outputs[0]:
-                        batched[k] = torch.cat([o[k] for o in all_outputs], dim=0)
+                        batched[k] = [o[k] for o in all_outputs]
 
             out = {"outputs": batched}
 

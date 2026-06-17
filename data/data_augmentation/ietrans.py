@@ -73,6 +73,7 @@ class IETransAugmentation:
             _, target = dataset[img_idx]
             rel_anns = target.get("rel_annotations")
             boxes = target.get("boxes")
+            labels = target.get("labels")
 
             if rel_anns is None or boxes is None:
                 continue
@@ -84,6 +85,7 @@ class IETransAugmentation:
                         img_idx, sub_idx, obj_idx,
                         boxes[sub_idx].numpy().copy(),
                         boxes[obj_idx].numpy().copy(),
+                        labels[sub_idx].item() if labels is not None else -1,
                     ))
 
     def _exchange_instances(self, target_a: dict, target_b: dict,
@@ -166,13 +168,24 @@ class IETransAugmentation:
 
         # Pick a random candidate
         donor = candidates[self.rng.randint(0, len(candidates))]
-        donor_img_idx, donor_sub, donor_obj, donor_sub_box, donor_obj_box = donor
+        donor_img_idx, donor_sub, donor_obj, donor_sub_box, donor_obj_box, donor_sub_class = donor
+
+        # Find an object in the current image with the same class as the donor's subject
+        target_labels = target.get("labels")
+        if target_labels is not None and donor_sub_class >= 0:
+            matching_obj = (target_labels == donor_sub_class).nonzero(as_tuple=True)[0]
+            if matching_obj.numel() > 0:
+                local_sub = matching_obj[self.rng.randint(0, len(matching_obj))].item()
+            else:
+                return None  # no matching class in this image
+        else:
+            return None
 
         # Create augmented target by adding the exchanged relation
         aug_target = copy.deepcopy(target)
 
-        # Add a new relation annotation using the donor's subject in this image
-        new_rel = torch.tensor([[donor_sub, obj_idx, pred]], dtype=torch.long)
+        # Add a new relation annotation using a local object of the donor's class
+        new_rel = torch.tensor([[local_sub, obj_idx, pred]], dtype=torch.long)
         if aug_target["rel_annotations"].numel() > 0:
             aug_target["rel_annotations"] = torch.cat(
                 [aug_target["rel_annotations"], new_rel], dim=0)
