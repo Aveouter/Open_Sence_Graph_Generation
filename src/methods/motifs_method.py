@@ -286,6 +286,9 @@ class Motifs_Method(Base_method):
                 "obj_boxes": [o["obj_boxes"] for o in all_outputs],
                 "obj_labels": [o["obj_labels"] for o in all_outputs],
                 "predicate_bg_index": all_outputs[0].get("predicate_bg_index"),
+                "relation_softmax_scope": all_outputs[0].get(
+                    "relation_softmax_scope", "all"
+                ),
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]

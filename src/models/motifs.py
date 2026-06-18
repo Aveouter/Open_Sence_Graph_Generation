@@ -122,7 +122,12 @@ class PairFeatureGenerator(nn.Module):
         obj_box = boxes[pair_indices[:, 1]]
         geom = _pair_geometry(boxes, pair_indices)
         union = self._union_box_features(sub_box, obj_box)
-        pair_feat = torch.cat((sub_feat, obj_feat, geom[:, :5], union), dim=-1)
+        # _pair_geometry returns 8 features; extract the 5-feature legacy
+        # subset [dx, dy, center_dist, area_ratio, iou] that matches the
+        # original _compute_spatial_feat convention used by VCTree / CVC /
+        # TransformerSGG checkpoints.
+        spatial = geom[:, [0, 1, 5, 4, 6]]
+        pair_feat = torch.cat((sub_feat, obj_feat, spatial, union), dim=-1)
         return self.proj(pair_feat)
 
 
@@ -899,6 +904,24 @@ class MotifsModel(nn.Module):
             f"obj_feat_dim={self.obj_feat_dim}."
         )
 
+    def extract_object_context(
+        self,
+        visual_feats: torch.Tensor,
+        boxes: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return per-object edge-context features for downstream pair generators.
+
+        CVC/VCTree-style methods that need object-level context features
+        (instead of the full relation head) can call this to get
+        ``[N, hidden_dim]`` features usable with :class:`PairFeatureGenerator`.
+        """
+        motif_visual_feats = self.input_visual_proj(visual_feats)
+        _, _, edge_ctx = self.context_layer(
+            motif_visual_feats, boxes, labels, return_obj_preds=False,
+        )
+        return edge_ctx
+
     def remap_external_state_dict(self, state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Map full SGB/Kaihua checkpoints to this relation-head module."""
         model_state = self.state_dict()
@@ -1007,9 +1030,21 @@ class TDEModel(MotifsModel):
     def set_mean_visual_feat(self, mean_feat: torch.Tensor) -> None:
         self.mean_visual_feat.copy_(mean_feat)
 
-    def forward_counterfactual(self, boxes: torch.Tensor, labels: torch.Tensor):
+    def forward_counterfactual(
+        self,
+        boxes: torch.Tensor,
+        labels: torch.Tensor,
+        return_obj_preds: bool = False,
+        obj_dists: Optional[torch.Tensor] = None,
+        union_feats: Optional[torch.Tensor] = None,
+    ):
         visual_feats = self.mean_visual_feat.unsqueeze(0).expand(boxes.size(0), -1).to(boxes.device)
-        return super().forward(visual_feats, boxes, labels, return_obj_preds=False)
+        return super().forward(
+            visual_feats, boxes, labels,
+            return_obj_preds=return_obj_preds,
+            obj_dists=obj_dists,
+            union_feats=union_feats,
+        )
 
     def forward(
         self,
@@ -1032,7 +1067,12 @@ class TDEModel(MotifsModel):
         if not apply_tde or self.training:
             return factual
 
-        counterfactual = self.forward_counterfactual(boxes, labels)
+        counterfactual = self.forward_counterfactual(
+            boxes, labels,
+            return_obj_preds=return_obj_preds,
+            obj_dists=obj_dists,
+            union_feats=union_feats,
+        )
         if self.tde_fusion == "subtract":
             factual["rel_logits"] = factual["rel_logits"] - counterfactual["rel_logits"]
         elif self.tde_fusion == "softmax_subtract":
