@@ -11,7 +11,7 @@ produces pair features → CVC head predicts predicates with debiasing.
 import torch
 import torch.nn as nn
 from .motifs_method import Motifs_Method
-from src.models.motifs import build_motifs, generate_object_pairs
+from src.models.motifs import build_motifs, generate_object_pairs, PairFeatureGenerator
 from src.models.cvc import build_cvc, CVCLoss
 
 
@@ -36,9 +36,15 @@ class CVC_Method(Motifs_Method):
         backbone = build_motifs(self.hparams)
         cvc_head = build_cvc(self.hparams)
 
-        # Store for access in forward
-        self._cvc_head = cvc_head
+        # Store the Motifs backbone for context extraction. The CVC head is
+        # returned as ``self.model`` by Base_method.
         self._backbone = backbone
+
+        # Build a pair feature generator compatible with the backbone's
+        # hidden_dim.  The backbone's extract_object_context() returns
+        # [N, hidden_dim] edge-context features that pair_gen consumes.
+        hidden_dim = getattr(self.hparams, "hidden_dim", 512)
+        cvc_head.pair_gen = PairFeatureGenerator(hidden_dim, hidden_dim)
 
         # Return CVC head as the primary model; backbone is accessed directly
         return cvc_head
@@ -54,14 +60,12 @@ class CVC_Method(Motifs_Method):
     # ---------- forward ----------
 
     def _encode_objects(self, visual_feats, boxes, labels):
-        """Run Motifs backbone to get context-encoded object features."""
-        sort_idx = self._backbone._get_motif_order(labels, boxes)
-        unsort_idx = torch.argsort(sort_idx)
+        """Run Motifs backbone to get context-encoded object features.
 
-        obj_feats = self._backbone.obj_encoder(visual_feats[sort_idx], labels[sort_idx])
-        obj_feats = self._backbone.obj_context(obj_feats.unsqueeze(0)).squeeze(0)
-        obj_feats = self._backbone.obj_post(obj_feats)
-        return obj_feats[unsort_idx]
+        Uses the new SGB/Kaihua backbone's public ``extract_object_context``
+        entry-point instead of reaching into removed internal attributes.
+        """
+        return self._backbone.extract_object_context(visual_feats, boxes, labels)
 
     def forward(self, images, targets=None, **kwargs):
         is_training = targets is not None
@@ -94,8 +98,8 @@ class CVC_Method(Motifs_Method):
                 # Backbone: object context encoding
                 obj_feats = self._encode_objects(vis, box, lab)
 
-                # Pair features from backbone
-                pair_feats = self._backbone.pair_gen(obj_feats, box, pairs)
+                # Pair features from backbone context
+                pair_feats = self.model.pair_gen(obj_feats, box, pairs)
 
                 # CVC head: predicate prediction
                 s_labels = lab[pairs[:, 0]]
