@@ -291,6 +291,16 @@ class BaseExperiment(object):
         if not isinstance(state_dict, dict):
             raise TypeError(f'Expected dict state_dict, got {type(state_dict)}')
 
+        if hasattr(model, 'remap_external_state_dict'):
+            original_count = len(state_dict)
+            remapped = model.remap_external_state_dict(state_dict)
+            if remapped is not state_dict:
+                print(
+                    f'[Info] Remapped external checkpoint keys: '
+                    f'{original_count} -> {len(remapped)}'
+                )
+            state_dict = remapped
+
         model_state = model.state_dict()
         adapted = 0
         adapted_shapes = set()

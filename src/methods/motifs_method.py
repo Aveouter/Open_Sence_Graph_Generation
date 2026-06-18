@@ -32,12 +32,20 @@ class MotifsCriterion(nn.Module):
 
     def __init__(self, num_predicates: int):
         super().__init__()
-        self.num_predicates = num_predicates
+        self.num_predicates = num_predicates - 1 if num_predicates > 50 else num_predicates
         self.ce_loss = nn.CrossEntropyLoss(ignore_index=-1, reduction='sum')
 
+    def _target_predicate_index(self, pred_id: int, logits_dim: int, bg_index) -> int:
+        """Map VG predicate ids (1..50) to the model's predicate-logit layout."""
+        if logits_dim == self.num_predicates:
+            return pred_id - 1
+        if logits_dim == self.num_predicates + 1:
+            return pred_id if bg_index == "first" else pred_id - 1
+        return -1
+
     def forward(self, outputs: dict, targets: list) -> dict:
-        total_pred_loss = torch.tensor(0.0)
-        total_obj_loss = torch.tensor(0.0)
+        total_pred_loss = None
+        total_obj_loss = None
         total_pairs = 0
         total_objs = 0
 
@@ -45,6 +53,9 @@ class MotifsCriterion(nn.Module):
         rel_logits_list = outputs.get("rel_logits")
         pair_indices_list = outputs.get("pair_indices")
         obj_logits_list = outputs.get("obj_logits")
+        bg_index = outputs.get("predicate_bg_index")
+        if isinstance(bg_index, (list, tuple)):
+            bg_index = bg_index[0] if bg_index else None
 
         if not isinstance(rel_logits_list, (list, tuple)):
             rel_logits_list = [rel_logits_list]
@@ -70,7 +81,10 @@ class MotifsCriterion(nn.Module):
             if rel_anns is None or rel_anns.numel() == 0:
                 continue
 
-            # Build GT predicate labels for each pair
+            # Build GT predicate labels for each pair. OpenSGG/VG stores
+            # predicates as 1..50 with 0 reserved for background. OpenSGG's
+            # original local Motifs emitted 50 pure predicate logits; the
+            # SGB/Kaihua layout emits 51 logits with __no_relation__ at index 0.
             P = rel_logits.size(0)
             gt_preds = torch.full((P,), -1, dtype=torch.long, device=rel_logits.device)
 
@@ -78,7 +92,9 @@ class MotifsCriterion(nn.Module):
             pair_to_pred = {}
             for ann in rel_anns:
                 s, o, p = int(ann[0]), int(ann[1]), int(ann[2])
-                pair_to_pred[(s, o)] = p
+                p = self._target_predicate_index(p, rel_logits.size(-1), bg_index)
+                if 0 <= p < rel_logits.size(-1):
+                    pair_to_pred[(s, o)] = p
 
             for p_idx in range(P):
                 s = int(pair_indices[p_idx, 0])
@@ -90,8 +106,8 @@ class MotifsCriterion(nn.Module):
             valid_mask = gt_preds >= 0
             if valid_mask.any():
                 pred_loss = self.ce_loss(rel_logits[valid_mask], gt_preds[valid_mask])
-                total_pred_loss += pred_loss
-                total_pairs += valid_mask.sum()
+                total_pred_loss = pred_loss if total_pred_loss is None else total_pred_loss + pred_loss
+                total_pairs += int(valid_mask.sum().item())
 
             # Object loss (if predicted)
             if obj_logits_list is not None and i < len(obj_logits_list):
@@ -101,8 +117,16 @@ class MotifsCriterion(nn.Module):
                     if gt_labels is not None:
                         if obj_logits.dim() == 2:
                             obj_loss = F.cross_entropy(obj_logits, gt_labels, reduction='sum')
-                            total_obj_loss += obj_loss
+                            total_obj_loss = obj_loss if total_obj_loss is None else total_obj_loss + obj_loss
                             total_objs += gt_labels.numel()
+
+        if total_pred_loss is None:
+            device = None
+            if isinstance(rel_logits_list, (list, tuple)) and len(rel_logits_list) > 0 and torch.is_tensor(rel_logits_list[0]):
+                device = rel_logits_list[0].device
+            total_pred_loss = torch.tensor(0.0, device=device)
+        if total_obj_loss is None:
+            total_obj_loss = total_pred_loss.new_tensor(0.0)
 
         loss_dict = {
             "loss_predicate": total_pred_loss / max(total_pairs, 1),
@@ -151,7 +175,16 @@ class Motifs_Method(Base_method):
         return build_motifs(self.hparams)
 
     def _extra_model_kwargs(self, target, boxes, labels, return_obj_preds):
-        return {}
+        extra = {}
+        for key in ("obj_dists", "scores_all"):
+            if key in target:
+                extra["obj_dists"] = target[key]
+                break
+        for key in ("union_feats", "edge_visual_feats"):
+            if key in target:
+                extra["union_feats"] = target[key]
+                break
+        return extra
 
     @property
     def _use_backbone(self):
@@ -160,6 +193,24 @@ class Motifs_Method(Base_method):
 
     # ---------- visual feature extraction ----------
 
+    def _image_list_from_batch(self, images):
+        if isinstance(images, NestedTensor) or (
+            hasattr(images, "tensors") and torch.is_tensor(images.tensors)
+        ):
+            images = images.tensors
+
+        if torch.is_tensor(images):
+            if images.dim() == 3:
+                return [images]
+            if images.dim() == 4:
+                return [img for img in images]
+            raise ValueError(f"images tensor must be [C,H,W] or [B,C,H,W], got {tuple(images.shape)}")
+
+        if isinstance(images, (list, tuple)):
+            return list(images)
+
+        raise TypeError(f"Unsupported images type for Motifs: {type(images)}")
+
     def _extract_visual_features(self, images, boxes_list, labels_list, image_sizes):
         """Extract per-object visual features.
 
@@ -167,13 +218,32 @@ class Motifs_Method(Base_method):
         """
         if self._use_backbone:
             # Full backbone + ROI Align pipeline
-            if not isinstance(images, list):
-                images = [images]
+            images = self._image_list_from_batch(images)
+            if len(images) != len(boxes_list):
+                raise ValueError(
+                    f"Motifs got {len(images)} image(s) but {len(boxes_list)} target(s)."
+                )
+
             # Move images to device
             device = next(self._visual_extractor.parameters()).device
             images = [img.to(device) for img in images]
             box_dev = [b.to(device) for b in boxes_list]
-            sz_dev = [s.to(device) for s in image_sizes]
+            sz_dev = []
+            cropped_images = []
+            for img, size in zip(images, image_sizes):
+                if size is None:
+                    size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
+                elif torch.is_tensor(size):
+                    size = size.to(device)
+                else:
+                    size = torch.as_tensor(size, dtype=torch.float32, device=device)
+                if size.numel() != 2:
+                    raise ValueError(f"image size must have 2 elements, got {tuple(size.shape)}")
+                height, width = int(size[0].item()), int(size[1].item())
+                img = img[..., :height, :width]
+                cropped_images.append(img)
+                sz_dev.append(size)
+            images = cropped_images
             return self._visual_extractor(images, box_dev, sz_dev)
         else:
             # Per-class embedding placeholder
@@ -194,7 +264,7 @@ class Motifs_Method(Base_method):
 
             boxes_list = [t["boxes"] for t in targets]
             labels_list = [t["labels"] for t in targets]
-            image_sizes = [t.get("orig_size", t.get("size")) for t in targets]
+            image_sizes = [t.get("size", t.get("orig_size")) for t in targets]
 
             # Extract visual features
             visual_feats_list = self._extract_visual_features(
@@ -215,6 +285,7 @@ class Motifs_Method(Base_method):
                 "sub_boxes": [o["sub_boxes"] for o in all_outputs],
                 "obj_boxes": [o["obj_boxes"] for o in all_outputs],
                 "obj_labels": [o["obj_labels"] for o in all_outputs],
+                "predicate_bg_index": all_outputs[0].get("predicate_bg_index"),
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]
