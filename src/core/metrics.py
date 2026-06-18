@@ -1155,7 +1155,12 @@ def _evaluate_predcls_batch_pair_indices(
             rel_scores_all = _extract_relation_scores(
                 rel_logits,
                 rel_nums,
-                predicate_bg_index=outputs.get("predicate_bg_index", "last"),
+                predicate_bg_index=_per_image_metadata(
+                    outputs.get("predicate_bg_index", "last"), i, "last"
+                ),
+                softmax_scope=_per_image_metadata(
+                    outputs.get("relation_softmax_scope", "foreground"), i, "foreground"
+                ),
             )
             pair_to_idx = {
                 (int(pair_indices[p, 0]), int(pair_indices[p, 1])): p
@@ -1208,16 +1213,16 @@ def _extract_relation_scores(
     rel_logits: torch.Tensor,
     rel_nums: int,
     predicate_bg_index="last",
+    softmax_scope: str = "foreground",
 ) -> np.ndarray:
     """Convert relation logits into [num_triplets, rel_nums] score array.
 
     The evaluator (sg_eval.py) expects ``pred_rels = 1 + argmax(rel_scores, axis=1)``,
     so rel_scores must contain only the actual predicate classes (no background).
 
-    **CRITICAL**: Softmax must be applied ONLY over the non-background classes
-    (matching the official RelTR evaluation protocol).  Applying softmax over all
-    classes then slicing would produce scores ~5000x smaller and break the
-    triplet scoring/ranking.
+    RelTR-style models use foreground-only softmax. SGB/Kaihua Motifs applies
+    softmax over the full background-inclusive relation logits in its
+    postprocessor, then evaluates ``rel_scores[:, 1:]``.
     """
     dim = rel_logits.shape[-1]
 
@@ -1228,9 +1233,15 @@ def _extract_relation_scores(
         rel_scores = torch.softmax(rel_logits[:, 1:-1], dim=-1)
     elif dim == rel_nums + 1:
         if predicate_bg_index in ("first", 0):
-            rel_scores = torch.softmax(rel_logits[:, 1:], dim=-1)
+            if softmax_scope == "all":
+                rel_scores = torch.softmax(rel_logits, dim=-1)[:, 1 : rel_nums + 1]
+            else:
+                rel_scores = torch.softmax(rel_logits[:, 1:], dim=-1)
         else:
-            rel_scores = torch.softmax(rel_logits[:, :-1], dim=-1)
+            if softmax_scope == "all":
+                rel_scores = torch.softmax(rel_logits, dim=-1)[:, :rel_nums]
+            else:
+                rel_scores = torch.softmax(rel_logits[:, :-1], dim=-1)
     elif dim == rel_nums:
         rel_scores = torch.softmax(rel_logits, dim=-1)
     else:
@@ -1240,6 +1251,30 @@ def _extract_relation_scores(
         )
 
     return rel_scores.detach().cpu().numpy()
+
+
+def _per_image_metadata(value: Any, index: int, default: Any) -> Any:
+    """Return scalar metadata after Lightning step-output aggregation.
+
+    Non-tensor scalar fields, such as Motifs' ``predicate_bg_index``, become a
+    list with one entry per step/image in ``Base_method._aggregate_step_outputs``.
+    Evaluation adapters need the item for the current image, not the whole list.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (str, bytes, int, float)):
+        return value
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return default
+        if index < len(value):
+            item = value[index]
+        else:
+            item = value[0]
+        if isinstance(item, (list, tuple)) and item:
+            return item[0]
+        return item
+    return value
 
 
 # ===========================================================================

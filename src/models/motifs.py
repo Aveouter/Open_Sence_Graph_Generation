@@ -947,6 +947,7 @@ class MotifsModel(nn.Module):
                 "sub_boxes": boxes.new_zeros(0, 4),
                 "obj_boxes": boxes.new_zeros(0, 4),
                 "predicate_bg_index": self.predicate_bg_index,
+                "relation_softmax_scope": "all",
             }
 
         obj_logits, obj_preds, edge_ctx = self.context_layer(
@@ -991,6 +992,7 @@ class MotifsModel(nn.Module):
             "sub_boxes": boxes[pairs[:, 0]],
             "obj_boxes": boxes[pairs[:, 1]],
             "predicate_bg_index": self.predicate_bg_index,
+            "relation_softmax_scope": "all",
         }
 
 
