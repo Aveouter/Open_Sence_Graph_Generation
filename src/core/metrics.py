@@ -1152,7 +1152,11 @@ def _evaluate_predcls_batch_pair_indices(
         R = gt_relations.shape[0]
         best_rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
         if rel_logits.numel() > 0 and pair_indices.numel() > 0:
-            rel_scores_all = _extract_relation_scores(rel_logits, rel_nums)
+            rel_scores_all = _extract_relation_scores(
+                rel_logits,
+                rel_nums,
+                predicate_bg_index=outputs.get("predicate_bg_index", "last"),
+            )
             pair_to_idx = {
                 (int(pair_indices[p, 0]), int(pair_indices[p, 1])): p
                 for p in range(pair_indices.shape[0])
@@ -1200,7 +1204,11 @@ def _evaluate_predcls_batch_pair_indices(
 
 # ===========================================================================
 
-def _extract_relation_scores(rel_logits: torch.Tensor, rel_nums: int) -> np.ndarray:
+def _extract_relation_scores(
+    rel_logits: torch.Tensor,
+    rel_nums: int,
+    predicate_bg_index="last",
+) -> np.ndarray:
     """Convert relation logits into [num_triplets, rel_nums] score array.
 
     The evaluator (sg_eval.py) expects ``pred_rels = 1 + argmax(rel_scores, axis=1)``,
@@ -1219,7 +1227,10 @@ def _extract_relation_scores(rel_logits: torch.Tensor, rel_nums: int) -> np.ndar
         # Official: apply softmax over only the rel_nums predicate dims.
         rel_scores = torch.softmax(rel_logits[:, 1:-1], dim=-1)
     elif dim == rel_nums + 1:
-        rel_scores = torch.softmax(rel_logits[:, :-1], dim=-1)
+        if predicate_bg_index in ("first", 0):
+            rel_scores = torch.softmax(rel_logits[:, 1:], dim=-1)
+        else:
+            rel_scores = torch.softmax(rel_logits[:, :-1], dim=-1)
     elif dim == rel_nums:
         rel_scores = torch.softmax(rel_logits, dim=-1)
     else:
