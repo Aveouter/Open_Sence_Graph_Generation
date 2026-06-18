@@ -1299,7 +1299,7 @@ def _collect_mean_recall(
     """Average per-class recall values to get mean recall (mR@k)."""
     results = {}
     for task, evaluator_list in mr_evaluators.items():
-        for k in (10, 20, 50):
+        for k in (10, 20, 50, 100):
             per_class = []
             for evaluator in evaluator_list:
                 recalls = evaluator.recalls
@@ -1322,18 +1322,18 @@ def _build_log(supported_tasks, all_results, warnings, skipped) -> str:
         lines.append(f"{'=' * 30}{task}{'=' * 30}")
 
         # Main recall
-        for k in (10, 20, 50):
+        for k in (10, 20, 50, 100):
             key = f"{task}_R@{k}"
             val = all_results.get(key)
             label = f"{val:.4f}" if (val is not None and not np.isnan(val)) else "unavailable"
             lines.append(f"R@{k}: {label}")
 
         # Mean recall
-        mr_keys = [f"{task}_mR@{k}" for k in (10, 20, 50)]
+        mr_keys = [f"{task}_mR@{k}" for k in (10, 20, 50, 100)]
         if any(k in all_results for k in mr_keys):
             lines.append("")
             lines.append(f"{'=' * 20}{task}  mean recall with constraint{'=' * 20}")
-            for k in (10, 20, 50):
+            for k in (10, 20, 50, 100):
                 key = f"{task}_mR@{k}"
                 val = all_results.get(key)
                 label = f"{val:.4f}" if (val is not None and not np.isnan(val)) else "unavailable"
@@ -1400,7 +1400,7 @@ def compute_head_body_tail_mr(
 
     results = {}
     for task, evaluator_list in mr_evaluators.items():
-        for k in (10, 20, 50):
+        for k in (10, 20, 50, 100):
             head_recalls, body_recalls, tail_recalls = [], [], []
             for i, evaluator in enumerate(evaluator_list):
                 recalls = evaluator.recalls

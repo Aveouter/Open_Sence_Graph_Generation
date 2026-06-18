@@ -64,8 +64,8 @@ roi_output_size = 7                 # ROI Align output spatial size
 eval_mode = 'predcls'
 
 metrics = [
-    "predcls_R@10", "predcls_R@20", "predcls_R@50",
-    "predcls_mR@10", "predcls_mR@20", "predcls_mR@50",
+    "predcls_R@10", "predcls_R@20", "predcls_R@50", "predcls_R@100",
+    "predcls_mR@10", "predcls_mR@20", "predcls_mR@50", "predcls_mR@100",
 ]
 
 # ===== misc =====
