@@ -1,0 +1,215 @@
+{
+  "_meta": {
+    "description": "VG150 predicate semantic map for fine-to-coarse collapse analysis",
+    "dataset": "Visual Genome VG150 (50 predicate classes)",
+    "predicate_source": "data/VisualGenome/rel.json rel_categories",
+    "frequency_source": "data/VisualGenome/predicate_frequencies.json",
+    "confidence_levels": {
+      "strong": "clear semantic entailment or phrase inclusion; eligible for the main experiment",
+      "medium": "semantically related but not strict entailment; extension analysis only",
+      "weak": "debatable, context-dependent, or only visually correlated; appendix only or excluded"
+    },
+    "main_experiment_rule": "confidence=strong AND use_in_main=true",
+    "total_predicate_classes": 50,
+    "total_mappings": 28,
+    "strong_count": 8,
+    "medium_count": 6,
+    "weak_count": 14
+  },
+  "sitting on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + sitting posture modifier",
+    "use_in_main": true,
+    "notes": "Core on-family child. sitting on = on + sitting posture."
+  },
+  "standing on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + standing posture modifier",
+    "use_in_main": true,
+    "notes": "Core on-family child. standing on = on + standing posture."
+  },
+  "lying on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + lying posture modifier",
+    "use_in_main": true,
+    "notes": "Core on-family child. lying on = on + lying posture."
+  },
+  "laying on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation; variant spelling of lying on",
+    "use_in_main": true,
+    "notes": "Core on-family child. laying on = alternative form of lying on."
+  },
+  "walking on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + walking action modifier",
+    "use_in_main": true,
+    "notes": "Core on-family child. walking on = on + walking action."
+  },
+  "parked on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + parked state modifier",
+    "use_in_main": true,
+    "notes": "Core on-family child. parked on = on + parked state."
+  },
+  "mounted on": {
+    "parent": "on",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + attachment semantics",
+    "use_in_main": true,
+    "notes": "Core on-family child. mounted on = on + mounted/attached state."
+  },
+  "covered in": {
+    "parent": "in",
+    "confidence": "strong",
+    "evidence": "lexical entailment (phrase-includes 'in') + containment/surface coverage relation",
+    "use_in_main": true,
+    "notes": "Core in-family child. covered in = in + coverage state."
+  },
+  "growing on": {
+    "parent": "on",
+    "confidence": "medium",
+    "evidence": "phrase-includes 'on' + surface attachment relation, but growth semantics make strict spatial entailment debatable",
+    "use_in_main": false,
+    "notes": "Extended on-family. Plant growth involves biological attachment, not just physical support."
+  },
+  "painted on": {
+    "parent": "on",
+    "confidence": "medium",
+    "evidence": "phrase-includes 'on' + surface relation, but painting involves application/coating semantics beyond simple support",
+    "use_in_main": false,
+    "notes": "Extended on-family. Surface marking rather than pure support/contact."
+  },
+  "flying in": {
+    "parent": "in",
+    "confidence": "medium",
+    "evidence": "phrase-includes 'in' + containment relation, but flying action adds dynamic semantics not captured by 'in' alone",
+    "use_in_main": false,
+    "notes": "Extended in-family. Action-in-containment vs. static containment."
+  },
+  "walking in": {
+    "parent": "in",
+    "confidence": "medium",
+    "evidence": "phrase-includes 'in' + containment relation, but walking action adds dynamic semantics not captured by 'in' alone",
+    "use_in_main": false,
+    "notes": "Extended in-family. Action-in-containment vs. static containment."
+  },
+  "riding": {
+    "parent": "on",
+    "confidence": "medium",
+    "evidence": "spatial support often present, but agentive/control semantics and vehicle/animal context make strict entailment debatable",
+    "use_in_main": false,
+    "notes": "Agentive on-family. Riding implies active control, not just spatial support."
+  },
+  "on back of": {
+    "parent": "on",
+    "confidence": "medium",
+    "evidence": "phrase-includes 'on' + support relation, but specific anatomical location makes entailment more specific than general 'on'",
+    "use_in_main": false,
+    "notes": "Location-specific on-family. 'On back of' entails on but also specifies body part."
+  },
+  "hanging from": {
+    "parent": "on",
+    "confidence": "weak",
+    "evidence": "spatial support may exist but direction/preposition differs ('from' vs 'on'); suspension semantics differ from surface support",
+    "use_in_main": false,
+    "notes": "Direction-different. 'Hanging from' implies suspension from above, not support from below."
+  },
+  "wearing": {
+    "parent": "has",
+    "confidence": "weak",
+    "evidence": "wearing implies possessing/having an object on the body, but involves specific body-attachment semantics beyond simple possession",
+    "use_in_main": false,
+    "notes": "Interaction-to-association. Not strict entailment; visually correlated body-object relationship."
+  },
+  "wears": {
+    "parent": "has",
+    "confidence": "weak",
+    "evidence": "same as wearing (tense variant); implies having an object on the body",
+    "use_in_main": false,
+    "notes": "Tense variant of wearing. Same semantic relationship."
+  },
+  "carrying": {
+    "parent": "has",
+    "confidence": "weak",
+    "evidence": "carrying implies possessing/holding during transport, but involves active transport semantics beyond simple possession",
+    "use_in_main": false,
+    "notes": "Interaction-to-association. Carrying = has + transport action."
+  },
+  "holding": {
+    "parent": "has",
+    "confidence": "weak",
+    "evidence": "holding implies possessing/having in hand, but involves active grasp semantics beyond simple possession",
+    "use_in_main": false,
+    "notes": "Interaction-to-association. Holding = has + grasp action."
+  },
+  "part of": {
+    "parent": "has",
+    "confidence": "weak",
+    "evidence": "part-of implies meronymic relationship, which is related to possession but uses different semantic frame (composition vs ownership)",
+    "use_in_main": false,
+    "notes": "Meronymy-to-association. Part-of is compositional, not possessional."
+  },
+  "in front of": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "in-front-of implies proximity but specifies directional orientation; 'near' loses direction information",
+    "use_in_main": false,
+    "notes": "Directional-to-proximity weakening. Direction is semantically significant."
+  },
+  "behind": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "behind implies proximity but specifies rear orientation; 'near' loses direction information",
+    "use_in_main": false,
+    "notes": "Directional-to-proximity weakening. Direction is semantically significant."
+  },
+  "under": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "under implies proximity with vertical ordering; may include contact/support; 'near' loses vertical and contact information",
+    "use_in_main": false,
+    "notes": "Directional-to-proximity weakening. Vertical axis is semantically significant."
+  },
+  "above": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "above implies proximity with vertical ordering; 'near' loses vertical information",
+    "use_in_main": false,
+    "notes": "Directional-to-proximity weakening. Vertical axis is semantically significant."
+  },
+  "over": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "over implies above/across position; may partially imply proximity but spatial specificity is lost",
+    "use_in_main": false,
+    "notes": "Positional-to-proximity weakening. Multi-dimensional spatial relation."
+  },
+  "against": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "against implies contact + proximity, but contact semantics are stronger than mere proximity",
+    "use_in_main": false,
+    "notes": "Contact-to-proximity weakening. Contact is semantically significant."
+  },
+  "across": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "across implies spanning/transverse relation with possible proximity; spatial specificity is lost with 'near'",
+    "use_in_main": false,
+    "notes": "Positional-to-proximity weakening. Transverse spatial relation."
+  },
+  "along": {
+    "parent": "near",
+    "confidence": "weak",
+    "evidence": "along implies parallel/lateral proximity; spatial configuration is lost with 'near'",
+    "use_in_main": false,
+    "notes": "Positional-to-proximity weakening. Parallel configuration is significant."
+  }
+}
