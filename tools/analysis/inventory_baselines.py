@@ -9,8 +9,10 @@ Usage:
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -92,7 +94,109 @@ def check_checkpoint_format(ckpt_path):
         return f"unknown:{ext}", None
 
 
-def generate_baseline_matrix(methods, checkpoints):
+def find_method_checkpoint(method, checkpoints):
+    """Return the best known checkpoint path for a method, or an empty string."""
+    matching = [
+        c for c in checkpoints
+        if method["method"].lower() in c["path"].lower()
+    ]
+    if matching:
+        return matching[0]["path"]
+    for known in method["known_checkpoints"]:
+        if os.path.exists(str(_PROJECT_ROOT / known)):
+            return known
+    return ""
+
+
+def build_motifs_smoke_command(ckpt_path, test_dataset_size=20,
+                               device="cuda", num_workers=0):
+    command = [
+        sys.executable,
+        "train.py",
+        "--test",
+        "--method", "Motifs",
+        "--dataname", "VisualGenome",
+        "--ckpt_path", ckpt_path,
+        "--test_dataset_size", str(test_dataset_size),
+        "--val_batch_size", "1",
+        "--num_workers", str(num_workers),
+        "--eval_mode", "predcls",
+        "--no_display_method_info",
+    ]
+    if device:
+        command.extend(["--device", device])
+    if device == "cuda":
+        command.extend(["--gpus", "0"])
+    return command
+
+
+def smoke_env_overrides(device):
+    if device == "cpu":
+        return {"CUDA_VISIBLE_DEVICES": ""}
+    return {}
+
+
+def format_shell_command(command, env_overrides=None):
+    prefixes = []
+    for key, value in (env_overrides or {}).items():
+        prefixes.append(f"{key}={shlex.quote(value)}")
+    return " ".join(prefixes + [shlex.quote(part) for part in command])
+
+
+def run_motifs_smoke_test(ckpt_path, output_dir, test_dataset_size,
+                          device, timeout_sec):
+    """Run Motifs PredCLS smoke test and capture a small execution record."""
+    command = build_motifs_smoke_command(
+        ckpt_path,
+        test_dataset_size=test_dataset_size,
+        device=device,
+        num_workers=0,
+    )
+    env_overrides = smoke_env_overrides(device)
+    env = os.environ.copy()
+    env.update(env_overrides)
+    log_path = output_dir / "motifs_predcls_smoke_test.log"
+    started_at = datetime.now().isoformat()
+    start = time.time()
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=_PROJECT_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            timeout=timeout_sec,
+            check=False,
+        )
+        output = proc.stdout or ""
+        returncode = proc.returncode
+        timed_out = False
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
+        returncode = None
+        timed_out = True
+
+    duration_sec = round(time.time() - start, 2)
+    log_path.write_text(output)
+    status = "passed" if returncode == 0 and not timed_out else "failed"
+    if timed_out:
+        status = "timeout"
+
+    return {
+        "status": status,
+        "returncode": returncode,
+        "timed_out": timed_out,
+        "duration_sec": duration_sec,
+        "started_at": started_at,
+        "command": command,
+        "command_text": format_shell_command(command, env_overrides),
+        "log_path": str(log_path.relative_to(_PROJECT_ROOT)),
+        "output_tail": "\n".join(output.splitlines()[-40:]),
+    }
+
+
+def generate_baseline_matrix(methods, checkpoints, smoke_result=None):
     """Generate baseline matrix CSV."""
     lines = []
     lines.append("method,config_exists,checkpoint_found,checkpoint_path,"
@@ -101,36 +205,21 @@ def generate_baseline_matrix(methods, checkpoints):
     for m in methods:
         config_exists = os.path.exists(str(_PROJECT_ROOT / m["config"]))
 
-        # Find matching checkpoints
-        matching = [c for c in checkpoints
-                    if m["method"].lower() in c["path"].lower()]
-
-        if matching:
-            ckpt_path = matching[0]["path"]
+        ckpt_path = find_method_checkpoint(m, checkpoints)
+        if ckpt_path:
             fmt, keys = check_checkpoint_format(ckpt_path)
             ckpt_found = True
             ckpt_format = fmt
-        elif m["known_checkpoints"]:
-            # Check known paths
-            found = False
-            for known in m["known_checkpoints"]:
-                if os.path.exists(str(_PROJECT_ROOT / known)):
-                    fmt, keys = check_checkpoint_format(known)
-                    ckpt_path = known
-                    ckpt_format = fmt
-                    found = True
-                    break
-            if not found:
-                ckpt_path = ""
-                ckpt_format = ""
-                ckpt_found = False
         else:
             ckpt_path = ""
             ckpt_format = ""
             ckpt_found = False
 
         smoke_tested = "no"
-        if m["method"] == "Motifs" and ckpt_found:
+        if m["method"] == "Motifs" and smoke_result:
+            smoke_tested = "yes"
+            status = f"smoke_{smoke_result['status']}"
+        elif m["method"] == "Motifs" and ckpt_found:
             status = "ready_for_smoke"
         elif ckpt_found:
             status = "ready_for_smoke"
@@ -148,7 +237,7 @@ def generate_baseline_matrix(methods, checkpoints):
     return "\n".join(lines) + "\n"
 
 
-def generate_reproduction_commands():
+def generate_reproduction_commands(smoke_command=None, smoke_env=None):
     """Generate documented reproduction commands."""
     lines = []
     lines.append("# Baseline Reproduction Commands")
@@ -166,26 +255,41 @@ def generate_reproduction_commands():
 
     lines.append("### Small-sample smoke test (20 samples)")
     lines.append("```bash")
-    lines.append("python train.py --test \\")
-    lines.append("  --method motifs \\")
+    lines.append("python train.py \\")
+    lines.append("  --test \\")
+    lines.append("  --method Motifs \\")
     lines.append("  --dataname VisualGenome \\")
     lines.append("  --ckpt_path outputs/pretrained/motifs/coldmanck/extracted/model_0022000.pth \\")
     lines.append("  --test_dataset_size 20 \\")
+    lines.append("  --val_batch_size 1 \\")
     lines.append("  --num_workers 0 \\")
+    lines.append("  --device cuda \\")
     lines.append("  --gpus 0 \\")
-    lines.append("  --eval_mode predcls")
+    lines.append("  --eval_mode predcls \\")
+    lines.append("  --no_display_method_info")
     lines.append("```")
     lines.append("")
 
+    if smoke_command:
+        lines.append("### Last smoke command generated by this tool")
+        lines.append("```bash")
+        lines.append(format_shell_command(smoke_command, smoke_env))
+        lines.append("```")
+        lines.append("")
+
     lines.append("### Full test evaluation")
     lines.append("```bash")
-    lines.append("python train.py --test \\")
-    lines.append("  --method motifs \\")
+    lines.append("python train.py \\")
+    lines.append("  --test \\")
+    lines.append("  --method Motifs \\")
     lines.append("  --dataname VisualGenome \\")
     lines.append("  --ckpt_path outputs/pretrained/motifs/coldmanck/extracted/model_0022000.pth \\")
+    lines.append("  --val_batch_size 1 \\")
     lines.append("  --num_workers 4 \\")
+    lines.append("  --device cuda \\")
     lines.append("  --gpus 0 \\")
-    lines.append("  --eval_mode predcls")
+    lines.append("  --eval_mode predcls \\")
+    lines.append("  --no_display_method_info")
     lines.append("```")
     lines.append("")
 
@@ -198,16 +302,52 @@ def generate_reproduction_commands():
     lines.append("")
     lines.append("### VCTree")
     lines.append("```bash")
-    lines.append("# python train.py --test --method vctree --dataname VisualGenome --ckpt_path <path> --eval_mode predcls --gpus 0")
+    lines.append("# python train.py --test --method VCTree --dataname VisualGenome --ckpt_path <path> --eval_mode predcls --gpus 0")
     lines.append("```")
     lines.append("")
     lines.append("### Transformer")
     lines.append("```bash")
-    lines.append("# python train.py --test --method transformer --dataname VisualGenome --ckpt_path <path> --eval_mode predcls --gpus 0")
+    lines.append("# python train.py --test --method Transformer --dataname VisualGenome --ckpt_path <path> --eval_mode predcls --gpus 0")
     lines.append("```")
     lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+def generate_motifs_smoke_report(smoke_result, smoke_command, ckpt_path,
+                                 smoke_env=None):
+    lines = []
+    lines.append("# Motifs PredCLS Smoke Test")
+    lines.append("")
+    lines.append(f"Generated: {datetime.now().isoformat()}")
+    lines.append("")
+    lines.append(f"- Checkpoint: `{ckpt_path}`")
+    lines.append(f"- Status: `{smoke_result['status'] if smoke_result else 'not_run'}`")
+    if smoke_result:
+        lines.append(f"- Return code: `{smoke_result['returncode']}`")
+        lines.append(f"- Duration: `{smoke_result['duration_sec']}s`")
+        lines.append(f"- Log path: `{smoke_result['log_path']}`")
+    lines.append("")
+    lines.append("## Command")
+    lines.append("")
+    lines.append("```bash")
+    lines.append(
+        smoke_result["command_text"] if smoke_result
+        else format_shell_command(smoke_command, smoke_env)
+    )
+    lines.append("```")
+    lines.append("")
+    if smoke_result:
+        lines.append("## Output Tail")
+        lines.append("")
+        lines.append("```text")
+        lines.append(smoke_result["output_tail"])
+        lines.append("```")
+        lines.append("")
+    else:
+        lines.append("Smoke execution was not requested. Run this script with `--run_motifs_smoke`.")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def generate_checkpoint_inventory(checkpoints):
@@ -238,7 +378,21 @@ def main():
     )
     parser.add_argument("--dry-run", action="store_true",
                         help="Generate inventory without attempting smoke test")
+    parser.add_argument("--run_motifs_smoke", action="store_true",
+                        help="Actually run a Motifs PredCLS smoke test")
+    parser.add_argument("--smoke_test_size", type=int, default=20,
+                        help="Number of test samples for Motifs smoke test")
+    parser.add_argument("--device", type=str, default="cuda",
+                        choices=["cuda", "cpu"],
+                        help="Device for the optional smoke test")
+    parser.add_argument("--timeout_sec", type=int, default=1800,
+                        help="Timeout for the optional smoke test")
+    parser.add_argument("--output_dir", type=str, default=str(OUTPUT_DIR),
+                        help="Directory for generated reports")
     args = parser.parse_args()
+    output_dir = Path(args.output_dir)
+    if not output_dir.is_absolute():
+        output_dir = _PROJECT_ROOT / output_dir
 
     print("=" * 70)
     print("Baseline Reproduction Inventory")
@@ -254,37 +408,83 @@ def main():
         print(f"        {c['path']} ({c['size_mb']} MB, format={fmt})")
     print()
 
+    motifs = next(m for m in CANDIDATE_METHODS if m["method"] == "Motifs")
+    motifs_ckpt = find_method_checkpoint(motifs, checkpoints)
+    smoke_command = build_motifs_smoke_command(
+        motifs_ckpt or "outputs/pretrained/motifs/coldmanck/extracted/model_0022000.pth",
+        test_dataset_size=args.smoke_test_size,
+        device=args.device,
+        num_workers=0,
+    )
+    smoke_env = smoke_env_overrides(args.device)
+    smoke_result = None
+
+    if args.run_motifs_smoke:
+        if not motifs_ckpt:
+            print("      ERROR: Motifs checkpoint not found; cannot run smoke test")
+            sys.exit(1)
+        if args.dry_run:
+            print("      Dry-run: smoke command would be:")
+            print(f"        {format_shell_command(smoke_command, smoke_env)}")
+        else:
+            print("[2/5] Running Motifs PredCLS smoke test...")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            smoke_result = run_motifs_smoke_test(
+                motifs_ckpt,
+                output_dir,
+                args.smoke_test_size,
+                args.device,
+                args.timeout_sec,
+            )
+            print(f"      Smoke status: {smoke_result['status']}")
+            print(f"      Log: {smoke_result['log_path']}")
+            print()
+
     # 2. Generate baseline matrix
     print("[2/4] Generating baseline matrix...")
-    matrix_csv = generate_baseline_matrix(CANDIDATE_METHODS, checkpoints)
+    matrix_csv = generate_baseline_matrix(
+        CANDIDATE_METHODS, checkpoints, smoke_result=smoke_result)
     print(f"      {len(CANDIDATE_METHODS)} methods inventoried")
 
     # 3. Generate commands
     print("[3/4] Generating reproduction commands...")
-    commands_md = generate_reproduction_commands()
+    commands_md = generate_reproduction_commands(
+        smoke_command=smoke_command,
+        smoke_env=smoke_env,
+    )
 
     # 4. Generate inventory
     inventory_md = generate_checkpoint_inventory(checkpoints)
     print()
 
     # Write outputs
+    if args.dry_run:
+        print("[4/4] Dry-run preview; no files written.")
+        print()
+        print("Motifs smoke command:")
+        print(format_shell_command(smoke_command, smoke_env))
+        print()
+        print(matrix_csv)
+        print("Done.")
+        return
+
     print("[4/4] Writing outputs...")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Baseline matrix CSV
-    matrix_path = OUTPUT_DIR / "baseline_matrix.csv"
+    matrix_path = output_dir / "baseline_matrix.csv"
     with open(matrix_path, "w") as f:
         f.write(matrix_csv)
     print(f"      Wrote: {matrix_path}")
 
     # Commands markdown
-    commands_path = OUTPUT_DIR / "reproduction_commands.md"
+    commands_path = output_dir / "reproduction_commands.md"
     with open(commands_path, "w") as f:
         f.write(commands_md)
     print(f"      Wrote: {commands_path}")
 
     # Checkpoint inventory
-    inventory_path = OUTPUT_DIR / "checkpoint_inventory.md"
+    inventory_path = output_dir / "checkpoint_inventory.md"
     with open(inventory_path, "w") as f:
         f.write(inventory_md)
     print(f"      Wrote: {inventory_path}")
@@ -303,11 +503,10 @@ def main():
 
     # Method status
     for m in CANDIDATE_METHODS:
-        has_ckpt = any(m["method"].lower() in c["path"].lower()
-                       for c in checkpoints) or any(
-            os.path.exists(str(_PROJECT_ROOT / k))
-            for k in m["known_checkpoints"])
+        has_ckpt = bool(find_method_checkpoint(m, checkpoints))
         status = "READY" if has_ckpt and m["predcls_compatible"] else "BLOCKED"
+        if m["method"] == "Motifs" and smoke_result:
+            status = f"SMOKE_{smoke_result['status'].upper()}"
         report_lines.append(f"- **{m['method']}**: {status} — {m['notes']}")
 
     report_lines.append("")
@@ -315,9 +514,11 @@ def main():
     report_lines.append("")
     report_lines.append("Checkpoint: `outputs/pretrained/motifs/coldmanck/extracted/model_0022000.pth`")
     report_lines.append("")
-    report_lines.append("Command noted in `reproduction_commands.md`. Actual execution")
-    report_lines.append("requires the full PyTorch Lightning environment and may need")
-    report_lines.append("GPU or CPU-only settings adjusted for the local machine.")
+    if smoke_result:
+        report_lines.append(f"Smoke status: `{smoke_result['status']}`")
+        report_lines.append(f"Log path: `{smoke_result['log_path']}`")
+    else:
+        report_lines.append("Command noted in `reproduction_commands.md`; smoke execution was not requested.")
     report_lines.append("")
     report_lines.append("## Next Steps")
     report_lines.append("")
@@ -326,7 +527,16 @@ def main():
     report_lines.append("3. If successful, proceed to full evaluation for collapse analysis")
     report_lines.append("4. Locate or train VCTree/Transformer checkpoints for cross-model validation")
 
-    report_path = OUTPUT_DIR / "baseline_reproduction_report.md"
+    smoke_path = output_dir / "motifs_predcls_smoke_test.md"
+    with open(smoke_path, "w") as f:
+        f.write(generate_motifs_smoke_report(
+            smoke_result, smoke_command,
+            motifs_ckpt or "outputs/pretrained/motifs/coldmanck/extracted/model_0022000.pth",
+            smoke_env=smoke_env,
+        ))
+    print(f"      Wrote: {smoke_path}")
+
+    report_path = output_dir / "baseline_reproduction_report.md"
     with open(report_path, "w") as f:
         f.write("\n".join(report_lines))
     print(f"      Wrote: {report_path}")
