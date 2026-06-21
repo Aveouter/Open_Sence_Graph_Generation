@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -45,6 +46,31 @@ BOOTSTRAP_CI = 95
 TOP_K = 5
 
 
+# ---- Small utilities ----
+
+def safe_mean(values):
+    vals = [float(v) for v in values if v is not None and np.isfinite(float(v))]
+    return float(np.mean(vals)) if vals else None
+
+
+def fmt_rate(value):
+    return "N/A" if value is None else f"{value:.4f}"
+
+
+def to_jsonable(value):
+    if isinstance(value, dict):
+        return {k: to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, tuple):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    return value
+
+
 # ---- Data loading ----
 
 def load_semantic_map():
@@ -68,6 +94,60 @@ def load_predicate_frequencies():
     with open(PRED_FREQ_PATH, "r") as f:
         data = json.load(f)
     return data["predicate_frequencies"], data["predicate_names"]
+
+
+def build_dry_run_predictions(main_map, predicate_names, rows_per_predicate=36):
+    """Build a deterministic fixture that exercises quantitative paths."""
+    rows = []
+    on_siblings = [f for f, m in main_map.items() if m["parent"] == "on"]
+
+    for fine_idx, (fine_name, mapping) in enumerate(main_map.items()):
+        parent = mapping["parent"]
+        fine_id = predicate_names.index(fine_name)
+        parent_id = predicate_names.index(parent)
+        sibling_pool = [s for s in on_siblings if s != fine_name]
+
+        for sample_idx in range(rows_per_predicate):
+            if sample_idx % 9 in (0, 1):
+                pred_name = fine_name
+            elif sample_idx % 9 in (2, 3, 4, 5):
+                pred_name = parent
+            elif sibling_pool and sample_idx % 9 == 6:
+                pred_name = sibling_pool[sample_idx % len(sibling_pool)]
+            else:
+                pred_name = "near" if "near" in predicate_names else parent
+
+            pred_id = predicate_names.index(pred_name)
+            scores = [0.001] * (len(predicate_names) - 1)
+            scores[fine_id - 1] = 0.35 if pred_name != fine_name else 0.92
+            scores[parent_id - 1] = 0.88 if pred_name == parent else 0.45
+            scores[pred_id - 1] = 0.95
+
+            ranked_ids = [
+                pid + 1 for pid, _ in sorted(
+                    enumerate(scores), key=lambda item: item[1], reverse=True
+                )[:TOP_K]
+            ]
+
+            rows.append({
+                "image_id": 100000 + fine_idx,
+                "relation_index": sample_idx,
+                "subject_index": 0,
+                "object_index": 1,
+                "subject_class_id": 10 + (fine_idx % 5),
+                "object_class_id": 20 + (sample_idx % 7),
+                "gt_predicate_id": fine_id,
+                "gt_predicate_name": fine_name,
+                "pred_predicate_id": pred_id,
+                "pred_predicate_name": pred_name,
+                "predicate_scores_all": scores,
+                "topk_predicate_ids": ranked_ids,
+                "topk_predicate_names": [predicate_names[i] for i in ranked_ids],
+                "matched_pair_found": True,
+                "metadata": {"source": "dry_run_fixture"},
+            })
+
+    return rows
 
 
 # ---- Core metrics ----
@@ -94,10 +174,21 @@ def compute_predicate_metrics(rows, main_map, predicate_names):
                 "gt_count": 0,
                 "parent": parent,
                 "recall_at_1": None,
+                "recall_at_1_numer": 0,
+                "recall_at_1_denom": 0,
                 "collapse_rate": None,
+                "collapse_numer": 0,
+                "collapse_denom": 0,
                 "parent_share": None,
+                "parent_share_numer": 0,
+                "parent_share_denom": 0,
                 "parent_above_fine_rate": None,
+                "parent_above_fine_numer": 0,
+                "parent_above_fine_denom": 0,
                 "fine_in_topk_rate": None,
+                "fine_in_topk_numer": 0,
+                "fine_in_topk_denom": 0,
+                "error_count": 0,
                 "qualitative_only": True,
             }
             continue
@@ -138,10 +229,21 @@ def compute_predicate_metrics(rows, main_map, predicate_names):
             "gt_count": gt_count,
             "parent": parent,
             "recall_at_1": correct / gt_count,
+            "recall_at_1_numer": correct,
+            "recall_at_1_denom": gt_count,
             "collapse_rate": collapsed / gt_count,
+            "collapse_numer": collapsed,
+            "collapse_denom": gt_count,
             "parent_share": parent_share,
+            "parent_share_numer": collapsed,
+            "parent_share_denom": errors,
             "parent_above_fine_rate": parent_above / gt_count,
+            "parent_above_fine_numer": parent_above,
+            "parent_above_fine_denom": gt_count,
             "fine_in_topk_rate": fine_in_topk / gt_count,
+            "fine_in_topk_numer": fine_in_topk,
+            "fine_in_topk_denom": gt_count,
+            "error_count": errors,
             "qualitative_only": gt_count < GT_THRESHOLD,
         }
 
@@ -215,8 +317,8 @@ def compute_random_control(rows, main_map, predicate_names, seed=42):
         random_map[f] = {"parent": random_parent}
 
     metrics = compute_predicate_metrics(rows, random_map, predicate_names)
-    rates = [m.get("collapse_rate") or 0 for m in metrics.values() if m["gt_count"] > 0]
-    return np.mean(rates) if rates else 0.0
+    rates = [m.get("collapse_rate") for m in metrics.values() if m["gt_count"] > 0]
+    return safe_mean(rates) or 0.0
 
 
 def compute_frequency_matched_control(rows, main_map, predicate_names, predicate_freqs):
@@ -266,7 +368,7 @@ def compute_frequency_matched_control(rows, main_map, predicate_names, predicate
                     "control_collapse_rate": rate,
                 })
 
-    avg_rate = np.mean([c["control_collapse_rate"] for c in controls]) if controls else 0.0
+    avg_rate = safe_mean([c["control_collapse_rate"] for c in controls]) or 0.0
     return avg_rate, controls
 
 
@@ -308,7 +410,9 @@ def compute_sibling_control(rows, main_map, predicate_names):
                 "sibling_error_rate": sibling_errors / len(fine_rows),
             })
 
-    return controls
+    avg_sibling = safe_mean([c["sibling_error_rate"] for c in controls]) or 0.0
+    avg_parent = safe_mean([c["parent_error_rate"] for c in controls]) or 0.0
+    return avg_sibling, avg_parent, controls
 
 
 def compute_subject_object_prior_baseline(rows, main_map, predicate_names):
@@ -354,7 +458,7 @@ def compute_subject_object_prior_baseline(rows, main_map, predicate_names):
                 "prior_total": prior_total,
             })
 
-    avg_rate = np.mean([c["prior_collapse_rate"] for c in controls]) if controls else 0.0
+    avg_rate = safe_mean([c["prior_collapse_rate"] for c in controls]) or 0.0
     return avg_rate, controls
 
 
@@ -385,6 +489,20 @@ def bootstrap_collapse_rate(rows, fine_name, parent, n_samples=BOOTSTRAP_SAMPLES
 
 
 # ---- Visualizations ----
+
+def save_placeholder_plot(output_path, title, message):
+    if not _HAS_MPL:
+        print(f"      WARNING: matplotlib not available, skipping {output_path.name}")
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.axis("off")
+    ax.set_title(title)
+    ax.text(0.5, 0.5, message, ha="center", va="center", wrap=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Saved: {output_path}")
+
 
 def plot_on_family_confusion(rows, main_map, predicate_names, output_path):
     """Plot on-family confusion heatmap."""
@@ -450,6 +568,69 @@ def plot_on_family_confusion(rows, main_map, predicate_names, output_path):
     print(f"      Saved: {output_path}")
 
 
+def plot_family_confusion(rows, main_map, parent_name, output_path):
+    """Plot a compact confusion heatmap for one semantic family."""
+    if not _HAS_MPL:
+        print("      WARNING: matplotlib not available, skipping plot")
+        return
+
+    children = [
+        f for f, m in main_map.items()
+        if m["parent"] == parent_name and m.get("confidence") == "strong"
+    ]
+    if not children:
+        save_placeholder_plot(
+            output_path,
+            f"{parent_name}-family Confusion",
+            f"No strong {parent_name}-family mappings are available.",
+        )
+        return
+
+    labels = [parent_name] + children
+    label_idx = {l: i for i, l in enumerate(labels)}
+    matrix = np.zeros((len(children), len(labels)))
+    row_counts = np.zeros(len(children))
+
+    for r in rows:
+        if not r.get("matched_pair_found"):
+            continue
+        gt = r["gt_predicate_name"]
+        pred = r["pred_predicate_name"]
+        if gt in children:
+            ri = children.index(gt)
+            row_counts[ri] += 1
+            if pred in label_idx:
+                matrix[ri, label_idx[pred]] += 1
+
+    for i in range(len(children)):
+        if row_counts[i] > 0:
+            matrix[i] /= row_counts[i]
+
+    fig, ax = plt.subplots(figsize=(max(5, len(labels) * 1.2), max(3, len(children) * 0.8)))
+    im = ax.imshow(matrix, cmap="YlOrRd", aspect="auto", vmin=0, vmax=1)
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks(range(len(children)))
+    ax.set_yticklabels(children, fontsize=9)
+    ax.set_xlabel("Predicted Predicate")
+    ax.set_ylabel("GT Predicate")
+    ax.set_title(f"{parent_name}-family Confusion (row-normalized)")
+    for i in range(len(children)):
+        for j in range(len(labels)):
+            val = matrix[i, j]
+            ax.text(
+                j, i, f"{val:.2f}" if val > 0 else "",
+                ha="center", va="center", fontsize=8,
+                color="white" if val > 0.5 else "black",
+            )
+    plt.colorbar(im, ax=ax, label="Fraction")
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Saved: {output_path}")
+
+
 def plot_negative_control_comparison(pred_metrics, neg_controls, output_path):
     """Plot main collapse rates vs negative controls."""
     if not _HAS_MPL:
@@ -468,7 +649,7 @@ def plot_negative_control_comparison(pred_metrics, neg_controls, output_path):
 
     sibling_lookup = {}
     if neg_controls.get("sibling"):
-        for c in neg_controls["sibling"]:
+        for c in neg_controls["sibling"]["details"]:
             sibling_lookup[c["fine_predicate"]] = c["sibling_error_rate"]
 
     for name, m in pred_metrics.items():
@@ -480,7 +661,11 @@ def plot_negative_control_comparison(pred_metrics, neg_controls, output_path):
         sibling_rates.append(sibling_lookup.get(name, 0))
 
     if not pred_names:
-        print("      WARNING: no predicates with sufficient samples for control plot")
+        save_placeholder_plot(
+            output_path,
+            "Collapse Rate vs Negative Controls",
+            "No predicates meet the quantitative GT threshold; see qualitative rows.",
+        )
         return
 
     x = np.arange(len(pred_names))
@@ -506,11 +691,80 @@ def plot_negative_control_comparison(pred_metrics, neg_controls, output_path):
     print(f"      Saved: {output_path}")
 
 
+def plot_predicate_collapse_rate(pred_metrics, output_path):
+    if not _HAS_MPL:
+        return
+    names = [name for name, m in pred_metrics.items() if m["gt_count"] > 0]
+    if not names:
+        save_placeholder_plot(output_path, "Predicate Collapse Rate", "No matched rows.")
+        return
+
+    rates = [pred_metrics[name].get("collapse_rate") or 0 for name in names]
+    colors = ["tab:red" if not pred_metrics[name].get("qualitative_only") else "tab:gray"
+              for name in names]
+    fig, ax = plt.subplots(figsize=(max(8, len(names) * 0.8), 4))
+    ax.bar(np.arange(len(names)), rates, color=colors)
+    ax.set_xticks(np.arange(len(names)))
+    ax.set_xticklabels(names, rotation=35, ha="right", fontsize=8)
+    ax.set_ylabel("Collapse Rate")
+    ax.set_ylim(0, 1)
+    ax.set_title("Fine-to-Coarse Collapse Rate")
+    ax.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Saved: {output_path}")
+
+
+def plot_head_body_tail_collapse(pred_metrics, output_path):
+    if not _HAS_MPL:
+        return
+
+    buckets = {
+        "head (>=100)": [],
+        "body (30-99)": [],
+        "tail (<30)": [],
+    }
+    for m in pred_metrics.values():
+        if m["gt_count"] >= 100:
+            buckets["head (>=100)"].append(m.get("collapse_rate"))
+        elif m["gt_count"] >= GT_THRESHOLD:
+            buckets["body (30-99)"].append(m.get("collapse_rate"))
+        elif m["gt_count"] > 0:
+            buckets["tail (<30)"].append(m.get("collapse_rate"))
+
+    labels = list(buckets.keys())
+    rates = [safe_mean(buckets[label]) or 0.0 for label in labels]
+    counts = [len([v for v in buckets[label] if v is not None]) for label in labels]
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    bars = ax.bar(labels, rates, color=["tab:blue", "tab:orange", "tab:gray"])
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Mean Collapse Rate")
+    ax.set_title("Head / Body / Tail Collapse")
+    ax.grid(axis="y", alpha=0.3)
+    for bar, count in zip(bars, counts):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.02,
+            f"n={count}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Saved: {output_path}")
+
+
 # ---- Report generation ----
 
 def generate_report(
     pred_metrics, family_metrics, neg_controls, pred_names,
-    main_map, output_path,
+    main_map, output_path, dry_run=False,
 ):
     """Generate fine_to_coarse_collapse_report.md."""
     lines = []
@@ -563,11 +817,17 @@ def generate_report(
     lines.append("## Negative Controls")
     lines.append("")
 
-    if neg_controls.get("random"):
+    if "random" in neg_controls:
         lines.append(f"- **Random parent control**: {neg_controls['random']:.4f}")
     if neg_controls.get("frequency_matched"):
         fm = neg_controls["frequency_matched"]
         lines.append(f"- **Frequency-matched control** (avg): {fm['avg_rate']:.4f}")
+    if neg_controls.get("sibling"):
+        sib = neg_controls["sibling"]
+        lines.append(
+            f"- **Semantic sibling control** (avg sibling error): "
+            f"{sib['avg_sibling_error_rate']:.4f}"
+        )
     if neg_controls.get("subject_object_prior"):
         so = neg_controls["subject_object_prior"]
         lines.append(f"- **Subject-object prior baseline** (avg): {so['avg_rate']:.4f}")
@@ -579,33 +839,49 @@ def generate_report(
     lines.append("")
 
     # Simple heuristic: if model collapse substantially exceeds controls, Go
-    model_avg = np.mean([
-        m.get("collapse_rate") or 0 for m in pred_metrics.values()
+    quantitative_rates = [
+        m.get("collapse_rate") for m in pred_metrics.values()
         if m["gt_count"] >= GT_THRESHOLD
-    ])
+    ]
+    model_avg = safe_mean(quantitative_rates)
     random_avg = neg_controls.get("random", 0)
     freq_avg = neg_controls.get("frequency_matched", {}).get("avg_rate", 0)
     so_avg = neg_controls.get("subject_object_prior", {}).get("avg_rate", 0)
+    sibling_avg = neg_controls.get("sibling", {}).get("avg_sibling_error_rate", 0)
 
-    if model_avg > 0 and random_avg > 0:
+    if model_avg is not None and model_avg > 0 and random_avg > 0:
         ratio_random = model_avg / random_avg
     else:
-        ratio_random = 1.0
+        ratio_random = None
 
-    if model_avg > 0 and freq_avg > 0:
+    if model_avg is not None and model_avg > 0 and freq_avg > 0:
         ratio_freq = model_avg / freq_avg
     else:
-        ratio_freq = 1.0
+        ratio_freq = None
 
-    lines.append(f"- Model avg collapse rate: {model_avg:.4f}")
-    lines.append(f"- Random control: {random_avg:.4f} (ratio: {ratio_random:.2f}x)")
-    lines.append(f"- Freq-matched control: {freq_avg:.4f} (ratio: {ratio_freq:.2f}x)")
+    lines.append(f"- Model avg collapse rate: {fmt_rate(model_avg)}")
+    lines.append(
+        f"- Random control: {fmt_rate(random_avg)} "
+        f"(ratio: {'N/A' if ratio_random is None else f'{ratio_random:.2f}x'})"
+    )
+    lines.append(
+        f"- Freq-matched control: {fmt_rate(freq_avg)} "
+        f"(ratio: {'N/A' if ratio_freq is None else f'{ratio_freq:.2f}x'})"
+    )
+    lines.append(f"- Semantic sibling control: {fmt_rate(sibling_avg)}")
+    lines.append(f"- Subject-object prior control: {fmt_rate(so_avg)}")
     lines.append("")
 
-    if ratio_random > 2.0 and ratio_freq > 1.5:
+    if model_avg is None:
+        lines.append("**Assessment: No-Go** — No predicate meets the quantitative GT threshold.")
+        lines.append("Use these outputs for pipeline validation or qualitative examples only.")
+    elif ratio_random is not None and ratio_freq is not None and ratio_random > 2.0 and ratio_freq > 1.5:
         lines.append("**Assessment: Go** — Model collapse substantially exceeds controls.")
         lines.append("Evidence supports Predicate Orthogonality Bias hypothesis.")
-    elif ratio_random > 1.5 or ratio_freq > 1.2:
+    elif (
+        (ratio_random is not None and ratio_random > 1.5) or
+        (ratio_freq is not None and ratio_freq > 1.2)
+    ):
         lines.append("**Assessment: Weak-Go** — Some evidence but controls are close.")
         lines.append("Need more data points or cross-model validation.")
     else:
@@ -613,8 +889,11 @@ def generate_report(
         lines.append("Effect may be explained by frequency or object-pair priors.")
 
     lines.append("")
-    lines.append("> Note: This assessment is based on synthetic/dry-run data and is illustrative only.")
-    lines.append("> Real assessment requires model predictions on actual test data.")
+    if dry_run:
+        lines.append("> Note: This assessment is based on synthetic dry-run data and is illustrative only.")
+        lines.append("> Real assessment requires model predictions on actual test data.")
+    else:
+        lines.append("> Note: Low-sample runs are useful for validation, not final paper claims.")
 
     with open(output_path, "w") as f:
         f.write("\n".join(lines))
@@ -635,14 +914,18 @@ def main():
                         help="Override output directory")
     args = parser.parse_args()
 
-    # Resolve paths
-    if args.predictions:
-        predictions_path = Path(args.predictions)
-    else:
-        predictions_path = DEFAULT_PREDICTIONS_PATH
+    # Resolve paths. Dry-run without --predictions is self-contained and does
+    # not depend on Task 04 having already produced the default JSONL.
+    use_synthetic = args.dry_run and not args.predictions
+    predictions_path = Path(args.predictions) if args.predictions else DEFAULT_PREDICTIONS_PATH
 
     if args.output_dir:
         output_dir = Path(args.output_dir)
+    elif use_synthetic:
+        output_dir = (
+            _PROJECT_ROOT / "outputs" / "analysis" / "fine_to_coarse" /
+            "dry_run" / "Motifs" / "PredCLS"
+        )
     else:
         output_dir = predictions_path.parent
 
@@ -651,30 +934,35 @@ def main():
     print("=" * 70)
     print("Collapse Metrics Computation")
     print("=" * 70)
-    print(f"  Predictions: {predictions_path}")
+    print(f"  Predictions: {'<synthetic dry-run fixture>' if use_synthetic else predictions_path}")
     print(f"  Output dir:  {output_dir}")
     print(f"  Dry-run:     {args.dry_run}")
     print()
 
     # 1. Load inputs
     print("[1/8] Loading inputs...")
-    if not predictions_path.exists():
-        print(f"      ERROR: Predictions file not found: {predictions_path}")
-        print(f"      Run Task 04 first or use --dry-run")
-        sys.exit(1)
-
-    rows = load_predictions(predictions_path)
     semantic_map, _ = load_semantic_map()
     predicate_freqs, predicate_names = load_predicate_frequencies()
-    print(f"      Loaded {len(rows)} prediction rows")
-    print(f"      Loaded {len(semantic_map)} semantic mappings")
-    print()
 
     # Filter main mappings
     main_map = {
         k: v for k, v in semantic_map.items()
         if v.get("confidence") == "strong" and v.get("use_in_main") is True
     }
+
+    if use_synthetic:
+        rows = build_dry_run_predictions(main_map, predicate_names)
+    elif not predictions_path.exists():
+        print(f"      ERROR: Predictions file not found: {predictions_path}")
+        print(f"      Run Task 04 first or use --dry-run")
+        sys.exit(1)
+    else:
+        rows = load_predictions(predictions_path)
+
+    print(f"      Loaded {len(rows)} prediction rows")
+    print(f"      Loaded {len(semantic_map)} semantic mappings")
+    print()
+
     print(f"      Main mappings (strong + use_in_main): {len(main_map)}")
     print()
 
@@ -707,9 +995,15 @@ def main():
     neg_controls["frequency_matched"] = {"avg_rate": freq_avg, "details": freq_details}
     print(f"      Freq-matched control:    {freq_avg:.4f} ({len(freq_details)} pairs)")
 
-    sibling_controls = compute_sibling_control(rows, main_map, predicate_names)
-    neg_controls["sibling"] = sibling_controls
-    print(f"      Sibling control:          {len(sibling_controls)} pairs")
+    sibling_avg, sibling_parent_avg, sibling_controls = compute_sibling_control(
+        rows, main_map, predicate_names)
+    neg_controls["sibling"] = {
+        "avg_sibling_error_rate": sibling_avg,
+        "avg_parent_error_rate": sibling_parent_avg,
+        "details": sibling_controls,
+    }
+    print(f"      Sibling control:          {sibling_avg:.4f} "
+          f"({len(sibling_controls)} pairs)")
 
     so_avg, so_details = compute_subject_object_prior_baseline(
         rows, main_map, predicate_names)
@@ -736,18 +1030,56 @@ def main():
     # Predicate-level CSV
     csv_path = output_dir / "predicate_level_collapse.csv"
     with open(csv_path, "w") as f:
-        f.write("predicate,parent,gt_count,recall_at_1,collapse_rate,parent_share,"
-                "parent_above_fine_rate,fine_in_topk_rate,qualitative_only,"
-                "collapse_ci_lower,collapse_ci_upper\n")
+        writer = csv.writer(f)
+        writer.writerow([
+            "predicate", "parent", "gt_count",
+            "recall_at_1_numer", "recall_at_1_denom", "recall_at_1",
+            "collapse_numer", "collapse_denom", "collapse_rate",
+            "parent_share_numer", "parent_share_denom", "parent_share",
+            "parent_above_fine_numer", "parent_above_fine_denom",
+            "parent_above_fine_rate",
+            "fine_in_topk_numer", "fine_in_topk_denom", "fine_in_topk_rate",
+            "qualitative_only", "collapse_ci_lower", "collapse_ci_upper",
+        ])
         for name, m in pred_metrics.items():
-            f.write(
-                f"{name},{m['parent']},{m['gt_count']},"
-                f"{m.get('recall_at_1') or ''},{m.get('collapse_rate') or ''},"
-                f"{m.get('parent_share') or ''},{m.get('parent_above_fine_rate') or ''},"
-                f"{m.get('fine_in_topk_rate') or ''},{m.get('qualitative_only')},"
-                f"{m.get('collapse_ci_lower') or ''},{m.get('collapse_ci_upper') or ''}\n"
-            )
+            writer.writerow([
+                name, m["parent"], m["gt_count"],
+                m.get("recall_at_1_numer"), m.get("recall_at_1_denom"),
+                m.get("recall_at_1"),
+                m.get("collapse_numer"), m.get("collapse_denom"),
+                m.get("collapse_rate"),
+                m.get("parent_share_numer"), m.get("parent_share_denom"),
+                m.get("parent_share"),
+                m.get("parent_above_fine_numer"), m.get("parent_above_fine_denom"),
+                m.get("parent_above_fine_rate"),
+                m.get("fine_in_topk_numer"), m.get("fine_in_topk_denom"),
+                m.get("fine_in_topk_rate"),
+                m.get("qualitative_only"),
+                m.get("collapse_ci_lower"), m.get("collapse_ci_upper"),
+            ])
     print(f"      Wrote: {csv_path}")
+
+    # Parent-vs-fine top-k suppression CSV
+    topk_csv = output_dir / "topk_parent_suppression.csv"
+    with open(topk_csv, "w") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "predicate", "parent", "gt_count",
+            "parent_above_fine_numer", "parent_above_fine_denom",
+            "parent_above_fine_rate",
+            "fine_in_topk_numer", "fine_in_topk_denom", "fine_in_topk_rate",
+        ])
+        for name, m in pred_metrics.items():
+            writer.writerow([
+                name, m["parent"], m["gt_count"],
+                m.get("parent_above_fine_numer"),
+                m.get("parent_above_fine_denom"),
+                m.get("parent_above_fine_rate"),
+                m.get("fine_in_topk_numer"),
+                m.get("fine_in_topk_denom"),
+                m.get("fine_in_topk_rate"),
+            ])
+    print(f"      Wrote: {topk_csv}")
 
     # Family-level CSV
     fam_csv = output_dir / "family_level_collapse.csv"
@@ -767,31 +1099,37 @@ def main():
     # Negative controls CSV
     neg_csv = output_dir / "negative_controls.csv"
     with open(neg_csv, "w") as f:
-        f.write("control_type,avg_rate,n_pairs\n")
-        f.write(f"random_parent,{neg_controls['random']},1\n")
-        f.write(f"frequency_matched,{neg_controls['frequency_matched']['avg_rate']},"
-                f"{len(neg_controls['frequency_matched']['details'])}\n")
-        f.write(f"subject_object_prior,{neg_controls['subject_object_prior']['avg_rate']},"
-                f"{len(neg_controls['subject_object_prior']['details'])}\n")
+        writer = csv.writer(f)
+        writer.writerow(["control_type", "metric", "avg_rate", "n_pairs"])
+        writer.writerow(["random_parent", "random_parent_collapse_rate",
+                         neg_controls["random"], 1])
+        writer.writerow([
+            "frequency_matched", "control_collapse_rate",
+            neg_controls["frequency_matched"]["avg_rate"],
+            len(neg_controls["frequency_matched"]["details"]),
+        ])
+        writer.writerow([
+            "semantic_sibling", "sibling_error_rate",
+            neg_controls["sibling"]["avg_sibling_error_rate"],
+            len(neg_controls["sibling"]["details"]),
+        ])
+        writer.writerow([
+            "subject_object_prior", "prior_collapse_rate",
+            neg_controls["subject_object_prior"]["avg_rate"],
+            len(neg_controls["subject_object_prior"]["details"]),
+        ])
     print(f"      Wrote: {neg_csv}")
 
     # Metrics JSON
     metrics_json = output_dir / "collapse_metrics.json"
-    serializable_metrics = {}
-    for name, m in pred_metrics.items():
-        serializable_metrics[name] = {
-            k: (float(v) if isinstance(v, (np.floating,)) else v)
-            for k, v in m.items()
-        }
     with open(metrics_json, "w") as f:
         json.dump({
-            "predicate_metrics": serializable_metrics,
-            "family_metrics": {k: {kk: float(vv) if isinstance(vv, (np.floating,)) else vv
-                                   for kk, vv in v.items()}
-                               for k, v in family_metrics.items()},
+            "predicate_metrics": to_jsonable(pred_metrics),
+            "family_metrics": to_jsonable(family_metrics),
             "negative_controls": {
                 "random": neg_controls["random"],
                 "frequency_matched_avg": neg_controls["frequency_matched"]["avg_rate"],
+                "semantic_sibling_avg": neg_controls["sibling"]["avg_sibling_error_rate"],
                 "subject_object_prior_avg": neg_controls["subject_object_prior"]["avg_rate"],
             },
         }, f, indent=2)
@@ -818,6 +1156,18 @@ def main():
         rows, semantic_map, predicate_names,
         figures_dir / "on_family_confusion.png",
     )
+    plot_family_confusion(
+        rows, semantic_map, "in",
+        figures_dir / "in_family_confusion.png",
+    )
+    plot_predicate_collapse_rate(
+        pred_metrics,
+        figures_dir / "predicate_collapse_rate.png",
+    )
+    plot_head_body_tail_collapse(
+        pred_metrics,
+        figures_dir / "head_body_tail_collapse.png",
+    )
     plot_negative_control_comparison(
         pred_metrics, neg_controls,
         figures_dir / "negative_control_comparison.png",
@@ -830,6 +1180,7 @@ def main():
         pred_metrics, family_metrics, neg_controls,
         predicate_names, main_map,
         output_dir / "fine_to_coarse_collapse_report.md",
+        dry_run=args.dry_run,
     )
     print()
 
@@ -841,6 +1192,7 @@ def main():
     print(f"  Families:                 {len(family_metrics)}")
     print(f"  Random control:           {neg_controls['random']:.4f}")
     print(f"  Freq-matched control:     {neg_controls['frequency_matched']['avg_rate']:.4f}")
+    print(f"  Sibling control:          {neg_controls['sibling']['avg_sibling_error_rate']:.4f}")
     print(f"  S-O prior control:        {neg_controls['subject_object_prior']['avg_rate']:.4f}")
     print()
     print("Done.")
