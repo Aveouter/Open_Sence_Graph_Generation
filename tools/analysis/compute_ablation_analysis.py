@@ -9,12 +9,21 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    _HAS_MPL = True
+except ImportError:
+    _HAS_MPL = False
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -25,6 +34,59 @@ SEMANTIC_MAP_PATH = _PROJECT_ROOT / "configs" / "predicate_semantic_map_vg150.js
 PRED_FREQ_PATH = _PROJECT_ROOT / "data" / "VisualGenome" / "predicate_frequencies.json"
 GT_THRESHOLD = 30
 BOOTSTRAP_SAMPLES = 1000
+TOP_K = 5
+
+
+def safe_mean(values):
+    vals = [float(v) for v in values if v is not None and np.isfinite(float(v))]
+    return float(np.mean(vals)) if vals else 0.0
+
+
+def build_dry_run_predictions(main_map, predicate_names, rows_per_predicate=36):
+    rows = []
+    on_siblings = [f for f, m in main_map.items() if m["parent"] == "on"]
+    for fine_idx, (fine_name, mapping) in enumerate(main_map.items()):
+        parent = mapping["parent"]
+        fine_id = predicate_names.index(fine_name)
+        parent_id = predicate_names.index(parent)
+        sibling_pool = [s for s in on_siblings if s != fine_name]
+
+        for sample_idx in range(rows_per_predicate):
+            if sample_idx % 9 in (0, 1):
+                pred_name = fine_name
+            elif sample_idx % 9 in (2, 3, 4, 5):
+                pred_name = parent
+            elif sibling_pool and sample_idx % 9 == 6:
+                pred_name = sibling_pool[sample_idx % len(sibling_pool)]
+            else:
+                pred_name = "near" if "near" in predicate_names else parent
+
+            pred_id = predicate_names.index(pred_name)
+            scores = [0.001] * (len(predicate_names) - 1)
+            scores[fine_id - 1] = 0.35 if pred_name != fine_name else 0.92
+            scores[parent_id - 1] = 0.88 if pred_name == parent else 0.45
+            scores[pred_id - 1] = 0.95
+            ranked_ids = [
+                pid + 1 for pid, _ in sorted(
+                    enumerate(scores), key=lambda item: item[1], reverse=True
+                )[:TOP_K]
+            ]
+
+            rows.append({
+                "image_id": 200000 + fine_idx,
+                "relation_index": sample_idx,
+                "subject_class_id": 10 + (fine_idx % 5),
+                "object_class_id": 20 + (sample_idx % 7),
+                "gt_predicate_id": fine_id,
+                "gt_predicate_name": fine_name,
+                "pred_predicate_id": pred_id,
+                "pred_predicate_name": pred_name,
+                "predicate_scores_all": scores,
+                "topk_predicate_ids": ranked_ids,
+                "topk_predicate_names": [predicate_names[i] for i in ranked_ids],
+                "matched_pair_found": True,
+            })
+    return rows
 
 
 def load_predictions(path):
@@ -106,8 +168,8 @@ def compute_random_control(rows, main_map, predicate_names, seed=42):
             pool = [p for p in candidate_parents if p != f]
         random_map[f] = {"parent": rng.choice(pool)}
     metrics = compute_predicate_metrics(rows, random_map, predicate_names)
-    rates = [m.get("collapse_rate") or 0 for m in metrics.values() if m["gt_count"] > 0]
-    return float(np.mean(rates)) if rates else 0.0
+    rates = [m.get("collapse_rate") for m in metrics.values() if m["gt_count"] > 0]
+    return safe_mean(rates)
 
 
 def compute_frequency_matched_control(rows, main_map, predicate_names, predicate_freqs):
@@ -137,8 +199,61 @@ def compute_frequency_matched_control(rows, main_map, predicate_names, predicate
             if matched_rows:
                 collapsed = sum(1 for r in matched_rows
                                 if r["pred_predicate_name"] == parent)
-                controls.append(collapsed / len(matched_rows))
-    return float(np.mean(controls)) if controls else 0.0
+                controls.append({
+                    "fine_predicate": fine_name,
+                    "parent": parent,
+                    "control_predicate": matched_name,
+                    "control_gt_count": len(matched_rows),
+                    "control_collapse_rate": collapsed / len(matched_rows),
+                })
+    return safe_mean([c["control_collapse_rate"] for c in controls]), controls
+
+
+def compute_sibling_control(rows, main_map, predicate_names):
+    by_gt = defaultdict(list)
+    for r in rows:
+        if r.get("matched_pair_found"):
+            by_gt[r["gt_predicate_name"]].append(r)
+
+    families = defaultdict(list)
+    for fine_name, mapping in main_map.items():
+        families[mapping["parent"]].append(fine_name)
+
+    controls = []
+    for parent, siblings in families.items():
+        if len(siblings) < 2:
+            continue
+        for fine_name in siblings:
+            fine_rows = by_gt.get(fine_name, [])
+            if not fine_rows:
+                continue
+            sibling_names = [s for s in siblings if s != fine_name]
+            sibling_errors = sum(
+                1 for r in fine_rows
+                if r["pred_predicate_name"] in sibling_names
+            )
+            parent_errors = sum(
+                1 for r in fine_rows
+                if r["pred_predicate_name"] == parent
+            )
+            controls.append({
+                "fine_predicate": fine_name,
+                "parent": parent,
+                "siblings": sibling_names,
+                "gt_count": len(fine_rows),
+                "parent_error_rate": parent_errors / len(fine_rows),
+                "sibling_error_rate": sibling_errors / len(fine_rows),
+            })
+
+    return {
+        "avg_sibling_error_rate": safe_mean(
+            [c["sibling_error_rate"] for c in controls]
+        ),
+        "avg_parent_error_rate": safe_mean(
+            [c["parent_error_rate"] for c in controls]
+        ),
+        "details": controls,
+    }
 
 
 def compute_subject_object_prior_baseline(rows, main_map, predicate_names):
@@ -167,8 +282,13 @@ def compute_subject_object_prior_baseline(rows, main_map, predicate_names):
                         prior_parent += parent_prob * fine_count
                         prior_total += fine_count
         if prior_total > 0:
-            controls.append(prior_parent / prior_total)
-    return float(np.mean(controls)) if controls else 0.0
+            controls.append({
+                "fine_predicate": fine_name,
+                "parent": parent,
+                "prior_total": prior_total,
+                "prior_collapse_rate": prior_parent / prior_total,
+            })
+    return safe_mean([c["prior_collapse_rate"] for c in controls]), controls
 
 DEFAULT_PREDICTIONS_PATH = (
     _PROJECT_ROOT / "outputs" / "analysis" / "fine_to_coarse" /
@@ -191,7 +311,7 @@ def compute_hbt_stratification(rows, main_map, predicate_names, predicate_freqs)
         pred_freq_list.append((fine_name, freq))
 
     if not pred_freq_list:
-        return {}, {}, {}
+        return {}
 
     pred_freq_list.sort(key=lambda x: x[1], reverse=True)
     n = len(pred_freq_list)
@@ -284,7 +404,9 @@ def compute_family_ablation(rows, main_map, predicate_names):
     return variants
 
 
-def generate_ablation_report(ablation_results, hbt_results, neg_controls, output_path):
+def generate_ablation_report(
+    ablation_results, hbt_results, neg_controls, output_path, dry_run=False,
+):
     """Generate ablation and controls report."""
     lines = []
     lines.append("# Ablation and Controls Report")
@@ -297,7 +419,7 @@ def generate_ablation_report(ablation_results, hbt_results, neg_controls, output
     lines.append("## Family Ablation")
     lines.append("")
     lines.append("| Variant | #Predicates | #Families | Total GT | Micro Collapse |")
-    lines.append("|---|---|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|")
     for name, v in ablation_results.items():
         lines.append(
             f"| {name} | {v['n_predicates']} | {v['n_families']} | "
@@ -329,6 +451,11 @@ def generate_ablation_report(ablation_results, hbt_results, neg_controls, output
             f"- Frequency-matched control avg: "
             f"{neg_controls['frequency_matched']['avg_rate']:.4f}"
         )
+    if neg_controls.get("semantic_sibling"):
+        lines.append(
+            f"- Semantic sibling control avg: "
+            f"{neg_controls['semantic_sibling']['avg_sibling_error_rate']:.4f}"
+        )
     if neg_controls.get("subject_object_prior"):
         lines.append(
             f"- Subject-object prior avg: "
@@ -340,7 +467,7 @@ def generate_ablation_report(ablation_results, hbt_results, neg_controls, output
     lines.append("## Unresolved Reviewer Objections")
     lines.append("")
     lines.append("| Objection | Status | Evidence |")
-    lines.append("|---|---|")
+    lines.append("|---|---|---|")
     lines.append("| Parent is high-frequency | Needs real data | Controls underpowered with synthetic data |")
     lines.append("| Object-pair priors explain collapse | Needs real data | S-O prior baseline requires more samples |")
     lines.append("| Semantic map is hand-picked | Addressed | Validated by Task 03 validator |")
@@ -348,11 +475,107 @@ def generate_ablation_report(ablation_results, hbt_results, neg_controls, output
     lines.append("| Single-model result | Pending | Cross-model validation in Task 07 |")
     lines.append("")
 
-    lines.append("> Note: This report is based on synthetic data and is illustrative.")
-    lines.append("> Real assessment requires model predictions from Task 04/Task 07.")
+    if dry_run:
+        lines.append("> Note: This report is based on synthetic data and is illustrative.")
+        lines.append("> Real assessment requires model predictions from Task 04/Task 07.")
+    else:
+        lines.append("> Note: Low-sample runs validate plumbing but should not be used as paper evidence.")
 
     with open(output_path, "w") as f:
         f.write("\n".join(lines))
+
+
+def save_placeholder_plot(output_path, title, message):
+    if not _HAS_MPL:
+        print(f"      WARNING: matplotlib not available, skipping {output_path.name}")
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.axis("off")
+    ax.set_title(title)
+    ax.text(0.5, 0.5, message, ha="center", va="center", wrap=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Wrote: {output_path}")
+
+
+def plot_negative_control_comparison(neg_controls, output_path):
+    if not _HAS_MPL:
+        print("      WARNING: matplotlib not available, skipping control plot")
+        return
+    labels = [
+        "random",
+        "frequency",
+        "sibling",
+        "object-pair",
+    ]
+    values = [
+        neg_controls["random"],
+        neg_controls["frequency_matched"]["avg_rate"],
+        neg_controls["semantic_sibling"]["avg_sibling_error_rate"],
+        neg_controls["subject_object_prior"]["avg_rate"],
+    ]
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(labels, values, color=["tab:blue", "tab:orange", "tab:green", "tab:gray"])
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Control Rate")
+    ax.set_title("Negative Control Comparison")
+    ax.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Wrote: {output_path}")
+
+
+def plot_semantic_family_ablation(ablation_results, output_path):
+    if not _HAS_MPL:
+        print("      WARNING: matplotlib not available, skipping ablation plot")
+        return
+    if not ablation_results:
+        save_placeholder_plot(output_path, "Semantic Family Ablation", "No ablation rows.")
+        return
+    labels = list(ablation_results.keys())
+    values = [ablation_results[k]["micro_collapse_rate"] for k in labels]
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(labels, values, color="tab:red")
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Micro Collapse Rate")
+    ax.set_title("Semantic Family Ablation")
+    ax.tick_params(axis="x", rotation=20)
+    ax.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Wrote: {output_path}")
+
+
+def plot_frequency_matched_control(freq_details, output_path):
+    if not _HAS_MPL:
+        print("      WARNING: matplotlib not available, skipping frequency plot")
+        return
+    if not freq_details:
+        save_placeholder_plot(
+            output_path,
+            "Frequency-Matched Control",
+            "No frequency-matched control predicates have matched rows.",
+        )
+        return
+    labels = [d["fine_predicate"] for d in freq_details]
+    values = [d["control_collapse_rate"] for d in freq_details]
+    fig, ax = plt.subplots(figsize=(max(7, len(labels) * 0.8), 4))
+    ax.bar(labels, values, color="tab:orange")
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Control Collapse Rate")
+    ax.set_title("Frequency-Matched Control")
+    ax.tick_params(axis="x", rotation=30)
+    ax.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"      Wrote: {output_path}")
 
 
 def main():
@@ -367,29 +590,41 @@ def main():
                         help="Override output directory")
     args = parser.parse_args()
 
-    predictions_path = (
-        Path(args.predictions) if args.predictions else DEFAULT_PREDICTIONS_PATH
-    )
-    output_dir = (
-        Path(args.output_dir) if args.output_dir else predictions_path.parent
-    )
+    use_synthetic = args.dry_run and not args.predictions
+    predictions_path = Path(args.predictions) if args.predictions else DEFAULT_PREDICTIONS_PATH
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    elif use_synthetic:
+        output_dir = (
+            _PROJECT_ROOT / "outputs" / "analysis" / "fine_to_coarse" /
+            "dry_run" / "Motifs" / "PredCLS"
+        )
+    else:
+        output_dir = predictions_path.parent
 
     print("=" * 70)
     print("Ablation Analysis")
     print("=" * 70)
-    print(f"  Predictions: {predictions_path}")
+    print(f"  Predictions: {'<synthetic dry-run fixture>' if use_synthetic else predictions_path}")
     print(f"  Output dir:  {output_dir}")
     print()
 
     # Load
     print("[1/5] Loading inputs...")
-    rows = load_predictions(predictions_path)
     semantic_map = load_semantic_map()
     predicate_freqs, predicate_names = load_predicate_frequencies()
     main_map = {
         k: v for k, v in semantic_map.items()
         if v.get("confidence") == "strong" and v.get("use_in_main") is True
     }
+    if use_synthetic:
+        rows = build_dry_run_predictions(main_map, predicate_names)
+    elif not predictions_path.exists():
+        print(f"      ERROR: Predictions file not found: {predictions_path}")
+        print("      Run Task 04 first or use --dry-run")
+        sys.exit(1)
+    else:
+        rows = load_predictions(predictions_path)
     print(f"      {len(rows)} rows, {len(main_map)} main mappings")
     print()
 
@@ -415,14 +650,24 @@ def main():
     neg_controls = {}
     neg_controls["random"] = compute_random_control(
         rows, main_map, predicate_names)
-    freq_avg = compute_frequency_matched_control(
+    freq_avg, freq_details = compute_frequency_matched_control(
         rows, main_map, predicate_names, predicate_freqs)
-    neg_controls["frequency_matched"] = {"avg_rate": freq_avg}
-    so_avg = compute_subject_object_prior_baseline(
+    neg_controls["frequency_matched"] = {
+        "avg_rate": freq_avg,
+        "details": freq_details,
+    }
+    neg_controls["semantic_sibling"] = compute_sibling_control(
         rows, main_map, predicate_names)
-    neg_controls["subject_object_prior"] = {"avg_rate": so_avg}
+    so_avg, so_details = compute_subject_object_prior_baseline(
+        rows, main_map, predicate_names)
+    neg_controls["subject_object_prior"] = {
+        "avg_rate": so_avg,
+        "details": so_details,
+    }
     print(f"      Random: {neg_controls['random']:.4f}")
     print(f"      Freq-matched: {freq_avg:.4f}")
+    print(f"      Semantic sibling: "
+          f"{neg_controls['semantic_sibling']['avg_sibling_error_rate']:.4f}")
     print(f"      S-O prior: {so_avg:.4f}")
     print()
 
@@ -433,22 +678,58 @@ def main():
     # Ablation CSV
     abl_csv = output_dir / "ablation_summary.csv"
     with open(abl_csv, "w") as f:
-        f.write("variant,n_predicates,n_families,total_gt,micro_collapse_rate\n")
+        writer = csv.writer(f)
+        writer.writerow([
+            "variant", "n_predicates", "n_families",
+            "total_gt", "micro_collapse_rate",
+        ])
         for name, v in ablation_results.items():
-            f.write(f"{name},{v['n_predicates']},{v['n_families']},"
-                    f"{v['total_gt']},{v['micro_collapse_rate']}\n")
+            writer.writerow([
+                name, v["n_predicates"], v["n_families"],
+                v["total_gt"], v["micro_collapse_rate"],
+            ])
     print(f"      Wrote: {abl_csv}")
 
     # HBT CSV
     hbt_csv = output_dir / "head_body_tail_collapse.csv"
     with open(hbt_csv, "w") as f:
-        f.write("group,n_predicates,total_gt,collapse_rate,parent_share\n")
+        writer = csv.writer(f)
+        writer.writerow([
+            "group", "n_predicates", "total_gt",
+            "collapse_rate", "parent_share",
+        ])
         for group_name in ["head", "body", "tail"]:
             if group_name in hbt_results:
                 r = hbt_results[group_name]
-                f.write(f"{group_name},{r['n_predicates']},{r['total_gt']},"
-                        f"{r['collapse_rate']},{r['parent_share']}\n")
+                writer.writerow([
+                    group_name, r["n_predicates"], r["total_gt"],
+                    r["collapse_rate"], r["parent_share"],
+                ])
     print(f"      Wrote: {hbt_csv}")
+
+    # Negative controls CSV
+    neg_csv = output_dir / "negative_controls.csv"
+    with open(neg_csv, "w") as f:
+        writer = csv.writer(f)
+        writer.writerow(["control_type", "metric", "avg_rate", "n_pairs"])
+        writer.writerow(["random_parent", "random_parent_collapse_rate",
+                         neg_controls["random"], 1])
+        writer.writerow([
+            "frequency_matched", "control_collapse_rate",
+            neg_controls["frequency_matched"]["avg_rate"],
+            len(neg_controls["frequency_matched"]["details"]),
+        ])
+        writer.writerow([
+            "semantic_sibling", "sibling_error_rate",
+            neg_controls["semantic_sibling"]["avg_sibling_error_rate"],
+            len(neg_controls["semantic_sibling"]["details"]),
+        ])
+        writer.writerow([
+            "subject_object_prior", "prior_collapse_rate",
+            neg_controls["subject_object_prior"]["avg_rate"],
+            len(neg_controls["subject_object_prior"]["details"]),
+        ])
+    print(f"      Wrote: {neg_csv}")
 
     # Control significance JSON
     sig_json = output_dir / "control_significance.json"
@@ -457,6 +738,9 @@ def main():
             "controls": {
                 "random_parent": neg_controls["random"],
                 "frequency_matched_avg": freq_avg,
+                "semantic_sibling_avg": (
+                    neg_controls["semantic_sibling"]["avg_sibling_error_rate"]
+                ),
                 "subject_object_prior_avg": so_avg,
             },
             "ablation": {
@@ -474,10 +758,26 @@ def main():
         }, f, indent=2)
     print(f"      Wrote: {sig_json}")
 
+    # Figures
+    figures_dir = output_dir / "figures"
+    plot_negative_control_comparison(
+        neg_controls,
+        figures_dir / "negative_control_comparison.png",
+    )
+    plot_semantic_family_ablation(
+        ablation_results,
+        figures_dir / "semantic_family_ablation.png",
+    )
+    plot_frequency_matched_control(
+        neg_controls["frequency_matched"]["details"],
+        figures_dir / "frequency_matched_control.png",
+    )
+
     # Report
     generate_ablation_report(
         ablation_results, hbt_results, neg_controls,
         output_dir / "ablation_and_controls_report.md",
+        dry_run=args.dry_run,
     )
 
     print()
