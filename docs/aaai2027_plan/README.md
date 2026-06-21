@@ -65,8 +65,27 @@ For every implementation loop:
 3. Run the task acceptance commands or dry-run.
 4. Generate the expected artifact under the task's declared output path.
 5. Update the task status in this README or the task file.
-6. Open one small PR.
-7. Wait for review before starting the next dependent task.
+6. Run the Definition of Done checks in `PR_WORKFLOW.md`.
+7. Open one small PR, or explicitly report the work as local-only.
+8. Wait for review before starting the next dependent task.
+
+Do not report a task as PR-submitted unless the final response includes a real PR URL. Do not report README or task markdown changes as included unless they appear in the staged or committed diff.
+
+## Execution Completion Gate
+
+Before reporting any implementation task as complete, verify:
+
+1. `git status -sb --ignored` was inspected.
+2. The branch name matches the task.
+3. `git diff --cached --name-status` contains only intended task files.
+4. `git diff --cached --check` passes.
+5. The task validation commands were run.
+6. Generated artifacts under `outputs/`, checkpoints, datasets, caches, and local reports are not staged.
+7. A real PR URL is reported, or the work is explicitly marked local-only.
+
+The completion report must include the branch name, commit SHA if committed, PR URL if opened, actual changed files, validation commands, and generated local artifacts that were intentionally not committed.
+
+If `docs/` is locally ignored, documentation changes are local-only unless a human explicitly asks to include them in a PR.
 
 ## First Recommended Goal Command
 
