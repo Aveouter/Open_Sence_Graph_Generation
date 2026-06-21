@@ -20,10 +20,12 @@ Outputs:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -51,6 +53,12 @@ def load_object_class_names():
     with open(_TRAIN_JSON_PATH, "r") as f:
         data = json.load(f)
     return {cat["id"]: cat["name"] for cat in data["categories"]}
+
+
+def predicate_list_checksum(predicate_names):
+    """Stable checksum for the predicate vocabulary used by this export."""
+    payload = "\n".join(predicate_names).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 # ---- Score extraction (mirrors src.core.metrics._extract_relation_scores) ----
@@ -220,7 +228,7 @@ def generate_synthetic_unmatched(predicate_names, object_names):
             "gt_predicate_name": predicate_names[40],
             "pred_predicate_id": -1,
             "pred_predicate_name": None,
-            "predicate_scores_all": [0.0] * 50,
+            "predicate_scores_all": [],
             "topk_predicate_ids": [],
             "topk_predicate_names": [],
             "topk_predicate_scores": [],
@@ -245,7 +253,7 @@ REQUIRED_FIELDS = [
 ]
 
 
-def validate_jsonl(rows, predicate_names):
+def validate_jsonl(rows, predicate_names, require_non_empty=False):
     """Validate JSONL rows against acceptance criteria.
 
     Returns (errors, warnings, summary).
@@ -258,6 +266,12 @@ def validate_jsonl(rows, predicate_names):
     total = len(rows)
     matched = sum(1 for r in rows if r.get("matched_pair_found"))
     unmatched = total - matched
+
+    if require_non_empty:
+        if total == 0:
+            errors.append("Export produced zero rows in non-dry-run mode")
+        if matched == 0:
+            errors.append("Export produced zero matched rows in non-dry-run mode")
 
     for i, row in enumerate(rows):
         # Check required fields
@@ -273,6 +287,12 @@ def validate_jsonl(rows, predicate_names):
                     f"Row {i} (image {row.get('image_id')}): "
                     f"predicate_scores_all length is {len(scores)}, expected {num_preds}"
                 )
+            else:
+                arr = np.asarray(scores, dtype=np.float64)
+                if not np.isfinite(arr).all():
+                    errors.append(
+                        f"Row {i}: predicate_scores_all contains NaN or Inf"
+                    )
 
             # Top-k sorted descending
             topk_scores = row.get("topk_predicate_scores", [])
@@ -299,6 +319,10 @@ def validate_jsonl(rows, predicate_names):
                     errors.append(
                         f"Row {i}: background predicate (id=0) found in topk_predicate_ids"
                     )
+                if pid < 1 or pid > 50:
+                    errors.append(
+                        f"Row {i}: topk predicate id {pid} out of range [1, 50]"
+                    )
 
             # Predicate IDs are 1..50
             gt_id = row.get("gt_predicate_id")
@@ -318,6 +342,10 @@ def validate_jsonl(rows, predicate_names):
             if gt_name and gt_name not in pred_name_set:
                 errors.append(f"Row {i}: gt_predicate_name '{gt_name}' not in VG150")
 
+            pred_name = row.get("pred_predicate_name")
+            if pred_name and pred_name not in pred_name_set:
+                errors.append(f"Row {i}: pred_predicate_name '{pred_name}' not in VG150")
+
             # Check pred_predicate_name is None when matched_pair_found=False
         else:
             pred_name = row.get("pred_predicate_name")
@@ -333,6 +361,7 @@ def validate_jsonl(rows, predicate_names):
         "unmatched_rows": unmatched,
         "unmatched_ratio": unmatched / total if total > 0 else 0.0,
         "score_dimension": num_preds,
+        "predicate_names_sha256": predicate_list_checksum(predicate_names),
         "errors": len(errors),
         "warnings": len(warnings),
     }
@@ -412,6 +441,242 @@ def write_schema_md(output_path):
         f.write(SCHEMA_MD_TEMPLATE)
 
 
+# ---- Real Motifs PredCLS export ----
+
+def _build_opensgg_config(
+    ckpt_path,
+    test_size,
+    val_batch_size,
+    num_workers,
+    device,
+):
+    """Build a config namespace matching `train.py -m Motifs -d VisualGenome`."""
+    from utils.main_utils import load_config, update_config
+    from utils.parser import create_parser, default_parser
+
+    args = create_parser().parse_args([])
+    config = args.__dict__
+    config.update({
+        "method": "Motifs",
+        "dataname": "VisualGenome",
+        "eval_mode": "predcls",
+        "test": True,
+        "ckpt_path": ckpt_path,
+        "test_dataset_size": int(test_size) if test_size and int(test_size) > 0 else None,
+        "val_batch_size": val_batch_size,
+        "num_workers": num_workers,
+        "device": device,
+        "no_display_method_info": True,
+        "ex_name": "relation_prediction_export",
+        "overwrite": True,
+    })
+
+    cfg_path = _PROJECT_ROOT / "configs" / "VisualGenome" / "Motifs.py"
+    loaded_cfg = load_config(str(cfg_path))
+    config = update_config(
+        config,
+        loaded_cfg,
+        exclude_keys=["method", "val_batch_size", "drop_path", "warmup_epoch"],
+    )
+    for key, value in default_parser().items():
+        if config.get(key) is None:
+            config[key] = value
+
+    # Re-apply CLI/export overrides after config/default merging.
+    config.update({
+        "method": "Motifs",
+        "dataname": "VisualGenome",
+        "eval_mode": "predcls",
+        "test": True,
+        "ckpt_path": ckpt_path,
+        "test_dataset_size": int(test_size) if test_size and int(test_size) > 0 else None,
+        "val_batch_size": val_batch_size,
+        "num_workers": num_workers,
+        "device": device,
+        "no_display_method_info": True,
+    })
+    return SimpleNamespace(**config), config
+
+
+def _metadata_for_image(value, index, default):
+    """Return scalar output metadata for one image from a batched output value."""
+    if value is None:
+        return default
+    if isinstance(value, (str, bytes, int, float)):
+        return value
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return default
+        item = value[index] if index < len(value) else value[0]
+        if isinstance(item, (list, tuple)) and item:
+            return item[0]
+        return item
+    return default
+
+
+def _output_item(value, index):
+    """Return per-image tensor/list item from a Motifs batched output."""
+    if isinstance(value, (list, tuple)):
+        return value[index]
+    return value
+
+
+def _scalar_int(value):
+    """Convert a scalar tensor/list/int into a Python int."""
+    try:
+        import torch
+
+        if torch.is_tensor(value):
+            value = value.detach().cpu()
+            if value.numel() == 1:
+                return int(value.item())
+            return int(value.reshape(-1)[0].item())
+    except ImportError:
+        pass
+    if isinstance(value, (list, tuple)):
+        return int(value[0])
+    return int(value)
+
+
+def _target_to_export_rows(
+    outputs,
+    targets,
+    predicate_names,
+    object_names,
+    model,
+    task,
+    top_k,
+):
+    """Convert one Motifs forward batch into relation-level JSON rows."""
+    import torch
+
+    rows = []
+    rel_logits_list = outputs.get("rel_logits")
+    pair_indices_list = outputs.get("pair_indices")
+    if rel_logits_list is None or pair_indices_list is None:
+        raise KeyError("Motifs outputs must contain rel_logits and pair_indices")
+
+    rel_nums = len(predicate_names) - 1
+    for image_idx, target in enumerate(targets):
+        rel_annotations = target.get("rel_annotations")
+        if rel_annotations is None:
+            continue
+        if torch.is_tensor(rel_annotations):
+            rel_annotations = rel_annotations.detach().cpu()
+        if rel_annotations.numel() == 0:
+            continue
+        if rel_annotations.dim() == 1:
+            rel_annotations = rel_annotations.reshape(-1, 3)
+
+        labels = target["labels"].detach().cpu().long()
+        image_id = _scalar_int(target.get("image_id", image_idx))
+
+        rel_logits = _output_item(rel_logits_list, image_idx)
+        pair_indices = _output_item(pair_indices_list, image_idx)
+        if torch.is_tensor(rel_logits):
+            rel_logits = rel_logits.detach()
+        if torch.is_tensor(pair_indices):
+            pair_indices = pair_indices.detach().long()
+        if rel_logits.dim() == 3:
+            rel_logits = rel_logits.squeeze(0)
+        if pair_indices.dim() == 3:
+            pair_indices = pair_indices.squeeze(0)
+
+        pair_to_idx = {}
+        if pair_indices.numel() > 0:
+            pair_cpu = pair_indices.detach().cpu()
+            pair_to_idx = {
+                (int(pair_cpu[p, 0]), int(pair_cpu[p, 1])): p
+                for p in range(pair_cpu.shape[0])
+            }
+
+        if rel_logits.numel() > 0:
+            rel_scores_all = extract_relation_scores(
+                rel_logits.float(),
+                rel_nums=rel_nums,
+                predicate_bg_index=_metadata_for_image(
+                    outputs.get("predicate_bg_index", "last"), image_idx, "last"
+                ),
+                softmax_scope=_metadata_for_image(
+                    outputs.get("relation_softmax_scope", "foreground"),
+                    image_idx,
+                    "foreground",
+                ),
+            )
+        else:
+            rel_scores_all = np.zeros((0, rel_nums), dtype=np.float32)
+
+        for rel in rel_annotations:
+            subj_idx = int(rel[0].item())
+            obj_idx = int(rel[1].item())
+            gt_predicate_id = int(rel[2].item())
+            gt_predicate_name = predicate_names[gt_predicate_id]
+            subj_class_id = int(labels[subj_idx].item())
+            obj_class_id = int(labels[obj_idx].item())
+
+            p_idx = pair_to_idx.get((subj_idx, obj_idx))
+            if p_idx is None or p_idx >= rel_scores_all.shape[0]:
+                rows.append({
+                    "image_id": image_id,
+                    "subject_idx": subj_idx,
+                    "object_idx": obj_idx,
+                    "subject_class_id": subj_class_id,
+                    "object_class_id": obj_class_id,
+                    "subject_class_name": object_names.get(
+                        subj_class_id, f"class_{subj_class_id}"
+                    ),
+                    "object_class_name": object_names.get(
+                        obj_class_id, f"class_{obj_class_id}"
+                    ),
+                    "gt_predicate_id": gt_predicate_id,
+                    "gt_predicate_name": gt_predicate_name,
+                    "pred_predicate_id": -1,
+                    "pred_predicate_name": None,
+                    "predicate_scores_all": [],
+                    "topk_predicate_ids": [],
+                    "topk_predicate_names": [],
+                    "topk_predicate_scores": [],
+                    "matched_pair_found": False,
+                    "model": model,
+                    "task": task,
+                })
+                continue
+
+            scores = np.asarray(rel_scores_all[p_idx], dtype=np.float64)
+            topk_indices = np.argsort(-scores)[:top_k]
+            topk_vg_ids = [int(i) + 1 for i in topk_indices]
+            topk_names = [predicate_names[pid] for pid in topk_vg_ids]
+            topk_scores = [float(scores[pid - 1]) for pid in topk_vg_ids]
+            pred_id = topk_vg_ids[0] if topk_vg_ids else -1
+
+            rows.append({
+                "image_id": image_id,
+                "subject_idx": subj_idx,
+                "object_idx": obj_idx,
+                "subject_class_id": subj_class_id,
+                "object_class_id": obj_class_id,
+                "subject_class_name": object_names.get(
+                    subj_class_id, f"class_{subj_class_id}"
+                ),
+                "object_class_name": object_names.get(
+                    obj_class_id, f"class_{obj_class_id}"
+                ),
+                "gt_predicate_id": gt_predicate_id,
+                "gt_predicate_name": gt_predicate_name,
+                "pred_predicate_id": pred_id,
+                "pred_predicate_name": predicate_names[pred_id] if pred_id > 0 else None,
+                "predicate_scores_all": [float(s) for s in scores],
+                "topk_predicate_ids": topk_vg_ids,
+                "topk_predicate_names": topk_names,
+                "topk_predicate_scores": topk_scores,
+                "matched_pair_found": True,
+                "model": model,
+                "task": task,
+            })
+
+    return rows
+
+
 # ---- Main ----
 
 def main():
@@ -450,8 +715,38 @@ def main():
     parser.add_argument(
         "--test_dataset_size",
         type=int,
+        default=20,
+        help="Limit test dataset size (0 = full dataset, default: 20)",
+    )
+    parser.add_argument(
+        "--val_batch_size",
+        type=int,
+        default=1,
+        help="Evaluation batch size for real checkpoint export (default: 1)",
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
         default=0,
-        help="Limit test dataset size (0 = full dataset, >0 for small-sample validation)",
+        help="DataLoader workers for real checkpoint export (default: 0)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device for real checkpoint export (default: cuda if available else cpu)",
+    )
+    parser.add_argument(
+        "--max_batches",
+        type=int,
+        default=None,
+        help="Optional hard cap on batches processed during real export",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=10,
+        help="Number of top predicate predictions to store per relation",
     )
     args = parser.parse_args()
 
@@ -496,6 +791,8 @@ def main():
         rows = _export_from_checkpoint(
             args.ckpt_path, predicate_names, object_names,
             task, model, args.test_dataset_size,
+            args.val_batch_size, args.num_workers, args.device,
+            args.max_batches, args.top_k,
         )
     else:
         print("[2/5] ERROR: --ckpt_path is required for real export (or use --dry-run)")
@@ -505,11 +802,19 @@ def main():
 
     # Validate
     print("[3/5] Validating JSONL...")
-    errors, warnings, summary = validate_jsonl(rows, predicate_names)
+    errors, warnings, summary = validate_jsonl(
+        rows,
+        predicate_names,
+        require_non_empty=not args.dry_run,
+    )
+    summary["mode"] = "dry_run" if args.dry_run else "checkpoint"
+    if args.ckpt_path:
+        summary["checkpoint_path"] = args.ckpt_path
     print(f"      Total rows:    {summary['total_gt_relations']}")
     print(f"      Matched:       {summary['matched_rows']}")
     print(f"      Unmatched:     {summary['unmatched_rows']}")
     print(f"      Score dim:     {summary['score_dimension']}")
+    print(f"      Predicate SHA: {summary['predicate_names_sha256'][:12]}...")
 
     if errors:
         print(f"      ERRORS: {len(errors)}")
@@ -558,7 +863,8 @@ def main():
 
 
 def _export_from_checkpoint(
-    ckpt_path, predicate_names, object_names, task, model, test_size
+    ckpt_path, predicate_names, object_names, task, model, test_size,
+    val_batch_size, num_workers, device, max_batches, top_k,
 ):
     """Real export using a model checkpoint. Requires full project environment."""
     try:
@@ -567,15 +873,76 @@ def _export_from_checkpoint(
         print("ERROR: torch is required for real inference export")
         sys.exit(1)
 
-    # This path requires the full training infrastructure.
-    # For the initial PR, the dry-run mode is the primary validation path.
-    # Real export will be exercised in Task 07 when a checkpoint is confirmed.
-    print("      WARNING: Real inference export requires full project environment.")
-    print("      Use --dry-run for format validation without a checkpoint.")
-    print("      Real export will be tested in Task 07 (baseline reproduction).")
+    from src.exp import BaseExperiment
+    from src.methods import method_maps
+    from utils.main_utils import get_dataset
 
-    # Placeholder: real inference will be implemented when checkpoint is available
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        print("      WARNING: CUDA requested but unavailable; falling back to CPU")
+        device = "cpu"
+
+    args, config = _build_opensgg_config(
+        ckpt_path=ckpt_path,
+        test_size=test_size,
+        val_batch_size=val_batch_size,
+        num_workers=num_workers,
+        device=device,
+    )
+
+    print(f"      device: {device}")
+    print(f"      test_dataset_size: {config.get('test_dataset_size')}")
+    print(f"      val_batch_size: {config.get('val_batch_size')}")
+    print(f"      num_workers: {config.get('num_workers')}")
+
+    print("      Loading VisualGenome test loader...")
+    _, _, test_loader = get_dataset("VisualGenome", config)
+
+    print("      Building Motifs model...")
+    method_cls = method_maps["motifs"]
+    method = method_cls(
+        steps_per_epoch=1,
+        save_dir=str(_PROJECT_ROOT / "outputs" / "analysis" / "fine_to_coarse" / model / task),
+        **config,
+    )
+
+    print("      Loading checkpoint weights...")
+    state_dict = BaseExperiment._load_checkpoint_state_dict(ckpt_path)
+    BaseExperiment._adapt_state_dict(state_dict, method.model)
+
+    torch_device = torch.device(device)
+    method.to(torch_device)
+    method.eval()
+
     rows = []
+    processed_batches = 0
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(test_loader):
+            if max_batches is not None and processed_batches >= max_batches:
+                break
+            images, targets = method._split_batch(batch)
+            targets = method._move_targets_to_device(targets)
+            result = method.forward(images, targets)
+            outputs = result.get("outputs", {})
+            rows.extend(
+                _target_to_export_rows(
+                    outputs=outputs,
+                    targets=targets,
+                    predicate_names=predicate_names,
+                    object_names=object_names,
+                    model=model,
+                    task=task,
+                    top_k=top_k,
+                )
+            )
+            processed_batches += 1
+            print(
+                f"        batch {batch_idx}: cumulative rows={len(rows)}",
+                flush=True,
+            )
+
+    print(f"      Processed batches: {processed_batches}")
     return rows
 
 
