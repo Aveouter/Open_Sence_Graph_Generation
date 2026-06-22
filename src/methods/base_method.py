@@ -225,8 +225,14 @@ class Base_method(l.LightningModule):
             batch_items = [x['outputs'][key] for x in step_outputs]
 
             if torch.is_tensor(batch_items[0]):
+                if batch_items[0].dim() == 0:
+                    # Scalar tensor (e.g. loss value), skip — not an eval output
+                    continue
                 pred_all[key] = torch.cat(batch_items, dim=0)
             elif isinstance(batch_items[0], np.ndarray):
+                if batch_items[0].ndim == 0:
+                    # Scalar array, skip
+                    continue
                 pred_all[key] = np.concatenate(batch_items, axis=0)
             else:
                 # Flatten per-batch lists into a flat per-image list

@@ -14,6 +14,11 @@ lr_backbone = 1e-5         # backbone LR 10x lower
 weight_decay = 0.02         # paper: 0.02
 clip_max_norm = 1.0         # gradient clipping
 
+# ===== scheduler =====
+sched = 'cosine'             # cosine LR schedule
+warmup_epoch = 5             # linear warmup (paper: 5K steps ≈ 5 epochs)
+min_lr = 1e-6
+
 # ===== training (§5.1) =====
 epoch = 150                  # ~500K iters for VG (~75K images)
 batch_size = 4               # limited by GPU; paper uses 128 with 4xA100

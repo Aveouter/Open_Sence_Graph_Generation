@@ -48,12 +48,15 @@ class CLIPImageEncoder(nn.Module):
         super().__init__()
         try:
             from transformers import CLIPVisionModel
-            self.encoder = CLIPVisionModel.from_pretrained(model_name)
+            self.encoder = CLIPVisionModel.from_pretrained(
+                model_name, local_files_only=True
+            )
             for p in self.encoder.parameters():
                 p.requires_grad = False
             self.clip_dim = self.encoder.config.hidden_size  # 768 for ViT-B/16
-        except (ImportError, OSError):
-            # Fallback: use ResNet backbone loaded externally
+        except Exception:
+            # Fallback: CLIP not available (offline / not installed)
+            # Use zero features — denoiser can still operate from backbone features
             self.encoder = None
             self.clip_dim = 2048
 
@@ -435,7 +438,15 @@ class FlowSG(nn.Module):
             app_indices = vq_out['indices']  # [B, N, M]
             app_indices = app_indices.clamp(0, self.codebook_size - 1)
 
+            # Sample time t ~ U[0, 1] (must be before g_t computation)
+            t = torch.rand(B, device=device)
+
+            # CFM: sample noise and interpolate (must be before using g_t)
+            g_0 = self.cfm.sample_prior((B, N, 4), device)
+            g_t, u_star, kappa, kappa_dot = self.cfm.interpolate(g_0, gt_boxes, t)
+
             # Stochastic edge-only training (§5.1): p=0.2 keep nodes fixed at GT
+            # NOTE: g_t is now computed above, so it's available for the else branch
             if self.training and torch.rand(1).item() < self.edge_only_prob:
                 # Edge-only: use clean GT boxes so denoiser only trains edge prediction
                 node_boxes_used = gt_boxes
@@ -445,47 +456,35 @@ class FlowSG(nn.Module):
                 node_boxes_used = g_t
                 node_labels_used = gt_labels
 
-            # Sample time t ~ U[0, 1]
-            t = torch.rand(B, device=device)
-
-            # CFM: sample noise and interpolate
-            g_0 = self.cfm.sample_prior((B, N, 4), device)
-            g_t, u_star, kappa, kappa_dot = self.cfm.interpolate(g_0, gt_boxes, t)
-
             # DFM: sample masked tokens for appearance and predicates
-            # Initialize predicate tokens with marginal distribution (most common pred)
-            # During training, mask them according to discrete flow schedule
             mask_id_obj = self.num_classes  # extra [MASK] token for objects
             mask_id_pred = self.num_predicates  # extra [MASK] for predicates
             mask_id_app = self.codebook_size  # extra [MASK] for appearance
 
-            # Sample predicate tokens for training
-            clean_pred_tokens = self._build_pred_tokens(targets, N, device)
-            # Randomly mask predicates based on kappa
-            pred_kappa = kappa.squeeze(-1).squeeze(-1)  # [B, 1]
-            pred_mask_prob = (1.0 - pred_kappa).unsqueeze(1)  # [B, 1]
-            pred_rand = torch.rand(B, N, device=device)
-            pred_is_masked = (pred_rand < pred_mask_prob).unsqueeze(-1)  # [B, N, 1]
-
-            # Create dense edge tokens [B, N, N]
+            # Create dense predicate token matrix [B, N, N] from GT relations
             clean_pred_dense = torch.zeros(B, N, N, dtype=torch.long, device=device)
             for b_idx, target in enumerate(targets):
                 rels = target.get('rel_annotations', None)
                 if rels is not None and len(rels) > 0:
-                    s, o, p = rels[:, 0].long(), rels[:, 1].long(), rels[:, 2].long()
-                    # Clamp to valid indices
-                    s = s.clamp(0, N - 1)
-                    o = o.clamp(0, N - 1)
-                    p = p.clamp(0, self.num_predicates - 1)
+                    s = rels[:, 0].long().clamp(0, N - 1)
+                    o = rels[:, 1].long().clamp(0, N - 1)
+                    p = rels[:, 2].long().clamp(0, self.num_predicates - 1)
                     clean_pred_dense[b_idx, s, o] = p + 1  # 1-indexed, 0 = no relation
 
-            # Mask predicate tokens
+            # Randomly mask predicates based on kappa schedule
+            pred_kappa_prob = kappa.squeeze(-1).squeeze(-1)  # [B]
+            pred_mask_prob = (1.0 - pred_kappa_prob).view(B, 1, 1)  # [B, 1, 1]
+            pred_rand = torch.rand(B, N, N, device=device)
+            pred_is_masked = pred_rand < pred_mask_prob  # [B, N, N]
             pred_tokens = clean_pred_dense.clone()
-            pred_tokens[pred_is_masked.expand(-1, -1, N)] = mask_id_pred
+            pred_tokens[pred_is_masked] = mask_id_pred
+
+            # Edge mask: only compute DFM loss on pairs where both nodes are valid
+            edge_mask = node_mask.unsqueeze(1) & node_mask.unsqueeze(2)  # [B, N, N]
 
             # Appearance tokens: mask with probability (1-κ_t)
-            app_kappa = kappa  # [B, 1, 1] already
-            app_mask_prob = 1.0 - app_kappa  # [B, 1, 1] — will broadcast to [B, N, M]
+            app_kappa = kappa  # [B, 1, 1]
+            app_mask_prob = 1.0 - app_kappa  # [B, 1, 1]
             app_rand = torch.rand(B, N, self.num_slots, device=device)
             app_is_masked = app_rand < app_mask_prob
             masked_app_indices = app_indices.clone()
@@ -511,28 +510,37 @@ class FlowSG(nn.Module):
             # Box prediction from geometry head (direct regression for supervision)
             pred_boxes = self.obj_bbox_head(node_feat).sigmoid().clamp(1e-6, 1.0 - 1e-6)
 
-            # DFM losses (CE on clean predictions)
+            # DFM losses (CE on clean predictions) with proper masking
             obj_dfm_loss = self.dfm.loss(
                 sem_out['obj_logits'], gt_labels, t,
                 mask=node_mask if node_mask.any() else None,
             )
+            # Predicate DFM: mask to only valid node pairs (avoids bg-dominated loss)
             pred_logits_flat = sem_out['pred_logits'].reshape(B * N * N, self.num_predicates)
             clean_pred_flat = clean_pred_dense.reshape(B * N * N)
-            pred_dfm_loss = self.dfm.loss(pred_logits_flat, clean_pred_flat, t)
-            # app_logits: [B, N, M, K]
+            edge_mask_flat = edge_mask.reshape(B * N * N)
+            pred_dfm_loss = self.dfm.loss(
+                pred_logits_flat, clean_pred_flat, t,
+                mask=edge_mask_flat if edge_mask_flat.any() else None,
+            )
+            # Appearance DFM: mask to only valid nodes
             app_logits_flat = sem_out['app_logits'].reshape(B * N * self.num_slots, self.codebook_size)
             app_targets_flat = app_indices.reshape(B * N * self.num_slots)
-            app_dfm_loss = self.dfm.loss(app_logits_flat, app_targets_flat, t)
+            app_mask_flat = node_mask.unsqueeze(-1).expand(-1, -1, self.num_slots).reshape(B * N * self.num_slots)
+            app_dfm_loss = self.dfm.loss(
+                app_logits_flat, app_targets_flat, t,
+                mask=app_mask_flat if app_mask_flat.any() else None,
+            )
 
-            # For RelTR-compatible eval output: use semantic head predictions on edges
-            # Extract top-K edges by predicate confidence
+            # For RelTR-compatible eval output: extract top-K edges by predicate confidence
             pred_scores = sem_out['pred_logits'].softmax(-1).max(-1).values  # [B, N, N]
-            # Flatten and take top-K
             K = min(400, N * N)
             flat_scores = pred_scores.reshape(B, -1)
-            topk_vals, topk_idx = torch.topk(flat_scores, k=K, dim=-1)
+            topk_idx = torch.topk(flat_scores, k=K, dim=-1).indices
             pair_i = (topk_idx // N).long()
             pair_j = (topk_idx % N).long()
+            # Use proper batch-indexed gathering (not `:` which causes [B, B, K, C])
+            batch_idx = torch.arange(B, device=device).unsqueeze(1).expand(-1, K)
 
             return {
                 'pred_velocity': pred_velocity,
@@ -548,10 +556,10 @@ class FlowSG(nn.Module):
                 'app_dfm_loss': app_dfm_loss,
                 # For evaluation compatibility
                 'pred_logits': sem_out['obj_logits'],
-                'sub_logits': sem_out['obj_logits'][:, pair_i].contiguous(),
-                'obj_logits': sem_out['obj_logits'][:, pair_j].contiguous(),
-                'sub_boxes': pred_boxes[:, pair_i].contiguous(),
-                'obj_boxes': pred_boxes[:, pair_j].contiguous(),
+                'sub_logits': sem_out['obj_logits'][batch_idx, pair_i].contiguous(),
+                'obj_logits': sem_out['obj_logits'][batch_idx, pair_j].contiguous(),
+                'sub_boxes': pred_boxes[batch_idx, pair_i].contiguous(),
+                'obj_boxes': pred_boxes[batch_idx, pair_j].contiguous(),
                 'rel_logits': sem_out['pred_logits'][
                     torch.arange(B, device=device).unsqueeze(1),
                     pair_i, pair_j
