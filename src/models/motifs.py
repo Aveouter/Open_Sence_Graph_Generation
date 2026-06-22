@@ -188,6 +188,58 @@ def _pair_geometry(boxes: torch.Tensor, pairs: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _box_info_from_cxcywh(boxes: torch.Tensor) -> torch.Tensor:
+    """Return official-style 8D box info from normalized cxcywh boxes."""
+    if boxes.numel() == 0:
+        return boxes.new_zeros(0, 8)
+    cx, cy, w, h = boxes.unbind(-1)
+    x1 = cx - 0.5 * w
+    y1 = cy - 0.5 * h
+    x2 = cx + 0.5 * w
+    y2 = cy + 0.5 * h
+    return torch.stack((x1, y1, x2, y2, cx, cy, w, h), dim=-1)
+
+
+def _box_info_from_xyxy(boxes: torch.Tensor) -> torch.Tensor:
+    """Return official-style 8D box info from normalized xyxy boxes."""
+    if boxes.numel() == 0:
+        return boxes.new_zeros(0, 8)
+    x1, y1, x2, y2 = boxes.unbind(-1)
+    w = (x2 - x1).clamp(min=0)
+    h = (y2 - y1).clamp(min=0)
+    cx = x1 + 0.5 * w
+    cy = y1 + 0.5 * h
+    return torch.stack((x1, y1, x2, y2, cx, cy, w, h), dim=-1)
+
+
+def _pair_box_info(boxes: torch.Tensor, pairs: torch.Tensor) -> torch.Tensor:
+    """Official TDE 32D pair-box feature: subject, object, union, intersection."""
+    if pairs.numel() == 0:
+        return boxes.new_zeros(0, 32)
+    box_info = _box_info_from_cxcywh(boxes)
+    box1 = box_info[pairs[:, 0]]
+    box2 = box_info[pairs[:, 1]]
+
+    union_xyxy = box1[:, :4].clone()
+    union_xyxy[:, 0] = torch.minimum(box1[:, 0], box2[:, 0])
+    union_xyxy[:, 1] = torch.minimum(box1[:, 1], box2[:, 1])
+    union_xyxy[:, 2] = torch.maximum(box1[:, 2], box2[:, 2])
+    union_xyxy[:, 3] = torch.maximum(box1[:, 3], box2[:, 3])
+    union_info = _box_info_from_xyxy(union_xyxy)
+
+    inter_xyxy = box1[:, :4].clone()
+    inter_xyxy[:, 0] = torch.maximum(box1[:, 0], box2[:, 0])
+    inter_xyxy[:, 1] = torch.maximum(box1[:, 1], box2[:, 1])
+    inter_xyxy[:, 2] = torch.minimum(box1[:, 2], box2[:, 2])
+    inter_xyxy[:, 3] = torch.minimum(box1[:, 3], box2[:, 3])
+    invalid = (inter_xyxy[:, 2] < inter_xyxy[:, 0]) | (inter_xyxy[:, 3] < inter_xyxy[:, 1])
+    inter_info = _box_info_from_xyxy(inter_xyxy)
+    if invalid.any():
+        inter_info[invalid] = 0
+
+    return torch.cat((box1, box2, union_info, inter_info), dim=-1)
+
+
 class PairFrequencyBias(nn.Module):
     """P(predicate | subject class, object class) log-frequency bias.
 
@@ -284,6 +336,22 @@ class PairFrequencyBias(nn.Module):
         """Lookup bias for ``labels`` with shape [num_pairs, 2]."""
         labels = labels.clamp(min=0, max=self.num_objects - 1)
         return self.obj_baseline(labels[:, 0] * self.num_objects + labels[:, 1])
+
+    def index_with_probability(self, pair_prob: torch.Tensor) -> torch.Tensor:
+        """Lookup frequency bias from subject/object class probabilities.
+
+        This mirrors the official TDE ``FrequencyBias.index_with_probability``
+        API. ``pair_prob`` has shape ``[num_pairs, num_objects, 2]`` where the
+        last dimension contains subject and object distributions.
+        """
+        if pair_prob.dim() != 3 or pair_prob.size(-1) != 2:
+            raise ValueError(
+                "pair_prob must have shape [num_pairs, num_objects, 2], "
+                f"got {tuple(pair_prob.shape)}"
+            )
+        subj_dists = pair_prob[:, :, 0].contiguous()
+        obj_dists = pair_prob[:, :, 1].contiguous()
+        return self.forward(subj_dists, obj_dists)
 
     def forward(self, subj_dists: torch.Tensor, obj_dists: torch.Tensor) -> torch.Tensor:
         joint = subj_dists[:, :, None] * obj_dists[:, None, :]
@@ -487,6 +555,7 @@ class SGBLSTMContext(nn.Module):
         self.nl_obj = obj_lstm_layers
         self.nl_edge = edge_lstm_layers
         self.effect_analysis = effect_analysis
+        self.average_ratio = 0.0005
 
         self.obj_embed1 = nn.Embedding(num_classes, embed_dim)
         self.obj_embed2 = nn.Embedding(num_classes, embed_dim)
@@ -529,6 +598,15 @@ class SGBLSTMContext(nn.Module):
 
         self._init_weights()
 
+    def moving_average(self, holder: torch.Tensor, input: torch.Tensor) -> torch.Tensor:
+        """Official TDE moving average update for untreated context features."""
+        if input.numel() == 0:
+            return holder
+        with torch.no_grad():
+            holder.mul_(1.0 - self.average_ratio)
+            holder.add_(self.average_ratio * input.mean(0).view_as(holder))
+        return holder
+
     def _init_weights(self) -> None:
         for embed in (self.obj_embed1, self.obj_embed2):
             nn.init.normal_(embed.weight, std=0.01)
@@ -545,6 +623,8 @@ class SGBLSTMContext(nn.Module):
         labels: torch.Tensor,
         return_obj_preds: bool = False,
         obj_dists: Optional[torch.Tensor] = None,
+        all_average: bool = False,
+        ctx_average: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if visual_feats.numel() == 0:
             empty_logits = visual_feats.new_zeros(0, self.num_classes)
@@ -560,6 +640,10 @@ class SGBLSTMContext(nn.Module):
             (visual_feats, obj_embed, self.pos_embed(_encode_box_info(boxes))),
             dim=-1,
         )
+        if all_average and self.effect_analysis and not self.training:
+            obj_pre_rep = self.untreated_obj_feat.view(1, -1).expand(
+                visual_feats.size(0), -1
+            )
 
         obj_ctx = _run_ordered_lstm(
             self.obj_ctx_rnn,
@@ -570,6 +654,12 @@ class SGBLSTMContext(nn.Module):
 
         if return_obj_preds:
             decoder_input = torch.cat((obj_pre_rep, obj_ctx), dim=-1)
+            if ctx_average and self.effect_analysis and not self.training:
+                decoder_input = self.untreated_dcd_feat.view(1, -1).expand(
+                    visual_feats.size(0), -1
+                )
+            if self.training and self.effect_analysis:
+                self.moving_average(self.untreated_dcd_feat, decoder_input)
             obj_logits, obj_preds = self.decoder_rnn(decoder_input, boxes, labels)
         else:
             obj_preds = labels
@@ -577,6 +667,17 @@ class SGBLSTMContext(nn.Module):
 
         obj_embed2 = self.obj_embed2(obj_preds.clamp(min=0, max=self.num_classes - 1))
         obj_rel_rep = torch.cat((obj_embed2, visual_feats, obj_ctx), dim=-1)
+        if (all_average or ctx_average) and self.effect_analysis and not self.training:
+            avg_edge_input = self.untreated_edg_feat.view(1, -1).expand(
+                visual_feats.size(0), -1
+            )
+            obj_rel_rep = torch.cat((avg_edge_input, obj_ctx), dim=-1)
+        if self.training and self.effect_analysis:
+            self.moving_average(self.untreated_obj_feat, obj_pre_rep)
+            self.moving_average(
+                self.untreated_edg_feat,
+                torch.cat((obj_embed2, visual_feats), dim=-1),
+            )
         edge_ctx = _run_ordered_lstm(
             self.edge_ctx_rnn,
             obj_rel_rep,
@@ -1020,31 +1121,247 @@ class MotifsModel(nn.Module):
 
 
 class TDEModel(MotifsModel):
-    """TDE wrapper around Motifs-style relation logits."""
+    """Official-style CausalAnalysisPredictor for Motifs-SUM TDE.
 
-    def __init__(self, *args, tde_fusion: str = "subtract", **kwargs):
-        super().__init__(*args, **kwargs)
-        self.tde_fusion = tde_fusion
-        self.register_buffer("mean_visual_feat", torch.zeros(self.visual_dim))
+    The model keeps OpenSGG's per-image tensor interface while mirroring the
+    official TDE predictor structure: visual, context, and frequency branches,
+    untreated moving-average buffers, and effect modes ``none/TDE/NIE/TE``.
+    """
 
-    def set_mean_visual_feat(self, mean_feat: torch.Tensor) -> None:
-        self.mean_visual_feat.copy_(mean_feat)
+    VALID_EFFECTS = {"none", "TDE", "NIE", "TE"}
+    VALID_FUSIONS = {"sum", "gate"}
 
-    def forward_counterfactual(
+    def __init__(
         self,
+        *args,
+        effect_type: str = "TDE",
+        fusion_type: str = "sum",
+        spatial_for_vision: bool = True,
+        separate_spatial: bool = False,
+        average_ratio: float = 0.0005,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        effect_type = effect_type if effect_type == "none" else effect_type.upper()
+        fusion_type = fusion_type.lower()
+        if effect_type not in self.VALID_EFFECTS:
+            raise ValueError(f"Unsupported TDE effect_type: {effect_type}")
+        if fusion_type not in self.VALID_FUSIONS:
+            raise ValueError(f"Unsupported TDE fusion_type: {fusion_type}")
+        if separate_spatial:
+            raise ValueError("TDE separate_spatial is not supported by OpenSGG union features yet.")
+
+        self.effect_type = effect_type
+        self.fusion_type = fusion_type
+        self.spatial_for_vision = spatial_for_vision
+        self.separate_spatial = separate_spatial
+        self.average_ratio = average_ratio
+
+        self.post_cat = nn.Sequential(
+            nn.Linear(self.hidden_dim * 2, self.pooling_dim),
+            nn.ReLU(inplace=True),
+        )
+        self.ctx_compress = nn.Linear(self.pooling_dim, self.num_predicates)
+        self.vis_compress = nn.Linear(self.pooling_dim, self.num_predicates)
+        if self.fusion_type == "gate":
+            self.ctx_gate_fc = nn.Linear(self.pooling_dim, self.num_predicates)
+
+        if self.spatial_for_vision:
+            self.spt_emb = nn.Sequential(
+                nn.Linear(32, self.hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(self.hidden_dim, self.pooling_dim),
+                nn.ReLU(inplace=True),
+            )
+
+        self._init_causal_weights()
+        self.register_buffer("untreated_spt", torch.zeros(32))
+        self.register_buffer("untreated_conv_spt", torch.zeros(self.pooling_dim))
+        self.register_buffer("avg_post_ctx", torch.zeros(self.pooling_dim))
+        self.register_buffer("untreated_feat", torch.zeros(self.pooling_dim))
+
+    def _init_causal_weights(self) -> None:
+        nn.init.xavier_uniform_(self.post_cat[0].weight)
+        nn.init.constant_(self.post_cat[0].bias, 0.0)
+        nn.init.xavier_uniform_(self.ctx_compress.weight)
+        nn.init.constant_(self.ctx_compress.bias, 0.0)
+        nn.init.xavier_uniform_(self.vis_compress.weight)
+        nn.init.constant_(self.vis_compress.bias, 0.0)
+        if hasattr(self, "ctx_gate_fc"):
+            nn.init.xavier_uniform_(self.ctx_gate_fc.weight)
+            nn.init.constant_(self.ctx_gate_fc.bias, 0.0)
+        if hasattr(self, "spt_emb"):
+            nn.init.xavier_uniform_(self.spt_emb[0].weight)
+            nn.init.constant_(self.spt_emb[0].bias, 0.0)
+            nn.init.xavier_uniform_(self.spt_emb[2].weight)
+            nn.init.constant_(self.spt_emb[2].bias, 0.0)
+
+    def moving_average(self, holder: torch.Tensor, input: torch.Tensor) -> torch.Tensor:
+        if input.numel() == 0:
+            return holder
+        with torch.no_grad():
+            holder.mul_(1.0 - self.average_ratio)
+            holder.add_(self.average_ratio * input.mean(0).view_as(holder))
+        return holder
+
+    def _pair_feature_generate(
+        self,
+        visual_feats: torch.Tensor,
         boxes: torch.Tensor,
         labels: torch.Tensor,
         return_obj_preds: bool = False,
         obj_dists: Optional[torch.Tensor] = None,
         union_feats: Optional[torch.Tensor] = None,
-    ):
-        visual_feats = self.mean_visual_feat.unsqueeze(0).expand(boxes.size(0), -1).to(boxes.device)
-        return super().forward(
-            visual_feats, boxes, labels,
+        ctx_average: bool = False,
+    ) -> dict[str, torch.Tensor]:
+        num_objects = visual_feats.size(0)
+        pairs = self._generate_pairs(num_objects, visual_feats.device)
+        motif_visual_feats = self.input_visual_proj(visual_feats)
+        obj_logits, obj_preds, edge_ctx = self.context_layer(
+            motif_visual_feats,
+            boxes,
+            labels,
             return_obj_preds=return_obj_preds,
             obj_dists=obj_dists,
-            union_feats=union_feats,
+            ctx_average=ctx_average,
         )
+        obj_prob = F.softmax(obj_logits, dim=-1)
+
+        edge_rep = self.post_emb(edge_ctx).view(num_objects, 2, self.hidden_dim)
+        head_rep = edge_rep[:, 0].contiguous()
+        tail_rep = edge_rep[:, 1].contiguous()
+        ctx_rep = torch.cat(
+            (head_rep[pairs[:, 0]], tail_rep[pairs[:, 1]]),
+            dim=-1,
+        )
+        post_ctx_rep = self.post_cat(ctx_rep)
+
+        pair_pred = torch.stack((obj_preds[pairs[:, 0]], obj_preds[pairs[:, 1]]), dim=-1)
+        pair_obj_probs = torch.stack(
+            (obj_prob[pairs[:, 0]], obj_prob[pairs[:, 1]]),
+            dim=-1,
+        )
+        pair_bbox = _pair_box_info(boxes, pairs)
+        if self.use_vision:
+            visual_rep = (
+                self._project_union_features(union_feats)
+                if union_feats is not None
+                else self._fallback_union_features(motif_visual_feats, pairs)
+            )
+        else:
+            visual_rep = post_ctx_rep.new_zeros(post_ctx_rep.shape)
+
+        return {
+            "pairs": pairs,
+            "obj_logits": obj_logits,
+            "obj_preds": obj_preds,
+            "post_ctx_rep": post_ctx_rep,
+            "pair_pred": pair_pred,
+            "pair_obj_probs": pair_obj_probs,
+            "pair_bbox": pair_bbox,
+            "visual_rep": visual_rep,
+        }
+
+    def _branch_logits(
+        self,
+        vis_rep: torch.Tensor,
+        ctx_rep: torch.Tensor,
+        frq_rep: torch.Tensor,
+        use_label_dist: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        if self.freq_bias is None:
+            frq_dists = vis_rep.new_zeros(vis_rep.size(0), self.num_predicates)
+        elif use_label_dist:
+            frq_dists = self.freq_bias.index_with_probability(frq_rep)
+        else:
+            frq_dists = self.freq_bias.index_with_labels(frq_rep.long())
+        return {
+            "vis": self.vis_compress(vis_rep),
+            "ctx": self.ctx_compress(ctx_rep),
+            "frq": frq_dists,
+        }
+
+    def calculate_logits(
+        self,
+        vis_rep: torch.Tensor,
+        ctx_rep: torch.Tensor,
+        frq_rep: torch.Tensor,
+        use_label_dist: bool = True,
+    ) -> torch.Tensor:
+        branches = self._branch_logits(vis_rep, ctx_rep, frq_rep, use_label_dist)
+        if self.fusion_type == "sum":
+            return branches["vis"] + branches["ctx"] + branches["frq"]
+        if self.fusion_type == "gate":
+            ctx_gate = self.ctx_gate_fc(ctx_rep)
+            return branches["ctx"] * torch.sigmoid(branches["vis"] + branches["frq"] + ctx_gate)
+        raise ValueError(f"Unsupported TDE fusion_type: {self.fusion_type}")
+
+    def _target_predicate_index(self, pred_id: int, logits_dim: int) -> int:
+        if self.predicate_bg_index == "first" and logits_dim == self.num_predicates:
+            return pred_id
+        return pred_id - 1
+
+    def _gt_for_pairs(
+        self,
+        pairs: torch.Tensor,
+        rel_annotations: Optional[torch.Tensor],
+        logits_dim: int,
+    ) -> torch.Tensor:
+        gt = torch.full((pairs.size(0),), -1, dtype=torch.long, device=pairs.device)
+        if rel_annotations is None or rel_annotations.numel() == 0:
+            return gt
+        pair_to_index = {
+            (int(pair[0]), int(pair[1])): idx
+            for idx, pair in enumerate(pairs.detach().cpu().tolist())
+        }
+        for ann in rel_annotations.detach().cpu().tolist():
+            if len(ann) < 3:
+                continue
+            pair_idx = pair_to_index.get((int(ann[0]), int(ann[1])))
+            pred_idx = self._target_predicate_index(int(ann[2]), logits_dim)
+            if pair_idx is not None and 0 <= pred_idx < logits_dim:
+                gt[pair_idx] = pred_idx
+        return gt
+
+    def _auxiliary_losses(
+        self,
+        branches: dict[str, torch.Tensor],
+        pairs: torch.Tensor,
+        rel_annotations: Optional[torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        if not self.training:
+            return {}
+        gt = self._gt_for_pairs(pairs, rel_annotations, branches["ctx"].size(-1))
+        valid = gt >= 0
+        if not valid.any():
+            return {}
+
+        losses = {
+            "auxiliary_ctx": F.cross_entropy(branches["ctx"][valid], gt[valid]),
+        }
+        if self.fusion_type != "gate":
+            losses["auxiliary_vis"] = F.cross_entropy(branches["vis"][valid], gt[valid])
+            losses["auxiliary_frq"] = F.cross_entropy(branches["frq"][valid], gt[valid])
+        return losses
+
+    def _empty_output(
+        self,
+        motif_visual_feats: torch.Tensor,
+        boxes: torch.Tensor,
+        labels: torch.Tensor,
+        pairs: torch.Tensor,
+    ) -> dict:
+        return {
+            "rel_logits": motif_visual_feats.new_zeros(0, self.num_predicates),
+            "obj_logits": None,
+            "obj_labels": labels,
+            "pair_indices": pairs,
+            "sub_boxes": boxes.new_zeros(0, 4),
+            "obj_boxes": boxes.new_zeros(0, 4),
+            "predicate_bg_index": self.predicate_bg_index,
+            "relation_softmax_scope": "all",
+            "add_losses": {},
+        }
 
     def forward(
         self,
@@ -1055,8 +1372,15 @@ class TDEModel(MotifsModel):
         apply_tde: bool = True,
         obj_dists: Optional[torch.Tensor] = None,
         union_feats: Optional[torch.Tensor] = None,
-    ):
-        factual = super().forward(
+        rel_annotations: Optional[torch.Tensor] = None,
+    ) -> dict:
+        num_objects = visual_feats.size(0)
+        pairs = self._generate_pairs(num_objects, visual_feats.device)
+        motif_visual_feats = self.input_visual_proj(visual_feats)
+        if num_objects == 0 or pairs.numel() == 0:
+            return self._empty_output(motif_visual_feats, boxes, labels, pairs)
+
+        features = self._pair_feature_generate(
             visual_feats,
             boxes,
             labels,
@@ -1064,24 +1388,82 @@ class TDEModel(MotifsModel):
             obj_dists=obj_dists,
             union_feats=union_feats,
         )
-        if not apply_tde or self.training:
-            return factual
+        post_ctx_rep = features["post_ctx_rep"]
+        if self.spatial_for_vision:
+            post_ctx_rep = post_ctx_rep * self.spt_emb(features["pair_bbox"])
 
-        counterfactual = self.forward_counterfactual(
-            boxes, labels,
-            return_obj_preds=return_obj_preds,
-            obj_dists=obj_dists,
-            union_feats=union_feats,
+        factual_branches = self._branch_logits(
+            features["visual_rep"],
+            post_ctx_rep,
+            features["pair_pred"],
+            use_label_dist=False,
         )
-        if self.tde_fusion == "subtract":
-            factual["rel_logits"] = factual["rel_logits"] - counterfactual["rel_logits"]
-        elif self.tde_fusion == "softmax_subtract":
-            p_f = F.softmax(factual["rel_logits"], dim=-1)
-            p_c = F.softmax(counterfactual["rel_logits"], dim=-1)
-            factual["rel_logits"] = torch.log((p_f - p_c).clamp(min=1e-8))
-        else:
-            raise ValueError(f"Unsupported tde_fusion: {self.tde_fusion}")
-        return factual
+        rel_logits = self.calculate_logits(
+            features["visual_rep"],
+            post_ctx_rep,
+            features["pair_pred"],
+            use_label_dist=False,
+        )
+        add_losses = self._auxiliary_losses(
+            factual_branches,
+            features["pairs"],
+            rel_annotations,
+        )
+
+        if self.training and self.context_layer.effect_analysis:
+            if self.spatial_for_vision:
+                self.moving_average(self.untreated_spt, features["pair_bbox"])
+            self.moving_average(self.avg_post_ctx, post_ctx_rep)
+            self.moving_average(self.untreated_feat, features["visual_rep"])
+        elif apply_tde and self.context_layer.effect_analysis:
+            with torch.no_grad():
+                avg_features = self._pair_feature_generate(
+                    visual_feats,
+                    boxes,
+                    labels,
+                    return_obj_preds=return_obj_preds,
+                    obj_dists=obj_dists,
+                    union_feats=union_feats,
+                    ctx_average=True,
+                )
+                avg_ctx_rep = avg_features["post_ctx_rep"]
+                if self.spatial_for_vision:
+                    avg_spt_rep = self.spt_emb(self.untreated_spt.view(1, -1))
+                    avg_ctx_rep = avg_ctx_rep * avg_spt_rep
+                avg_frq_rep = avg_features["pair_obj_probs"]
+
+            if self.effect_type == "TDE":
+                rel_logits = self.calculate_logits(
+                    features["visual_rep"], post_ctx_rep, features["pair_obj_probs"]
+                ) - self.calculate_logits(
+                    features["visual_rep"], avg_ctx_rep, features["pair_obj_probs"]
+                )
+            elif self.effect_type == "NIE":
+                rel_logits = self.calculate_logits(
+                    features["visual_rep"], avg_ctx_rep, features["pair_obj_probs"]
+                ) - self.calculate_logits(
+                    features["visual_rep"], avg_ctx_rep, avg_frq_rep
+                )
+            elif self.effect_type == "TE":
+                rel_logits = self.calculate_logits(
+                    features["visual_rep"], post_ctx_rep, features["pair_obj_probs"]
+                ) - self.calculate_logits(
+                    features["visual_rep"], avg_ctx_rep, avg_frq_rep
+                )
+            elif self.effect_type != "none":
+                raise ValueError(f"Unsupported TDE effect_type: {self.effect_type}")
+
+        return {
+            "rel_logits": rel_logits,
+            "obj_logits": features["obj_logits"],
+            "obj_labels": features["obj_preds"],
+            "pair_indices": features["pairs"],
+            "sub_boxes": boxes[features["pairs"][:, 0]],
+            "obj_boxes": boxes[features["pairs"][:, 1]],
+            "predicate_bg_index": self.predicate_bg_index,
+            "relation_softmax_scope": "all",
+            "add_losses": add_losses,
+        }
 
 
 def build_motifs(args) -> MotifsModel:
@@ -1118,6 +1500,12 @@ def build_tde(args) -> TDEModel:
     rel_nums = getattr(args, "rel_nums", 51)
     include_bg = getattr(args, "motifs_include_bg_predicate", rel_nums > 50)
     default_num_predicates = rel_nums if include_bg else _pure_predicate_count(rel_nums)
+    effect_type = getattr(args, "tde_effect_type", "TDE")
+    fusion_type = getattr(args, "tde_fusion_type", getattr(args, "tde_fusion", "sum"))
+    if fusion_type in {"subtract", "softmax_subtract"}:
+        # Backward compatibility for the old local wrapper config.
+        effect_type = "TDE"
+        fusion_type = "sum"
     return TDEModel(
         num_classes=getattr(args, "entity_nums", 151),
         num_predicates=getattr(args, "motifs_num_predicates", default_num_predicates),
@@ -1135,7 +1523,11 @@ def build_tde(args) -> TDEModel:
         data_root=getattr(args, "data_root", None),
         use_tanh=getattr(args, "use_tanh", False),
         use_vision=getattr(args, "use_vision", True),
-        tde_fusion=getattr(args, "tde_fusion", "subtract"),
+        effect_type=effect_type,
+        fusion_type=fusion_type,
+        spatial_for_vision=getattr(args, "tde_spatial_for_vision", True),
+        separate_spatial=getattr(args, "tde_separate_spatial", False),
+        average_ratio=getattr(args, "tde_average_ratio", 0.0005),
         include_bg_predicate=include_bg,
         predicate_bg_index=getattr(args, "motifs_predicate_bg_index", "first"),
         pos_embed_dim=getattr(args, "motifs_pos_embed_dim", 128),

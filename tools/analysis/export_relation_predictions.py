@@ -449,15 +449,18 @@ def _build_opensgg_config(
     val_batch_size,
     num_workers,
     device,
+    method="Motifs",
 ):
-    """Build a config namespace matching `train.py -m Motifs -d VisualGenome`."""
+    """Build a config namespace matching `train.py -m <method> -d VisualGenome`."""
     from utils.main_utils import load_config, update_config
     from utils.parser import create_parser, default_parser
+
+    method_lower = method.lower()
 
     args = create_parser().parse_args([])
     config = args.__dict__
     config.update({
-        "method": "Motifs",
+        "method": method,
         "dataname": "VisualGenome",
         "eval_mode": "predcls",
         "test": True,
@@ -471,7 +474,7 @@ def _build_opensgg_config(
         "overwrite": True,
     })
 
-    cfg_path = _PROJECT_ROOT / "configs" / "VisualGenome" / "Motifs.py"
+    cfg_path = _PROJECT_ROOT / "configs" / "VisualGenome" / f"{method}.py"
     loaded_cfg = load_config(str(cfg_path))
     config = update_config(
         config,
@@ -484,7 +487,7 @@ def _build_opensgg_config(
 
     # Re-apply CLI/export overrides after config/default merging.
     config.update({
-        "method": "Motifs",
+        "method": method,
         "dataname": "VisualGenome",
         "eval_mode": "predcls",
         "test": True,
@@ -731,6 +734,12 @@ def main():
         help="DataLoader workers for real checkpoint export (default: 0)",
     )
     parser.add_argument(
+        "--method",
+        type=str,
+        default="Motifs",
+        help="Method name for real checkpoint export (default: Motifs)",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -793,6 +802,7 @@ def main():
             task, model, args.test_dataset_size,
             args.val_batch_size, args.num_workers, args.device,
             args.max_batches, args.top_k,
+            method_name=args.method,
         )
     else:
         print("[2/5] ERROR: --ckpt_path is required for real export (or use --dry-run)")
@@ -865,6 +875,7 @@ def main():
 def _export_from_checkpoint(
     ckpt_path, predicate_names, object_names, task, model, test_size,
     val_batch_size, num_workers, device, max_batches, top_k,
+    method_name="Motifs",
 ):
     """Real export using a model checkpoint. Requires full project environment."""
     try:
@@ -876,6 +887,8 @@ def _export_from_checkpoint(
     from src.exp import BaseExperiment
     from src.methods import method_maps
     from utils.main_utils import get_dataset
+
+    method_lower = method_name.lower()
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -889,6 +902,7 @@ def _export_from_checkpoint(
         val_batch_size=val_batch_size,
         num_workers=num_workers,
         device=device,
+        method=method_name,
     )
 
     print(f"      device: {device}")
@@ -896,11 +910,11 @@ def _export_from_checkpoint(
     print(f"      val_batch_size: {config.get('val_batch_size')}")
     print(f"      num_workers: {config.get('num_workers')}")
 
-    print("      Loading VisualGenome test loader...")
+    print(f"      Loading VisualGenome test loader for {method_name}...")
     _, _, test_loader = get_dataset("VisualGenome", config)
 
-    print("      Building Motifs model...")
-    method_cls = method_maps["motifs"]
+    print(f"      Building {method_name} model...")
+    method_cls = method_maps[method_lower]
     method = method_cls(
         steps_per_epoch=1,
         save_dir=str(_PROJECT_ROOT / "outputs" / "analysis" / "fine_to_coarse" / model / task),
