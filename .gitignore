@@ -2,6 +2,9 @@
 data/OpenImages/
 data/VisualGenome/
 
+# Local docs and plans (never push to GitHub)
+docs/
+
 ckpts/
 weights/
 runs/
