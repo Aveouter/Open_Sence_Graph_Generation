@@ -1,13 +1,22 @@
 import json
+import warnings
 from torch import optim
 
 from timm.optim.adafactor import Adafactor
 from timm.optim.adahessian import Adahessian
 from timm.optim.adamp import AdamP
 from timm.optim.lookahead import Lookahead
-from timm.optim.nadam import NAdamLegacy as Nadam
+try:
+    from timm.optim.nadam import NAdamLegacy as Nadam
+except ImportError:
+    from timm.optim.nadam import Nadam
+    warnings.warn("NAdamLegacy not found, falling back to Nadam (decoupled weight decay may differ)")
 from timm.optim.nvnovograd import NvNovoGrad
-from timm.optim.radam import RAdamLegacy as RAdam
+try:
+    from timm.optim.radam import RAdamLegacy as RAdam
+except ImportError:
+    from timm.optim.radam import RAdam
+    warnings.warn("RAdamLegacy not found, falling back to RAdam (decoupled weight decay may differ)")
 from timm.optim.rmsprop_tf import RMSpropTF
 from timm.optim.sgdp import SGDP
 
@@ -67,8 +76,8 @@ def get_parameter_groups(model, weight_decay=1e-5, skip_list=(), get_num_layer=N
 
 
 def get_optim_scheduler(args, epoch, model, steps_per_epoch):
-    opt_lower = args.opt.lower()
-    weight_decay = args.weight_decay
+    opt_lower = (args.opt or 'adam').lower()
+    weight_decay = args.weight_decay if args.weight_decay is not None else 1e-4
 
     # if weight_decay and filter_bias_and_bn:
     if args.filter_bias_and_bn:

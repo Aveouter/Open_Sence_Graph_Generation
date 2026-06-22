@@ -120,7 +120,9 @@ class BaseExperiment(object):
         accelerator, devices, device_count, resolved_strategy = self._resolve_trainer_runtime(args, strategy)
 
         profiler = None
-        if device_count <= 1:
+        # AdvancedProfiler causes segfaults on some PyTorch/Lightning combos;
+        # enable explicitly via --profile if needed.
+        if getattr(args, 'profile', False) and device_count <= 1:
             profiler = AdvancedProfiler(
                 dirpath=paths['profiler_dir'],
                 filename="profile.txt",
@@ -143,6 +145,11 @@ class BaseExperiment(object):
             logger=logger,
             log_every_n_steps=1,
         )
+
+        # Gradient accumulation: simulate larger batch size for small-GPU training
+        accum = getattr(args, 'accumulate_grad_batches', None)
+        if accum is not None and accum > 1:
+            trainer_kwargs['accumulate_grad_batches'] = accum
 
         if hasattr(args, 'num_nodes'):
             trainer_kwargs['num_nodes'] = args.num_nodes

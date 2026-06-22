@@ -4,8 +4,15 @@
 
 import os as _os
 
-# 减少 CUDA 显存碎片化，必须放在任何 cuda 操作之前
-_os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+# 减少 CUDA 显存碎片化 (PyTorch >= 2.1 only)
+try:
+    import torch
+    if hasattr(torch, '__version__'):
+        ver = tuple(int(x) for x in torch.__version__.split('.')[:2])
+        if ver >= (2, 1):
+            _os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+except (ImportError, ValueError, TypeError, AttributeError):
+    pass
 
 if __name__ == '__main__':
     import os.path as osp

@@ -29,12 +29,16 @@ def create_parser():
     parser.add_argument('--fps', action='store_true', default=False,
                         help='Whether to measure inference speed (FPS)')
     parser.add_argument('--test', action='store_true', default=False, help='Only performs testing')
+    parser.add_argument('--profile', action='store_true', default=False,
+                        help='Enable PyTorch Lightning AdvancedProfiler (single-GPU only)')
     parser.add_argument('--deterministic', action='store_true', default=False,
                         help='whether to set deterministic options for CUDNN backend (reproducable)')
 
     # dataset parameters
     parser.add_argument('--batch_size', '-b', default=None, type=int, help='Training batch size')
     parser.add_argument('--val_batch_size', '-vb', default=None, type=int, help='Validation batch size')
+    parser.add_argument('--accumulate_grad_batches', default=None, type=int,
+                        help='Gradient accumulation steps (effective bs = batch_size × this)')
     parser.add_argument('--num_workers', default=None, type=int)
     parser.add_argument('--dataset_size', default=None, type=int,
                         help='Optional train subset size for quick smoke tests')
@@ -74,15 +78,15 @@ def create_parser():
     # Training parameters (optimizer)
     parser.add_argument('--epoch', '-e', default=None, type=int, help='end epochs (default: 200)')
     parser.add_argument('--log_step', default=1, type=int, help='Log interval by step')
-    parser.add_argument('--opt', default='adam', type=str, metavar='OPTIMIZER',
-                        help='Optimizer (default: "adam"')
+    parser.add_argument('--opt', default=None, type=str, metavar='OPTIMIZER',
+                        help='Optimizer (default: "adam")')
     parser.add_argument('--opt_eps', default=None, type=float, metavar='EPSILON',
                         help='Optimizer epsilon (default: None, use opt default)')
     parser.add_argument('--opt_betas', default=None, type=float, nargs='+', metavar='BETA',
                         help='Optimizer betas (default: None, use opt default)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='Optimizer sgd momentum (default: 0.9)')
-    parser.add_argument('--weight_decay', default=0., type=float, help='Weight decay')
+    parser.add_argument('--weight_decay', default=None, type=float, help='Weight decay')
     parser.add_argument('--clip_grad', type=float, default=None, metavar='NORM',
                         help='Clip gradient norm (default: None, no clipping)')
     parser.add_argument('--clip_mode', type=str, default='norm',
@@ -171,7 +175,7 @@ def default_parser():
         'opt_eps': None,
         'opt_betas': None,
         'momentum': 0.9,
-        'weight_decay': 0,
+        'weight_decay': 1e-4,
         'clip_grad': None,
         'clip_mode': 'norm',
         'no_display_method_info': False,
@@ -186,6 +190,7 @@ def default_parser():
         'decay_epoch': 100,
         'decay_rate': 0.1,
         'filter_bias_and_bn': False,
+        'accumulate_grad_batches': 1,
         # Lightning parameters
         'gpus': [2,3,4,5],
         'metric_for_bestckpt': 'val_loss'
