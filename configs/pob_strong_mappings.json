@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "description": "Frozen POB strong mappings for primary evidence. Separates on-family (primary) from in-family boundary/caveat mappings.",
+    "created": "2026-06-22",
+    "task": "08 Evidence Freeze and Protocol Cleanup",
+    "source": "configs/predicate_semantic_map_vg150.json",
+    "source_sha256": "0f5bbbd5429abac6e7516832ae9f82fb011e9bddcb83e2628445e038780a4677",
+    "total_mappings": 8,
+    "primary_on_family_count": 7,
+    "boundary_in_family_count": 1,
+    "score_field": "predicate_scores_all",
+    "score_extraction": "predicate_scores_all is foreground-only: score(parent) = predicate_scores_all[parent_id - 1], score(fine) = predicate_scores_all[fine_id - 1]",
+    "predicate_id_source": "data/VisualGenome/rel.json rel_categories (0=background, 1..50=predicates)"
+  },
+  "primary_on_family": {
+    "description": "On-family spatial-support predicates. These form the strongest primary claim. All 7 children entail physical support/contact on a surface.",
+    "parent": "on",
+    "parent_id": 31,
+    "mappings": [
+      {"child": "sitting on",  "child_id": 40, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + sitting posture modifier"},
+      {"child": "standing on", "child_id": 41, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + standing posture modifier"},
+      {"child": "lying on",   "child_id": 26, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + lying posture modifier"},
+      {"child": "laying on",  "child_id": 24, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation; variant spelling of lying on"},
+      {"child": "walking on", "child_id": 46, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + walking action modifier"},
+      {"child": "parked on",  "child_id": 35, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + parked state modifier"},
+      {"child": "mounted on", "child_id": 28, "parent": "on", "parent_id": 31, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + attachment semantics"}
+    ],
+    "total_gt_relations": 4480
+  },
+  "boundary_in_family": {
+    "description": "In-family containment predicate. Marked as boundary/caveat, NOT part of the strongest primary claim. covered in -> in is consistently weak across all architectures.",
+    "parent": "in",
+    "parent_id": 22,
+    "mappings": [
+      {"child": "covered in", "child_id": 12, "parent": "in", "parent_id": 22, "confidence": "strong", "evidence": "lexical entailment (phrase-includes 'in') + containment/surface coverage relation"}
+    ],
+    "total_gt_relations": 181,
+    "caveat": "covered in -> in shows consistently low collapse rates (6-36% across models). This boundary case demonstrates that collapse is NOT universal across all fine-to-coarse mappings, but is specific to on-family spatial-support predicates."
+  },
+  "excluded_from_primary": {
+    "description": "Extended mappings excluded from primary evidence due to medium/weak confidence or different semantic frame.",
+    "medium_confidence": ["growing on", "painted on", "flying in", "walking in", "riding", "on back of"],
+    "weak_confidence": ["hanging from", "wearing", "wears", "carrying", "holding", "part of", "in front of", "behind", "under", "above", "over", "against", "across", "along"]
+  }
+}
