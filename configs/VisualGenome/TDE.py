@@ -41,7 +41,15 @@ motifs_include_bg_predicate = True
 motifs_predicate_bg_index = "first"
 
 # ===== TDE specific =====
-tde_fusion = 'subtract'         # 'subtract' or 'softmax_subtract'
+# Official CausalAnalysisPredictor settings.
+# Training uses effect_type='none' in the original repo; evaluation switches to
+# TDE. OpenSGG keeps TDE as the default because this config is primarily used
+# for checkpoint evaluation and Relation Semantic Collapse baselines.
+tde_effect_type = 'TDE'         # 'none', 'TDE', 'NIE', or 'TE'
+tde_fusion_type = 'sum'         # official downloadable checkpoints use 'sum'
+tde_spatial_for_vision = True
+tde_separate_spatial = False
+tde_average_ratio = 0.0005
 
 # ===== frequency bias =====
 use_freq_bias = True
