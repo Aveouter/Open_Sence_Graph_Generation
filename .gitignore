@@ -5,8 +5,15 @@ data/VisualGenome/
 # Local docs and plans (never push to GitHub)
 docs/
 
+# Local agent/editor configuration
+.claude/
+CLAUDE.md
+.vscode/
+.idea/
+
 ckpts/
 weights/
+checkpoints/
 runs/
 results/
 logs/
@@ -16,16 +23,28 @@ lib/fpn/box_intersections_cpu/
 
 # ---- New unified outputs (replaces scattered old dirs) ----
 outputs/runs/
+outputs/analysis/
+outputs/pretrained/**
 outputs/pretrained/**/*.pth
 outputs/pretrained/**/*.pt
 outputs/pretrained/**/*.ckpt
 outputs/pretrained/**/*.tar
 outputs/pretrained/**/*.tar.gz
 outputs/pretrained/**/*.zip
+!outputs/pretrained/
 !outputs/pretrained/README.md
+
+# Model checkpoint directories may contain generated metrics/config sidecars.
+**/checkpoints/
+!tools/checkpoints/
+!tools/checkpoints/**
 
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 
 *.pth
 *.pt
@@ -37,6 +56,9 @@ __pycache__/
 *.tar
 *.tar.gz
 core.*
+.DS_Store
+*.swp
+*.swo
 
 *.json.resume
 .ddp_eval_cache/
