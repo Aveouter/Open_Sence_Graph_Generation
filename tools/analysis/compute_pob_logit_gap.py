@@ -22,6 +22,7 @@ Usage:
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -88,8 +89,6 @@ def cliffs_delta(x, y):
                    dtype=np.float64)
     if len(x) < 1 or len(y) < 1:
         return None
-    greater = 0
-    less = 0
     # Use sampling for large arrays
     if len(x) * len(y) > 1_000_000:
         rng = np.random.RandomState(BOOTSTRAP_SEED)
@@ -98,9 +97,10 @@ def cliffs_delta(x, y):
         x_samp, y_samp = x[idx_x], y[idx_y]
     else:
         x_samp, y_samp = x, y
-    for xi in x_samp:
-        greater += np.sum(xi > y_samp)
-        less += np.sum(xi < y_samp)
+    x_col = x_samp[:, None]
+    y_row = y_samp[None, :]
+    greater = np.sum(x_col > y_row)
+    less = np.sum(x_col < y_row)
     n = len(x_samp) * len(y_samp)
     return float((greater - less) / n)
 
@@ -158,6 +158,21 @@ def load_mappings(mappings_path):
     """Load frozen POB strong mappings. Returns list of (fine_name, fine_id, parent_name, parent_id, family_status)."""
     with open(mappings_path, "r") as f:
         data = json.load(f)
+    meta = data.get("_meta", {})
+    source = meta.get("source")
+    expected_sha = meta.get("source_sha256")
+    if source and expected_sha:
+        source_path = Path(source)
+        if not source_path.is_absolute():
+            source_path = _PROJECT_ROOT / source_path
+        if not source_path.exists():
+            raise FileNotFoundError(f"Mapping source not found for SHA validation: {source_path}")
+        actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        if actual_sha != expected_sha:
+            raise ValueError(
+                f"Mapping source SHA mismatch for {source_path}: "
+                f"expected {expected_sha}, got {actual_sha}"
+            )
     mappings = []
     for section_key, status in [("primary_on_family", "primary"), ("boundary_in_family", "boundary")]:
         if section_key in data:
