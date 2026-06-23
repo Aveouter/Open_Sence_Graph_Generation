@@ -1156,6 +1156,11 @@ class TDEModel(MotifsModel):
         self.spatial_for_vision = spatial_for_vision
         self.separate_spatial = separate_spatial
         self.average_ratio = average_ratio
+        if self.effect_type != "none" and not self.context_layer.effect_analysis:
+            raise ValueError(
+                "TDE effect analysis requires motifs_effect_analysis=True; "
+                f"got effect_type={self.effect_type!r} with effect_analysis disabled."
+            )
 
         self.post_cat = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.pooling_dim),
@@ -1176,9 +1181,6 @@ class TDEModel(MotifsModel):
 
         self._init_causal_weights()
         self.register_buffer("untreated_spt", torch.zeros(32))
-        self.register_buffer("untreated_conv_spt", torch.zeros(self.pooling_dim))
-        self.register_buffer("avg_post_ctx", torch.zeros(self.pooling_dim))
-        self.register_buffer("untreated_feat", torch.zeros(self.pooling_dim))
 
     def _init_causal_weights(self) -> None:
         nn.init.xavier_uniform_(self.post_cat[0].weight)
@@ -1413,9 +1415,11 @@ class TDEModel(MotifsModel):
         if self.training and self.context_layer.effect_analysis:
             if self.spatial_for_vision:
                 self.moving_average(self.untreated_spt, features["pair_bbox"])
-            self.moving_average(self.avg_post_ctx, post_ctx_rep)
-            self.moving_average(self.untreated_feat, features["visual_rep"])
-        elif apply_tde and self.context_layer.effect_analysis:
+        elif (
+            apply_tde
+            and self.effect_type != "none"
+            and self.context_layer.effect_analysis
+        ):
             with torch.no_grad():
                 avg_features = self._pair_feature_generate(
                     visual_feats,
