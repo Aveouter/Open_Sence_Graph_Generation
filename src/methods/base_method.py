@@ -133,7 +133,9 @@ class Base_method(l.LightningModule):
                     else (v.detach().cpu() if torch.is_tensor(v) else v)
                 )
                 for k, v in outputs.items()
-                if k != 'aux_outputs'  # skip auxiliary decoder outputs to save memory
+                if k != 'aux_outputs'
+                # Skip scalar tensors (e.g., losses) which can't be batch-concatenated
+                and not (torch.is_tensor(v) and v.dim() == 0)
             },
             'targets': [
                 {

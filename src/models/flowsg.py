@@ -435,6 +435,13 @@ class FlowSG(nn.Module):
             app_indices = vq_out['indices']  # [B, N, M]
             app_indices = app_indices.clamp(0, self.codebook_size - 1)
 
+            # Sample time t ~ U[0, 1]
+            t = torch.rand(B, device=device)
+
+            # CFM: sample noise and interpolate
+            g_0 = self.cfm.sample_prior((B, N, 4), device)
+            g_t, u_star, kappa, kappa_dot = self.cfm.interpolate(g_0, gt_boxes, t)
+
             # Stochastic edge-only training (§5.1): p=0.2 keep nodes fixed at GT
             if self.training and torch.rand(1).item() < self.edge_only_prob:
                 # Edge-only: use clean GT boxes so denoiser only trains edge prediction
@@ -444,13 +451,6 @@ class FlowSG(nn.Module):
                 # Normal: use noisy interpolated boxes g_t for full CFM + DFM training
                 node_boxes_used = g_t
                 node_labels_used = gt_labels
-
-            # Sample time t ~ U[0, 1]
-            t = torch.rand(B, device=device)
-
-            # CFM: sample noise and interpolate
-            g_0 = self.cfm.sample_prior((B, N, 4), device)
-            g_t, u_star, kappa, kappa_dot = self.cfm.interpolate(g_0, gt_boxes, t)
 
             # DFM: sample masked tokens for appearance and predicates
             # Initialize predicate tokens with marginal distribution (most common pred)
@@ -534,6 +534,14 @@ class FlowSG(nn.Module):
             pair_i = (topk_idx // N).long()
             pair_j = (topk_idx % N).long()
 
+            # Build batch indices for correct broadcasting with 2D pair indices
+            b_idx = torch.arange(B, device=device).unsqueeze(1)  # [B, 1]
+            sub_logits = sem_out['obj_logits'][b_idx, pair_i].contiguous()  # [B, K, C]
+            obj_logits = sem_out['obj_logits'][b_idx, pair_j].contiguous()  # [B, K, C]
+            sub_boxes = pred_boxes[b_idx, pair_i].contiguous()               # [B, K, 4]
+            obj_boxes = pred_boxes[b_idx, pair_j].contiguous()               # [B, K, 4]
+            rel_logits = sem_out['pred_logits'][b_idx, pair_i, pair_j].contiguous()  # [B, K, P]
+
             return {
                 'pred_velocity': pred_velocity,
                 'u_star': u_star,
@@ -548,14 +556,11 @@ class FlowSG(nn.Module):
                 'app_dfm_loss': app_dfm_loss,
                 # For evaluation compatibility
                 'pred_logits': sem_out['obj_logits'],
-                'sub_logits': sem_out['obj_logits'][:, pair_i].contiguous(),
-                'obj_logits': sem_out['obj_logits'][:, pair_j].contiguous(),
-                'sub_boxes': pred_boxes[:, pair_i].contiguous(),
-                'obj_boxes': pred_boxes[:, pair_j].contiguous(),
-                'rel_logits': sem_out['pred_logits'][
-                    torch.arange(B, device=device).unsqueeze(1),
-                    pair_i, pair_j
-                ].contiguous(),
+                'sub_logits': sub_logits,
+                'obj_logits': obj_logits,
+                'sub_boxes': sub_boxes,
+                'obj_boxes': obj_boxes,
+                'rel_logits': rel_logits,
             }
 
         else:
@@ -612,25 +617,17 @@ class FlowSG(nn.Module):
             pair_i = (topk_idx // N).long()
             pair_j = (topk_idx % N).long()
 
+            # Build batch indices for correct broadcasting
+            b_idx = torch.arange(B, device=device).unsqueeze(1)  # [B, 1]
+
             return {
                 'pred_logits': sem_out['obj_logits'],
                 'pred_boxes': refined_boxes,
-                'sub_logits': sem_out['obj_logits'][
-                    torch.arange(B, device=device).unsqueeze(1), pair_i
-                ].contiguous(),
-                'obj_logits': sem_out['obj_logits'][
-                    torch.arange(B, device=device).unsqueeze(1), pair_j
-                ].contiguous(),
-                'sub_boxes': refined_boxes[
-                    torch.arange(B, device=device).unsqueeze(1), pair_i
-                ].contiguous(),
-                'obj_boxes': refined_boxes[
-                    torch.arange(B, device=device).unsqueeze(1), pair_j
-                ].contiguous(),
-                'rel_logits': sem_out['pred_logits'][
-                    torch.arange(B, device=device).unsqueeze(1),
-                    pair_i, pair_j
-                ].contiguous(),
+                'sub_logits': sem_out['obj_logits'][b_idx, pair_i].contiguous(),
+                'obj_logits': sem_out['obj_logits'][b_idx, pair_j].contiguous(),
+                'sub_boxes': refined_boxes[b_idx, pair_i].contiguous(),
+                'obj_boxes': refined_boxes[b_idx, pair_j].contiguous(),
+                'rel_logits': sem_out['pred_logits'][b_idx, pair_i, pair_j].contiguous(),
             }
 
     def _roi_pool(self, backbone_feat: Tensor, boxes: Tensor, size: int = 7) -> Tensor:

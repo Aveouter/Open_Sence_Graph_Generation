@@ -16,6 +16,6 @@ def get_coco_api_from_dataset(dataset):
 
 
 def build_dataset(image_set, args):
-    if args.dataset == 'vg' or args.dataset == 'oi':
+    if args.dataset in ('vg', 'VisualGenome', 'oi', 'OpenImage', 'OpenImageV6'):
         return build_coco(image_set, args)
     raise ValueError(f'dataset {args.dataset} not supported')
