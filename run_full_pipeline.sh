@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+command -v conda >/dev/null || {
+  echo "ERROR: conda not found in PATH. Activate/install conda before running this pipeline." >&2
+  exit 1
+}
+
 TEST_SIZE="${1:-5000}"
 TAG="${2:-full_test}"
 CKPT="outputs/pretrained/motifs/coldmanck/extracted/model_0022000.pth"
