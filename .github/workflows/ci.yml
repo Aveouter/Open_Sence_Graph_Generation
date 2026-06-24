@@ -1,0 +1,182 @@
+name: CI
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'configs/**'
+      - 'utils/**'
+      - 'train.py'
+      - 'environment.yml'
+      - '.github/workflows/**'
+      - 'tools/**'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'configs/**'
+      - 'utils/**'
+      - 'train.py'
+      - 'environment.yml'
+      - '.github/workflows/**'
+      - 'tools/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # Job 1: Lint — fast (~1 min), only on changed Python files
+  # ============================================================
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Get changed Python files
+        id: changed-files
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then
+            BASE="origin/main"
+          fi
+          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.py' | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+          echo "Changed files: $FILES"
+
+      - name: Lint + format check (ruff — changed files only)
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          echo "Changed files: ${{ steps.changed-files.outputs.files }}"
+          ruff check ${{ steps.changed-files.outputs.files }}
+          ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
+
+  # ============================================================
+  # Job 2: Review — LLM-based bug detection (~30s)
+  # ============================================================
+  review:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run LLM code review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: python tools/ci_review.py
+
+      - name: Post review comment on PR
+        if: success() || failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          if [ -n "$PR_NUM" ] && [ -f /tmp/review_findings.md ]; then
+            gh pr comment "$PR_NUM" --body-file /tmp/review_findings.md
+            echo "Review comment posted to PR #$PR_NUM"
+          else
+            echo "No PR number or no review file — skipping comment"
+          fi
+
+  # ============================================================
+  # Job 3: Validate — medium (~2 min), checks registration integrity
+  # ============================================================
+  validate:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run validation script
+        run: python tools/ci_validate.py
+
+  # ============================================================
+  # Job 4: Smoke Test — slow (~15 min), only on model/config changes
+  # ============================================================
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 25
+    if: always() && needs.validate.result == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if model/config code changed
+        id: check-changes
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="origin/main"; fi
+          FILES=$(git diff --name-only "$BASE...HEAD" 2>/dev/null || true)
+          NEEDS_SMOKE="false"
+          for f in $FILES; do
+            case "$f" in
+              src/models/*|src/methods/*|src/core/*|src/losses/*|configs/*)
+                NEEDS_SMOKE="true"; break ;;
+              src/exp.py|train.py|data/*|lib/*)
+                NEEDS_SMOKE="true"; break ;;
+            esac
+          done
+          echo "needs_smoke=$NEEDS_SMOKE" >> $GITHUB_OUTPUT
+          echo "Changed files: $FILES"
+
+      - name: Skip smoke test (no model/config changes)
+        if: steps.check-changes.outputs.needs_smoke != 'true'
+        run: echo "Skipping smoke test — no model/config files changed."
+
+      - name: Setup Miniconda
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: '3.10'
+          miniforge-version: latest
+          environment-file: environment.yml
+          activate-environment: hsg
+          use-mamba: true
+          channel-priority: strict
+
+      - name: Install CPU-only PyTorch
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        shell: bash -el {0}
+        run: |
+          conda activate hsg
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install lightning
+
+      - name: Run smoke tests
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        shell: bash -el {0}
+        run: |
+          conda activate hsg
+          python tools/ci_smoke_test.py --skip-train
