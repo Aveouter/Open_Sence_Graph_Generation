@@ -10,6 +10,7 @@ on:
       - 'train.py'
       - 'environment.yml'
       - '.github/workflows/**'
+      - 'tools/**'
   push:
     branches: [main]
     paths:
@@ -19,6 +20,7 @@ on:
       - 'train.py'
       - 'environment.yml'
       - '.github/workflows/**'
+      - 'tools/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,12 +28,14 @@ concurrency:
 
 jobs:
   # ============================================================
-  # Job 1: Lint — fast (~1 min), always runs
+  # Job 1: Lint — fast (~1 min), only on changed Python files
   # ============================================================
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -40,11 +44,23 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
-      - name: Lint check (ruff)
-        run: ruff check src/ configs/ utils/ train.py tools/
+      - name: Get changed Python files
+        id: changed-files
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then
+            BASE="origin/main"
+          fi
+          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.py' | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+          echo "Changed files: $FILES"
 
-      - name: Format check (ruff)
-        run: ruff format --check src/ configs/ utils/ train.py tools/ || true
+      - name: Lint + format check (ruff — changed files only)
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          echo "Changed files: ${{ steps.changed-files.outputs.files }}"
+          ruff check ${{ steps.changed-files.outputs.files }}
+          ruff format --check --diff ${{ steps.changed-files.outputs.files }}
 
   # ============================================================
   # Job 2: Validate — medium (~2 min), checks registration integrity
@@ -55,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed for git diff against base
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -71,15 +87,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate
     timeout-minutes: 25
-    # Only run when model/method/config/core files actually changed
-    if: |
-      always() && needs.validate.result != 'skipped' && needs.validate.result != 'cancelled'
+    if: always() && needs.validate.result == 'success'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Detect which paths changed to decide if we need the full env
       - uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -121,7 +134,6 @@ jobs:
         run: |
           conda activate hsg
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          # lightning may need reinstall after torch change
           pip install lightning
 
       - name: Run smoke tests
