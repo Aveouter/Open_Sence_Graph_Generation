@@ -244,8 +244,7 @@ def validate_parser_choices(
         )
     if only_in_maps:
         errors.append(
-            f"method_maps keys NOT in --method parser choices: "
-            f"{sorted(only_in_maps)}"
+            f"method_maps keys NOT in --method parser choices: {sorted(only_in_maps)}"
         )
 
     return errors

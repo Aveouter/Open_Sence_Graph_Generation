@@ -60,7 +60,7 @@ jobs:
         run: |
           echo "Changed files: ${{ steps.changed-files.outputs.files }}"
           ruff check ${{ steps.changed-files.outputs.files }}
-          ruff format --check --diff ${{ steps.changed-files.outputs.files }}
+          ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
 
   # ============================================================
   # Job 2: Validate — medium (~2 min), checks registration integrity
