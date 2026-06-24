@@ -3,7 +3,7 @@
 CI Code Review Script — uses LLM to review PR diffs for bugs.
 
 Supports multiple backends (auto-detected from available API keys):
-- DeepSeek (DEEPSEEK_API_KEY)  — recommended, OpenAI-compatible
+- DeepSeek V4-Pro (DEEPSEEK_API_KEY)  — recommended, OpenAI-compatible
 - Anthropic Claude (ANTHROPIC_API_KEY)
 
 Reads the PR diff, sends it to the LLM with a structured review prompt,
@@ -111,7 +111,7 @@ def call_deepseek(diff: str) -> Optional[str]:
     if not api_key:
         return None
 
-    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
     return _call_openai_compatible(
         api_key=api_key,
         model=model,
@@ -367,7 +367,7 @@ def main() -> int:
     if os.environ.get("DEEPSEEK_API_KEY"):
         backend = "DeepSeek"
         print(
-            f"[review] Using DeepSeek ({os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')})"
+            f"[review] Using DeepSeek ({os.environ.get('DEEPSEEK_MODEL', 'deepseek-v4-pro')})"
         )
         response = call_deepseek(diff)
     elif os.environ.get("ANTHROPIC_API_KEY"):
