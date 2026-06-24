@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  contents: read
+  pull-requests: read
+
 on:
   pull_request:
     branches: [main]
@@ -93,33 +97,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            models:
-              - 'src/models/**'
-              - 'src/methods/**'
-            configs:
-              - 'configs/**'
-            core:
-              - 'src/core/**'
-              - 'src/losses/**'
-              - 'src/exp.py'
-              - 'train.py'
-              - 'data/**'
-              - 'lib/**'
-
-      - name: Skip if no relevant changes
-        if: |
-          steps.changes.outputs.models == 'false' &&
-          steps.changes.outputs.configs == 'false' &&
-          steps.changes.outputs.core == 'false'
+      - name: Check if model/config code changed
+        id: check-changes
         run: |
-          echo "No model/method/config/core changes detected. Skipping smoke test."
-          exit 0
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="origin/main"; fi
+          FILES=$(git diff --name-only "$BASE...HEAD" 2>/dev/null || true)
+          NEEDS_SMOKE="false"
+          for f in $FILES; do
+            case "$f" in
+              src/models/*|src/methods/*|src/core/*|src/losses/*|configs/*)
+                NEEDS_SMOKE="true"; break ;;
+              src/exp.py|train.py|data/*|lib/*)
+                NEEDS_SMOKE="true"; break ;;
+            esac
+          done
+          echo "needs_smoke=$NEEDS_SMOKE" >> $GITHUB_OUTPUT
+          echo "Changed files: $FILES"
+
+      - name: Skip smoke test (no model/config changes)
+        if: steps.check-changes.outputs.needs_smoke != 'true'
+        run: echo "Skipping smoke test — no model/config files changed."
 
       - name: Setup Miniconda
+        if: steps.check-changes.outputs.needs_smoke == 'true'
         uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: '3.10'
@@ -130,6 +131,7 @@ jobs:
           channel-priority: strict
 
       - name: Install CPU-only PyTorch
+        if: steps.check-changes.outputs.needs_smoke == 'true'
         shell: bash -el {0}
         run: |
           conda activate hsg
@@ -137,7 +139,8 @@ jobs:
           pip install lightning
 
       - name: Run smoke tests
+        if: steps.check-changes.outputs.needs_smoke == 'true'
         shell: bash -el {0}
         run: |
           conda activate hsg
-          python tools/ci_smoke_test.py --changed-models "${{ steps.changes.outputs.models_files }}"
+          python tools/ci_smoke_test.py --skip-train
