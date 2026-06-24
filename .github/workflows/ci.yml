@@ -84,6 +84,7 @@ jobs:
 
       - name: Run LLM code review
         env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: python tools/ci_review.py

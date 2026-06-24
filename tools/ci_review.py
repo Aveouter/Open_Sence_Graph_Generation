@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """
-CI Code Review Script — uses Anthropic Claude to review PR diffs for bugs.
+CI Code Review Script — uses LLM to review PR diffs for bugs.
 
-Reads the PR diff, sends it to Claude with a structured review prompt,
+Supports multiple backends (auto-detected from available API keys):
+- DeepSeek (DEEPSEEK_API_KEY)  — recommended, OpenAI-compatible
+- Anthropic Claude (ANTHROPIC_API_KEY)
+
+Reads the PR diff, sends it to the LLM with a structured review prompt,
 formats the response as markdown, and saves it for the CI comment step.
 
-Requires: ANTHROPIC_API_KEY set in environment (GitHub secret).
-Optional: ANTHROPIC_MODEL (default: claude-sonnet-4-20250514).
+GitHub repo secrets needed (set at least one):
+  DEEPSEEK_API_KEY  (preferred)
+  ANTHROPIC_API_KEY (fallback)
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -78,7 +84,6 @@ def get_pr_diff() -> Optional[str]:
     except Exception:
         pass
 
-    # Fallback: diff against HEAD~1
     try:
         result = subprocess.run(
             ["git", "diff", "HEAD~1...HEAD"],
@@ -95,60 +100,110 @@ def get_pr_diff() -> Optional[str]:
     return None
 
 
-def call_claude(diff: str) -> Optional[str]:
-    """Send the diff to Claude and get the review response."""
+# ================================================================
+# Backend: DeepSeek (OpenAI-compatible)
+# ================================================================
+
+
+def call_deepseek(diff: str) -> Optional[str]:
+    """Call DeepSeek API (OpenAI-compatible)."""
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        return None
+
+    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    return _call_openai_compatible(
+        api_key=api_key,
+        model=model,
+        endpoint="https://api.deepseek.com/chat/completions",
+        diff=diff,
+    )
+
+
+# ================================================================
+# Backend: Anthropic Claude
+# ================================================================
+
+
+def call_anthropic(diff: str) -> Optional[str]:
+    """Call Anthropic Claude API."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        print("[review] ANTHROPIC_API_KEY not set — skipping LLM review")
         return None
 
     model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+    return _call_anthropic_http(api_key, model, diff)
 
-    # Truncate diff if needed
+
+# ================================================================
+# Generic: OpenAI-compatible (used by DeepSeek, can extend to others)
+# ================================================================
+
+
+def _call_openai_compatible(
+    api_key: str, model: str, endpoint: str, diff: str
+) -> Optional[str]:
+    """Call any OpenAI-compatible chat completions API."""
+    import urllib.request
+    import urllib.error
+
     if len(diff) > MAX_DIFF_CHARS:
-        diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated, too large)"
+        diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
         print(f"[review] Diff truncated to {MAX_DIFF_CHARS} chars")
 
-    prompt = REVIEW_PROMPT + diff
+    body = json.dumps(
+        {
+            "model": model,
+            "max_tokens": 4096,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a code reviewer. Return only valid JSON with a 'findings' key.",
+                },
+                {"role": "user", "content": REVIEW_PROMPT + diff},
+            ],
+        }
+    ).encode()
 
-    print(f"[review] Sending {len(prompt)} chars to {model} ...")
+    req = urllib.request.Request(
+        endpoint,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
 
     try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model=model,
-            max_tokens=4096,
-            system="You are a code reviewer. Return only valid JSON.",
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        # Extract text from the response
-        if message.content and len(message.content) > 0:
-            return message.content[0].text
-
-    except ImportError:
-        print("[review] anthropic package not installed — falling back to requests")
-        return _call_claude_http(api_key, model, prompt)
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            data = json.loads(resp.read())
+            # OpenAI format: choices[0].message.content
+            choices = data.get("choices", [])
+            if choices and choices[0].get("message"):
+                return choices[0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        print(f"[review] HTTP {e.code}: {e.read().decode()[:500]}")
     except Exception as e:
-        print(f"[review] Claude API error: {e}")
-        return None
+        print(f"[review] HTTP request error: {e}")
 
     return None
 
 
-def _call_claude_http(api_key: str, model: str, prompt: str) -> Optional[str]:
-    """Fallback: call Claude API via raw HTTP (no anthropic SDK needed)."""
+def _call_anthropic_http(api_key: str, model: str, diff: str) -> Optional[str]:
+    """Call Anthropic API via raw HTTP."""
     import urllib.request
     import urllib.error
+
+    if len(diff) > MAX_DIFF_CHARS:
+        diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
+        print(f"[review] Diff truncated to {MAX_DIFF_CHARS} chars")
 
     body = json.dumps(
         {
             "model": model,
             "max_tokens": 4096,
             "system": "You are a code reviewer. Return only valid JSON.",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": REVIEW_PROMPT + diff}],
         }
     ).encode()
 
@@ -163,7 +218,7 @@ def _call_claude_http(api_key: str, model: str, prompt: str) -> Optional[str]:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             data = json.loads(resp.read())
             if data.get("content") and len(data["content"]) > 0:
                 return data["content"][0]["text"]
@@ -175,12 +230,14 @@ def _call_claude_http(api_key: str, model: str, prompt: str) -> Optional[str]:
     return None
 
 
-def parse_findings(text: str) -> list[dict]:
-    """Extract findings JSON from Claude's response text."""
-    # Try to find JSON block in the response
-    import re
+# ================================================================
+# Response parsing
+# ================================================================
 
-    # Look for ```json ... ``` code block first
+
+def parse_findings(text: str) -> list[dict]:
+    """Extract findings JSON from the LLM response text."""
+    # Try ```json ... ``` code block first
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
         try:
@@ -189,7 +246,7 @@ def parse_findings(text: str) -> list[dict]:
         except json.JSONDecodeError:
             pass
 
-    # Try raw JSON in the text
+    # Try raw JSON
     try:
         data = json.loads(text)
         return data.get("findings", [])
@@ -199,7 +256,6 @@ def parse_findings(text: str) -> list[dict]:
     # Try to find any {...} containing "findings"
     match = re.search(r'\{[^}]*"findings"\s*:\s*\[', text)
     if match:
-        # Find the matching closing brace
         start = match.start()
         depth = 0
         for i, c in enumerate(text[start:], start):
@@ -217,14 +273,18 @@ def parse_findings(text: str) -> list[dict]:
     return []
 
 
-def format_markdown(findings: list[dict], diff_stats: str) -> str:
+# ================================================================
+# Markdown formatting
+# ================================================================
+
+
+def format_markdown(findings: list[dict], diff_stats: str, backend: str) -> str:
     """Format findings as a nice markdown PR comment."""
     if not findings:
         return (
-            "## 🤖 Claude Code Review\n\n"
+            f"## :robot: LLM Code Review ({backend})\n\n"
             "**No bugs found** in the changed code. :white_check_mark:\n\n"
-            f"<sub>Reviewed {diff_stats}. "
-            "Powered by [Claude Code](https://claude.com/claude-code).</sub>"
+            f"<sub>Reviewed {diff_stats}.</sub>"
         )
 
     sev_emoji = {
@@ -235,7 +295,7 @@ def format_markdown(findings: list[dict], diff_stats: str) -> str:
     }
 
     lines = [
-        "## :robot: Claude Code Review",
+        f"## :robot: LLM Code Review ({backend})",
         "",
         f"Found **{len(findings)}** potential bug(s) in the changed code.",
         "",
@@ -260,7 +320,9 @@ def format_markdown(findings: list[dict], diff_stats: str) -> str:
         lines.append(f"### {i}. {f.get('summary', 'Untitled')}")
         lines.append("")
         lines.append(
-            f"**File:** `{f.get('file', '?')}` — **Line:** {f.get('line', '?')} — **Severity:** `{f.get('severity', 'low')}`"
+            f"**File:** `{f.get('file', '?')}` — "
+            f"**Line:** {f.get('line', '?')} — "
+            f"**Severity:** `{f.get('severity', 'low')}`"
         )
         lines.append("")
         if f.get("failure_scenario"):
@@ -269,16 +331,20 @@ def format_markdown(findings: list[dict], diff_stats: str) -> str:
 
     lines.append("---")
     lines.append(
-        f"<sub>:robot: Automated review of {diff_stats}. "
-        "Powered by [Claude Code](https://claude.com/claude-code).</sub>"
+        f"<sub>:robot: Automated review of {diff_stats}. Powered by {backend}.</sub>"
     )
 
     return "\n".join(lines)
 
 
+# ================================================================
+# Main
+# ================================================================
+
+
 def main() -> int:
     print("=" * 60)
-    print("LLM Code Review (Claude)")
+    print("LLM Code Review")
     print("=" * 60)
 
     # 1. Get diff
@@ -293,28 +359,45 @@ def main() -> int:
     diff_stats = f"{file_count} files, {diff_lines} lines, {diff_size // 1024}KiB"
     print(f"[review] Diff: {diff_stats}")
 
-    # 2. Call Claude
-    response = call_claude(diff)
+    # 2. Pick backend and call LLM
+    # Priority: DeepSeek → Anthropic
+    response = None
+    backend = "unknown"
+
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        backend = "DeepSeek"
+        print(
+            f"[review] Using DeepSeek ({os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')})"
+        )
+        response = call_deepseek(diff)
+    elif os.environ.get("ANTHROPIC_API_KEY"):
+        backend = "Anthropic Claude"
+        print(
+            f"[review] Using Anthropic ({os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')})"
+        )
+        response = call_anthropic(diff)
+    else:
+        print(
+            "[review] No API key set. "
+            "Set DEEPSEEK_API_KEY or ANTHROPIC_API_KEY in repo secrets."
+        )
+        return 0
+
     if response is None:
-        # Check if this is a local run (no API key) — don't fail
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            print("[review] No ANTHROPIC_API_KEY — skipping (not an error)")
-            return 0
-        print("[review] Claude API call failed — exiting with error")
+        print(f"[review] {backend} API call failed")
         return 1
 
     # 3. Parse findings
     findings = parse_findings(response)
-    print(f"[review] Claude found {len(findings)} finding(s)")
+    print(f"[review] {backend} found {len(findings)} finding(s)")
 
     # 4. Format and save
-    markdown = format_markdown(findings, diff_stats)
+    markdown = format_markdown(findings, diff_stats, backend)
 
     output_path = Path("/tmp/review_findings.md")
     output_path.write_text(markdown, encoding="utf-8")
     print(f"[review] Saved review to {output_path} ({len(markdown)} chars)")
 
-    # Also print to stdout for CI logs
     print("\n" + markdown)
 
     return 0
