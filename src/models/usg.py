@@ -859,19 +859,37 @@ class USGCriterion(nn.Module):
 
         return total / max(n_pairs, 1)
 
-    def _loss_pair(self, rpc, targets):
+    def _loss_pair(self, rpc, targets, indices):
+        """Weighted BCE on pair confidence matrix.
+
+        The pair confidence matrix C (B, N, N) is indexed by query positions.
+        GT annotations use object indices (0..M-1).  We use the Hungarian
+        matching to build a per-sample object-index → query-index mapping,
+        then set C[b, q_s, q_o] = 1 for each (s, o) relation whose subject
+        and object are both matched to a query.
+        """
         B, dev = len(targets), rpc["pair_confidence"].device
         c = rpc["pair_confidence"]
         _, N, _ = c.shape
         tm = torch.zeros(B, N, N, device=dev)
         for b, t in enumerate(targets):
             rels = t.get("rel_annotations")
-            if rels is None:
+            if rels is None or len(rels) == 0:
                 continue
+            # Hungarian: pred_idx → gt_idx (query index → object index)
+            pred_idx, gt_idx = indices[b]
+            if len(pred_idx) == 0:
+                continue
+            # invert: object index → first matched query index
+            # (a GT object may be matched to at most one query by Hungarian)
+            o2q = torch.full((len(t["labels"]),), -1, dtype=torch.long, device=dev)
+            o2q[gt_idx.to(dev)] = pred_idx.to(dev)
             for r in rels:
                 s, o = int(r[0]), int(r[1])
-                if s < N and o < N:
-                    tm[b, s, o] = 1.0
+                if s < len(o2q) and o < len(o2q):
+                    qs, qo = o2q[s].item(), o2q[o].item()
+                    if qs >= 0 and qo >= 0:
+                        tm[b, qs, qo] = 1.0
         pos = tm.sum().clamp_min(1.0)
         neg = tm.numel() - pos
         pw = max(neg / pos, 1.0)
@@ -892,7 +910,7 @@ class USGCriterion(nn.Module):
         l_l1, l_giou = self._loss_box(pb, targets, indices)
         l_l1, l_giou = l_l1 / nb, l_giou / nb
         l_rel = self._loss_rel(rl, rpc, targets, indices)
-        l_pair = self._loss_pair(rpc, targets)
+        l_pair = self._loss_pair(rpc, targets, indices)
         return {
             "loss_total": self.c_coef * l_cls
             + self.b_coef * l_l1
