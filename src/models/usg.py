@@ -761,6 +761,7 @@ class USGCriterion(nn.Module):
         self,
         num_classes: int = 151,
         num_predicates: int = 51,
+        num_queries: int = 100,
         class_loss_coef: float = 2.0,
         bbox_loss_coef: float = 5.0,
         giou_loss_coef: float = 2.0,
@@ -773,6 +774,7 @@ class USGCriterion(nn.Module):
     ):
         super().__init__()
         self.num_classes = num_classes
+        self.num_queries = num_queries
         self.c_coef = class_loss_coef
         self.b_coef = bbox_loss_coef
         self.g_coef = giou_loss_coef
@@ -837,7 +839,7 @@ class USGCriterion(nn.Module):
             pred_idx, gt_idx = indices[b]
             # q2g must cover [0..num_queries-1] (100); Hungarian only matches
             # a subset, but RPC pair indices can reference ANY query
-            q2g = torch.full((100,), -1, dtype=torch.long, device=dev)
+            q2g = torch.full((self.num_queries,), -1, dtype=torch.long, device=dev)
             q2g[pred_idx] = gt_idx.to(dev)
 
             # GT relation lookup: (gt_s, gt_o) → predicate
@@ -985,6 +987,7 @@ def build_usg(args):
     criterion = USGCriterion(
         num_classes=num_classes,
         num_predicates=num_predicates,
+        num_queries=num_queries,
         class_loss_coef=getattr(args, "class_loss_coef", 2.0),
         bbox_loss_coef=getattr(args, "bbox_loss_coef", 5.0),
         giou_loss_coef=getattr(args, "giou_loss_coef", 2.0),
