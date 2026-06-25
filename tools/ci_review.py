@@ -86,11 +86,11 @@ def _build_context_appendix(diff: str) -> str:
     """Extract key context from changed files that the diff alone hides.
 
     The LLM only sees the diff, not the full file.  This function appends
-    critical context for each changed file — argparse add_argument calls,
-    existence guards, etc. — so the LLM can accurately judge whether a
-    diff line is a bug or safe.
+    critical context for each changed file — argparse CLI flags, existence
+    guards, etc. — so the LLM can accurately judge whether a diff line is
+    a bug or safe.
     """
-    # Collect unique Python files from the diff
+
     files = set()
     for line in diff.split("\n"):
         if line.startswith("diff --git a/") and line.endswith(".py"):
@@ -101,8 +101,13 @@ def _build_context_appendix(diff: str) -> str:
     if not files:
         return ""
 
-    appendix = []
-    appendix.append("\n\n---\n## FILE CONTEXT (key definitions from changed files)\n")
+    appendix = [
+        "\n\n---\n"
+        "## :rotating_light: ANTI-FALSE-POSITIVE CONTEXT\n"
+        "Below are definitions that exist in the FULL files.\n"
+        "If you are about to report any of these as missing or broken, "
+        "**STOP** — they already exist outside the diff hunk.\n"
+    ]
 
     for fname in sorted(files):
         path = ROOT / fname
@@ -114,23 +119,60 @@ def _build_context_appendix(diff: str) -> str:
 
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
-            # argparse add_argument calls — reveals existing CLI flags
+            # argparse: extract the flag name from multi-line add_argument calls
             if ".add_argument(" in stripped:
-                gathered.append(f"  L{i}: {stripped}")
-            # os.path.exists / .exists() guards — reveals file-existence checks
+                flag = _extract_flag_name(stripped, lines, i)
+                if flag:
+                    gathered.append(f"  L{i}: add_argument({flag})")
+                else:
+                    gathered.append(f"  L{i}: add_argument(...)")
+            # existence guards
             if ".exists()" in stripped:
                 gathered.append(f"  L{i}: {stripped}")
 
         if gathered:
             appendix.append(f"\n### {fname}")
-            for g in gathered[:30]:  # cap per file
+            for g in gathered[:30]:
                 appendix.append(g)
 
-    if len(appendix) <= 1:
-        return ""  # no context gathered
+    if len(appendix) <= 4:  # header only, no context
+        return ""
 
     appendix.append("")
     return "\n".join(appendix)
+
+
+def _extract_flag_name(current_line: str, all_lines: list[str], line_idx: int) -> str:
+    """Extract the CLI flag name from a multi-line add_argument call.
+
+    Handles patterns like:
+        parser.add_argument(
+            "--changed-models",
+            ...
+        )
+    """
+    import re as _re
+
+    # Check current line first: add_argument("-x", "--xxx", ...)
+    m = _re.search(r'add_argument\(\s*["\'](--?\w[\w-]*)', current_line)
+    if m:
+        return f'"{m.group(1)}"'
+
+    # Look ahead up to 4 lines for the flag string
+    for offset in range(1, 5):
+        idx = line_idx - 1 + offset  # line_idx is 1-based
+        if idx >= len(all_lines):
+            break
+        look = all_lines[idx].strip()
+        m = _re.search(r'["\'](--?\w[\w-]*)["\']', look)
+        if m:
+            flag = m.group(1)
+            # Skip help strings (they're long, not flag names)
+            if len(flag) < 40 and " " not in flag:
+                return f'"{flag}"'
+            break
+
+    return ""
 
 
 def _smart_truncate(diff: str, max_chars: int) -> str:
