@@ -13,6 +13,7 @@ from .penet_method import PENet_Method
 from .react_method import REACT_Method
 from .squat_method import Squat_Method
 from .shagcl_method import SHAGCL_Method
+from .usg_method import USG_Method
 
 # 规范method name 为小写
 method_maps = {
@@ -20,6 +21,7 @@ method_maps = {
     "reltr": RelTR_Method,
     "egtr": EGTR_Method,
     "flowsg": FlowSG_Method,
+    "usg": USG_Method,
     "motifs": Motifs_Method,
     "vctree": VCTree_Method,
     "tde": TDE_Method,

@@ -162,7 +162,8 @@ LOSS_FACTORY = {
     "flowsg_loss": None,  # FlowSG criterion built in flowsg_method._build_model
     "motifs_loss": None,  # Motifs/VCTree/TDE/IMP/Transformer/GPSNet/PENet/SQUAT/SHAGCL criterion built in _build_criterion
     "react_loss": None,   # REACT criterion built in react_method._build_criterion
-    "cvc_loss": None,     # CVC criterion built in _build_criterion
+    "cvc_loss": None,     # CVC
+    "usg_loss": None,     # USG criterion built in _build_criterion
 }
 
 
