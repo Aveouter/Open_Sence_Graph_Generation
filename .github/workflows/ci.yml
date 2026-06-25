@@ -177,13 +177,22 @@ jobs:
           use-mamba: true
           channel-priority: strict
 
-      - name: Install CPU-only PyTorch
+      - name: Install Python dependencies
         if: steps.check-changes.outputs.needs_smoke == 'true'
         shell: bash -el {0}
         run: |
           conda activate hsg
+          # CPU-only PyTorch (overrides conda CUDA version)
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install lightning
+          # Core deps — may already be in conda env but ensure they are present
+          pip install lightning numpy scipy pandas tqdm pillow
+          # ML / CV deps
+          pip install timm transformers fvcore einops
+          pip install scikit-image lpips decord xarray pycocotools
+          # utils/main_utils.py and others import cv2 (not in environment.yml)
+          pip install opencv-python-headless
+          # USG backbone (optional — graceful fallback if unavailable)
+          pip install open_clip_torch || echo "open_clip_torch skipped"
 
       - name: Run smoke tests
         if: steps.check-changes.outputs.needs_smoke == 'true'
