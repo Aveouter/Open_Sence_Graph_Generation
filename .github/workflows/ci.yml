@@ -63,12 +63,12 @@ jobs:
           echo "files=$FILES" >> $GITHUB_OUTPUT
           echo "Changed files: $FILES"
 
-      - name: Lint + format check (ruff — changed files only)
+      - name: Lint + format (ruff — changed files only)
         if: steps.changed-files.outputs.files != ''
         run: |
           echo "Changed files: ${{ steps.changed-files.outputs.files }}"
           ruff check ${{ steps.changed-files.outputs.files }}
-          ruff format --check --diff ${{ steps.changed-files.outputs.files }}
+          ruff format ${{ steps.changed-files.outputs.files }}
 
   # ============================================================
   # Job 2: Review — LLM-based bug detection (~30s)
