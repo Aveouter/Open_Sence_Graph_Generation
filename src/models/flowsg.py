@@ -289,12 +289,15 @@ class FlowSG(nn.Module):
         )
 
         # Node embedding: object class + appearance codes + box encoding
-        self.obj_embed = nn.Embedding(num_classes, dim)       # class → embedding
-        self.app_embed = nn.Embedding(codebook_size, dim)     # code → embedding
-        self.box_encoder = nn.Linear(4, dim)                  # box → embedding
+        self.obj_embed = nn.Embedding(num_classes + 1, dim)   # +1 for mask_id_obj (§4.2 DFM)
+        self.mask_id_obj = num_classes                         # MASK token for object classes
+        self.app_embed = nn.Embedding(codebook_size + 1, dim)  # +1 for mask_id_app
+        self.mask_id_app = codebook_size                        # MASK token for appearance
+        self.box_encoder = nn.Linear(4, dim)                    # box → embedding
 
-        # Edge embedding: predicate code
-        self.pred_embed = nn.Embedding(num_predicates, dim)
+        # Edge embedding: predicate code (+ mask_id_pred)
+        self.pred_embed = nn.Embedding(num_predicates + 1, dim)
+        self.mask_id_pred = num_predicates
 
         # Graph Transformer Denoiser (DiT-style, §4.3)
         self.denoiser = FlowSGDenoiser(
@@ -372,12 +375,12 @@ class FlowSG(nn.Module):
         if obj_logits.dim() == 3:
             obj_cls = obj_logits.argmax(dim=-1)  # [B, N]
         else:
-            obj_cls = obj_logits  # already [B, N]
-        obj_cls = obj_cls.clamp(0, self.num_classes - 1)
+            obj_cls = obj_logits  # already [B, N] (may include mask_id_obj)
+        obj_cls = obj_cls.clamp(0, self.mask_id_obj)
         cls_emb = self.obj_embed(obj_cls)     # [B, N, dim]
 
-        # Appearance code embedding (sum over M slots), clamp mask tokens to valid range
-        clamped = app_indices.clamp(0, self.codebook_size - 1)
+        # Appearance code embedding (sum over M slots). mask_id_app is a valid index.
+        clamped = app_indices.clamp(0, self.mask_id_app)
         app_emb = 0
         for m in range(self.num_slots):
             app_emb = app_emb + self.app_embed(clamped[..., m])
@@ -393,7 +396,7 @@ class FlowSG(nn.Module):
 
         e_ij^(0) = Emb(r_ij)  where r_ij ∈ [num_predicates]
         """
-        clamped = pred_tokens.clamp(0, self.num_predicates - 1)
+        clamped = pred_tokens.clamp(0, self.mask_id_pred)
         return self.pred_embed(clamped)  # [B, N, N, dim]
 
     def forward(
@@ -443,21 +446,20 @@ class FlowSG(nn.Module):
             g_t, u_star, kappa, kappa_dot = self.cfm.interpolate(g_0, gt_boxes, t)
 
             # Stochastic edge-only training (§5.1): p=0.2 keep nodes fixed at GT
-            if self.training and torch.rand(1).item() < self.edge_only_prob:
-                # Edge-only: use clean GT boxes so denoiser only trains edge prediction
+            edge_only = self.training and torch.rand(1).item() < self.edge_only_prob
+            if edge_only:
+                # Edge-only: clean GT nodes, denoiser focuses on edge prediction
                 node_boxes_used = gt_boxes
-                node_labels_used = gt_labels
+                node_labels_for_denoiser = gt_labels
             else:
-                # Normal: use noisy interpolated boxes g_t for full CFM + DFM training
+                # Normal: noisy boxes (CFM) + masked object labels (DFM §4.2)
                 node_boxes_used = g_t
-                node_labels_used = gt_labels
+                obj_mask_prob = 1.0 - kappa  # [B, 1]
+                obj_rand = torch.rand(B, N, device=device)
+                node_labels_for_denoiser = gt_labels.clone()
+                node_labels_for_denoiser[obj_rand < obj_mask_prob] = self.mask_id_obj
 
-            # DFM: sample masked tokens for appearance and predicates
-            # Initialize predicate tokens with marginal distribution (most common pred)
-            # During training, mask them according to discrete flow schedule
-            mask_id_obj = self.num_classes  # extra [MASK] token for objects
-            mask_id_pred = self.num_predicates  # extra [MASK] for predicates
-            mask_id_app = self.codebook_size  # extra [MASK] for appearance
+            # ── DFM: mask predicates & appearance (§4.2) ──
 
             # Sample predicate tokens for training
             clean_pred_tokens = self._build_pred_tokens(targets, N, device)
@@ -481,7 +483,7 @@ class FlowSG(nn.Module):
 
             # Mask predicate tokens
             pred_tokens = clean_pred_dense.clone()
-            pred_tokens[pred_is_masked.expand(-1, -1, N)] = mask_id_pred
+            pred_tokens[pred_is_masked.expand(-1, -1, N)] = self.mask_id_pred
 
             # Appearance tokens: mask with probability (1-κ_t)
             app_kappa = kappa  # [B, 1, 1] already
@@ -489,10 +491,10 @@ class FlowSG(nn.Module):
             app_rand = torch.rand(B, N, self.num_slots, device=device)
             app_is_masked = app_rand < app_mask_prob
             masked_app_indices = app_indices.clone()
-            masked_app_indices[app_is_masked] = mask_id_app
+            masked_app_indices[app_is_masked] = self.mask_id_app
 
             # Build node and edge embeddings
-            node_emb = self._build_node_embedding(node_labels_used, masked_app_indices, node_boxes_used)
+            node_emb = self._build_node_embedding(node_labels_for_denoiser, masked_app_indices, node_boxes_used)
             edge_emb = self._build_edge_embedding(pred_tokens.clamp(0, self.num_predicates - 1))
 
             # Graph Transformer denoiser
