@@ -97,7 +97,9 @@ def _smart_truncate(diff: str, max_chars: int) -> str:
             total += fd_len
         else:
             # Extract filename for the summary footer
-            name = fd.split("\n", 1)[0].split(" b/", 1)[-1].strip() if "\n" in fd else "?"
+            name = (
+                fd.split("\n", 1)[0].split(" b/", 1)[-1].strip() if "\n" in fd else "?"
+            )
             skipped_files.append(name)
 
     parts = included
@@ -235,7 +237,9 @@ def _call_openai_compatible(
                 # V4-Pro may put output in reasoning_content and leave content empty
                 if not content and choices[0]["message"].get("reasoning_content"):
                     content = choices[0]["message"]["reasoning_content"]
-                    print("[review] Used reasoning_content fallback (content was empty)")
+                    print(
+                        "[review] Used reasoning_content fallback (content was empty)"
+                    )
                 if content and content.strip():
                     return content
                 else:
