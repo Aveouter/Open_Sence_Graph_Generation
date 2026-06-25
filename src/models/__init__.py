@@ -45,4 +45,7 @@ __all__ = [
     "build_squat",
     "SHAGCLModel",
     "build_shagcl",
+    "USGModel",
+    "build_usg",
 ]
+from .usg import USGModel, build_usg
