@@ -65,7 +65,59 @@ Return {"findings": []} if there are no bugs.
 GIT DIFF:
 """
 
-MAX_DIFF_CHARS = 80_000  # keep well under context limits
+MAX_DIFF_CHARS = 60_000  # ~30K tokens, 留 90K+ context 和输出空间
+
+
+def _smart_truncate(diff: str, max_chars: int) -> str:
+    """Keep the largest file diffs, include a summary for the rest.
+
+    A simple head-cut would silently drop important sections at the end.
+    Instead, sort file diffs by size and keep the largest ones — these
+    are usually the most important changes in the PR.
+    """
+    if len(diff) <= max_chars:
+        return diff
+
+    chunks = diff.split("\ndiff --git ")
+    if len(chunks) <= 1:
+        return diff[:max_chars] + "\n... (truncated)"
+
+    header = chunks[0]
+    file_diffs = [("diff --git " + c) for c in chunks[1:]]
+    file_diffs.sort(key=len, reverse=True)
+
+    included = [header]
+    total = len(header)
+    skipped_files = []
+
+    for fd in file_diffs:
+        fd_len = len(fd) + 1  # +1 for the leading \n
+        if total + fd_len < max_chars:
+            included.append(fd)
+            total += fd_len
+        else:
+            # Extract filename for the summary footer
+            name = fd.split("\n", 1)[0].split(" b/", 1)[-1].strip() if "\n" in fd else "?"
+            skipped_files.append(name)
+
+    parts = included
+    if skipped_files:
+        tail = (
+            "\n\n---\n"
+            f"({len(skipped_files)} smaller files omitted to fit context: "
+            + ", ".join(skipped_files)
+            + ")\n"
+        )
+        parts.append(tail)
+
+    result = "\n".join(parts)
+    print(
+        f"[review] Smart truncate: {len(file_diffs)} files, "
+        f"kept {len(included) - 1}, "
+        f"dropped {len(skipped_files)} "
+        f"({len(diff)} → {len(result)} chars)"
+    )
+    return result
 
 
 def get_pr_diff() -> Optional[str]:
@@ -148,17 +200,17 @@ def _call_openai_compatible(
     import urllib.error
 
     if len(diff) > MAX_DIFF_CHARS:
-        diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
-        print(f"[review] Diff truncated to {MAX_DIFF_CHARS} chars")
+        diff = _smart_truncate(diff, MAX_DIFF_CHARS)
 
     body = json.dumps(
         {
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": 16384,
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a code reviewer. Return only valid JSON with a 'findings' key.",
+                    "content": "You are a code reviewer. Return only valid JSON with a 'findings' key. "
+                    "Do NOT use reasoning or thinking. Output the JSON directly.",
                 },
                 {"role": "user", "content": REVIEW_PROMPT + diff},
             ],
@@ -177,10 +229,17 @@ def _call_openai_compatible(
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             data = json.loads(resp.read())
-            # OpenAI format: choices[0].message.content
             choices = data.get("choices", [])
             if choices and choices[0].get("message"):
-                return choices[0]["message"]["content"]
+                content = choices[0]["message"]["content"]
+                # V4-Pro may put output in reasoning_content and leave content empty
+                if not content and choices[0]["message"].get("reasoning_content"):
+                    content = choices[0]["message"]["reasoning_content"]
+                    print("[review] Used reasoning_content fallback (content was empty)")
+                if content and content.strip():
+                    return content
+                else:
+                    print("[review] Empty response content from API")
     except urllib.error.HTTPError as e:
         print(f"[review] HTTP {e.code}: {e.read().decode()[:500]}")
     except Exception as e:
