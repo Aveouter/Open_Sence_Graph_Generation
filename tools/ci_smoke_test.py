@@ -190,21 +190,22 @@ def try_instantiate_method(
 
 
 def _synthetic_forward(model, method_name: str) -> None:
-    """Run a synthetic forward pass through the model.
+    """Run a synthetic forward pass through the model with synthetic data.
 
-    Creates random inputs sized appropriately for the model type.
+    Tries multiple input formats to accommodate different model interfaces:
+      1. batched tensor [B,3,H,W] — Motifs, CVC, HSTRNet, most two-stage models
+      2. list of per-sample tensors — RelTR, EGTR
+      3. NestedTensor — FlowSG, USG
     """
     device = torch.device("cpu")
     model = model.to(device)
     model.eval()
 
-    # Create synthetic images: [B, 3, H, W] — small for CPU
     B = 1
-    H, W = 224, 224  # small for fast CPU test
-    images = torch.randn(B, 3, H, W, device=device)
+    img_batch = torch.randn(B, 3, 224, 224, device=device)
+    img_list = [img_batch[0]]  # [3, H, W] per image
 
-    # Create synthetic targets (VG-style)
-    targets = [
+    targets_batch = [
         {
             "labels": torch.randint(1, 150, (3,), device=device),
             "boxes": torch.rand(3, 4, device=device),
@@ -212,30 +213,40 @@ def _synthetic_forward(model, method_name: str) -> None:
         }
     ]
 
-    with torch.no_grad():
-        try:
-            # Standard forward: (images, targets)
-            out = model(images, targets)
-            if isinstance(out, dict) and "loss" in out:
-                loss_val = (
-                    out["loss"].item() if torch.is_tensor(out["loss"]) else out["loss"]
-                )
-                print(f"      loss = {loss_val:.4f}")
-            elif isinstance(out, torch.Tensor):
-                print(f"      output shape = {out.shape}")
-            else:
-                print(f"      output type = {type(out).__name__}")
-        except Exception:
-            # Some models use NestedTensor — try wrapping
-            from utils.misc import nested_tensor_from_tensor_list
+    def _log_result(out):
+        if isinstance(out, dict) and "loss" in out:
+            loss_val = (
+                out["loss"].item() if torch.is_tensor(out["loss"]) else out["loss"]
+            )
+            print(f"      loss = {loss_val:.4f}")
+        elif isinstance(out, torch.Tensor):
+            print(f"      output shape = {out.shape}")
+        else:
+            print(f"      output type = {type(out).__name__}")
 
-            samples = nested_tensor_from_tensor_list([images])
-            out = model(samples, targets)
-            if isinstance(out, dict) and "loss" in out:
-                loss_val = (
-                    out["loss"].item() if torch.is_tensor(out["loss"]) else out["loss"]
-                )
-                print(f"      loss = {loss_val:.4f}")
+    with torch.no_grad():
+        # --- Format 1: batched tensor (Motifs, CVC, HSTRNet) ---
+        try:
+            out = model(img_batch, targets_batch)
+            _log_result(out)
+            return
+        except Exception:
+            pass
+
+        # --- Format 2: list of per-sample tensors (RelTR, EGTR) ---
+        try:
+            out = model(img_list, targets_batch)
+            _log_result(out)
+            return
+        except Exception:
+            pass
+
+        # --- Format 3: NestedTensor (FlowSG, USG) ---
+        from utils.misc import nested_tensor_from_tensor_list
+
+        samples = nested_tensor_from_tensor_list(img_list)
+        out = model(samples, targets_batch)
+        _log_result(out)
 
 
 def detect_changed_methods(changed_files_str: str) -> List[str]:
