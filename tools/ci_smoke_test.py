@@ -164,11 +164,13 @@ def try_instantiate_method(
         method_cls = import_method_class(method_name)
 
         # 4. Instantiate
+        # NOTE: vars() returns args.__dict__ by REFERENCE, not a copy.
+        # Popping from it would remove the attribute from args itself.
         print(f"    Instantiating {method_cls.__name__} ...")
-        kwargs = vars(args)
-        kwargs.pop("steps_per_epoch", None)
-        kwargs.pop("save_dir", None)
-        model = method_cls(steps_per_epoch=1, save_dir=args.save_dir, **kwargs)
+        all_kwargs = dict(vars(args))
+        save_dir = all_kwargs.pop("save_dir", str(ROOT / "outputs" / "CI_SmokeTest"))
+        all_kwargs.pop("steps_per_epoch", None)
+        model = method_cls(steps_per_epoch=1, save_dir=save_dir, **all_kwargs)
         print(f"    ✓ Instantiated {method_cls.__name__}")
 
         # 5. Try a synthetic forward pass (CPU-safe, small tensors)
