@@ -177,13 +177,15 @@ jobs:
           use-mamba: true
           channel-priority: strict
 
-      - name: Install CPU-only PyTorch
+      - name: Install CPU-only PyTorch + deps
         if: steps.check-changes.outputs.needs_smoke == 'true'
         shell: bash -el {0}
         run: |
           conda activate hsg
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install lightning
+          pip install lightning transformers timm scipy einops
+          # open_clip_torch is needed for USG ConvNeXt backbone
+          pip install open_clip_torch || echo "(open_clip_torch skipped — USG may use fallback)"
 
       - name: Run smoke tests
         if: steps.check-changes.outputs.needs_smoke == 'true'

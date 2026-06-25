@@ -22,7 +22,7 @@ import sys
 import traceback
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -36,15 +36,47 @@ sys.path.insert(0, str(ROOT))
 # ---------------------------------------------------------------------------
 
 
+def _normalize_name(name: str) -> str:
+    """Normalize a name for comparison: lowercase + strip underscores.
+
+    Handles the config filename ↔ method key mismatch:
+      GPS_Net.py → gpsnet,  PE_NET.py → penet,  SHA_GCL.py → shagcl
+    """
+    return name.lower().replace("_", "")
+
+
+def _find_method_for_model(model_stem: str) -> Optional[str]:
+    """Map a model file stem to a method_maps key.
+
+    Most models follow a direct naming convention (usg.py → "usg"),
+    so auto-detection via normalization works for new models.
+    Only truly irregular cases need to be listed explicitly.
+    """
+    from src.methods import method_maps
+
+    normalized = _normalize_name(model_stem)
+    for mm_key in method_maps:
+        if _normalize_name(mm_key) == normalized:
+            return mm_key
+
+    # Irregular mappings: model file stem → method_maps key
+    exceptions = {
+        "react_sgg": "react",
+        "transformer_sgg": "transformer",
+    }
+    return exceptions.get(model_stem.lower())
+
+
 def load_config(method_name: str, dataname: str = "VisualGenome") -> dict:
     """Load a config file and return its namespace as a dict."""
     cfg_path = ROOT / "configs" / dataname / f"{method_name}.py"
 
     if not cfg_path.exists():
-        # Try case-insensitive
+        # Try case-insensitive + underscore-insensitive
         cfg_dir = ROOT / "configs" / dataname
+        method_normalized = _normalize_name(method_name)
         for f in cfg_dir.glob("*.py"):
-            if f.stem.lower() == method_name.lower():
+            if _normalize_name(f.stem) == method_normalized:
                 cfg_path = f
                 break
         else:
@@ -194,8 +226,11 @@ def _synthetic_forward(model, method_name: str) -> None:
 
     Tries multiple input formats to accommodate different model interfaces:
       1. batched tensor [B,3,H,W] — Motifs, CVC, HSTRNet, most two-stage models
-      2. list of per-sample tensors — RelTR, EGTR
-      3. NestedTensor — FlowSG, USG
+      2. Tries without targets (inference mode)
+      3. list of per-sample tensors — RelTR, EGTR
+      4. NestedTensor — FlowSG, USG
+
+    If ALL formats fail, raises RuntimeError with the accumulated errors.
     """
     device = torch.device("cpu")
     model = model.to(device)
@@ -205,13 +240,17 @@ def _synthetic_forward(model, method_name: str) -> None:
     img_batch = torch.randn(B, 3, 224, 224, device=device)
     img_list = [img_batch[0]]  # [3, H, W] per image
 
+    # Synthetic targets covering multiple key names used by different models
     targets_batch = [
         {
             "labels": torch.randint(1, 150, (3,), device=device),
+            "class_labels": torch.randint(1, 150, (3,), device=device),
             "boxes": torch.rand(3, 4, device=device),
             "rel_annotations": torch.tensor([[0, 1, 5], [1, 2, 10]], device=device),
         }
     ]
+
+    errors: list[str] = []
 
     def _log_result(out):
         if isinstance(out, dict) and "loss" in out:
@@ -230,23 +269,39 @@ def _synthetic_forward(model, method_name: str) -> None:
             out = model(img_batch, targets_batch)
             _log_result(out)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"batched+tgt: {e}")
 
-        # --- Format 2: list of per-sample tensors (RelTR, EGTR) ---
+        # --- Format 2: inference without targets ---
+        try:
+            out = model(img_batch)
+            _log_result(out)
+            return
+        except Exception as e:
+            errors.append(f"batched+no_tgt: {e}")
+
+        # --- Format 3: list of per-sample tensors (RelTR, EGTR) ---
         try:
             out = model(img_list, targets_batch)
             _log_result(out)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"list+tgt: {e}")
 
-        # --- Format 3: NestedTensor (FlowSG, USG) ---
-        from utils.misc import nested_tensor_from_tensor_list
+        # --- Format 4: NestedTensor (FlowSG, USG) ---
+        try:
+            from utils.misc import nested_tensor_from_tensor_list
 
-        samples = nested_tensor_from_tensor_list(img_list)
-        out = model(samples, targets_batch)
-        _log_result(out)
+            samples = nested_tensor_from_tensor_list(img_list)
+            out = model(samples, targets_batch)
+            _log_result(out)
+            return
+        except Exception as e:
+            errors.append(f"nested+tgt: {e}")
+
+    raise RuntimeError(
+        f"All forward pass formats failed for {method_name}: {'; '.join(errors)}"
+    )
 
 
 def detect_changed_methods(changed_files_str: str) -> List[str]:
@@ -266,32 +321,15 @@ def detect_changed_methods(changed_files_str: str) -> List[str]:
         if "src/methods/" in f and f.endswith("_method.py"):
             stem = Path(f).stem.replace("_method", "")
             methods.add(stem)
-        # src/models/xxx.py → try to match to method
+        # src/models/xxx.py → auto-match to method_maps key
         elif "src/models/" in f and f.endswith(".py"):
-            stem = Path(f).stem.lower()
-            # Common mappings: model file name → method name
-            model_to_method = {
-                "reltr": "reltr",
-                "hstrnet": "hstrnet",
-                "flowsg": "flowsg",
-                "usg": "usg",
-                "motifs": "motifs",
-                "vctree": "vctree",
-                "cvc": "cvc",
-                "imp": "imp",
-                "transformer_sgg": "transformer",
-                "gpsnet": "gpsnet",
-                "penet": "penet",
-                "react_sgg": "react",
-                "squat": "squat",
-                "shagcl": "shagcl",
-            }
-            method = model_to_method.get(stem)
+            stem = Path(f).stem
+            method = _find_method_for_model(stem)
             if method:
                 methods.add(method)
-        # configs/VisualGenome/Xxx.py → Xxx
+        # configs/VisualGenome/Xxx.py → method (normalize underscores)
         elif "configs/" in f and f.endswith(".py"):
-            stem = Path(f).stem.lower()
+            stem = _normalize_name(Path(f).stem)
             methods.add(stem)
 
     return sorted(methods)
