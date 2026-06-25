@@ -36,8 +36,19 @@ class USG_Method(Base_method):
         # needs warmup_steps, matching the official code exactly.
         warmup_steps = getattr(self.hparams, "warmup_steps", None)
         if warmup_steps is not None and warmup_steps > 0:
-            steps_per_epoch = getattr(self.hparams, "steps_per_epoch", 1)
-            self.hparams.warmup_epoch = warmup_steps / max(steps_per_epoch, 1)
+            steps_per_epoch = getattr(self.hparams, "steps_per_epoch", None)
+            if steps_per_epoch is None or steps_per_epoch <= 0:
+                import logging
+                logging.warning(
+                    "USG: warmup_steps=%d but steps_per_epoch=%s — "
+                    "cannot convert to warmup_epoch. Skipping warmup.",
+                    warmup_steps, steps_per_epoch,
+                )
+            else:
+                # Result may be a fraction (e.g. 1000/14431 ≈ 0.07).
+                # timm CosineLRScheduler accepts float warmup_t and
+                # compares it with integer epochs — rounding is correct.
+                self.hparams.warmup_epoch = warmup_steps / steps_per_epoch
 
     def _build_criterion(self, **args):
         """USG criterion is built inside _build_model(). Skip base class construction."""
