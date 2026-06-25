@@ -31,6 +31,23 @@ REVIEW_PROMPT = """You are a senior Python code reviewer. Review the git diff be
 suggestions. Only report things that could cause wrong results, crashes, or silent
 data corruption.
 
+:warning: CRITICAL — You are ONLY seeing a git diff, NOT the complete file.
+The unchanged lines between hunks are HIDDEN from you. Before reporting any bug,
+ask yourself: "Could the code that fixes this already exist in the hidden parts?"
+
+Common FALSE POSITIVES to avoid:
+- "This argument/flags doesn't exist" → it may be defined outside the diff
+- "This deleted file path will crash" → the caller may already have exists() guard
+- "This exception handler was narrowed" → it may be an intentional fix, not a bug
+- "This import is missing" → it may be in an unchanged line above the diff
+- "This function changed signature" → all callers may have been updated in the diff
+
+A real bug requires PROOF from the diff itself. If you cannot point to a specific
+line in the diff that contradicts or breaks another specific line also in the diff,
+the finding is likely a false positive. For each finding, name the exact evidence:
+what line in the diff causes what failure, and what guard or definition is
+demonstrably absent from all of the diff.
+
 Focus on:
 1. **Changed behavior**: removed guards, narrowed conditions, changed defaults that
    callers depended on.
@@ -46,11 +63,8 @@ Focus on:
    optimizer config changes that silently alter convergence.
 
 For each finding, give: file path, line number (approximate from diff), one-line
-summary, a concrete failure scenario (inputs/state → wrong output/crash), and
+summary, a concrete failure scenario (inputs/state -> wrong output/crash), and
 severity (critical/high/medium/low).
-
-IMPORTANT: Only report bugs that are actually present in the diff, not
-hypothetical issues. If you see no bugs, say so clearly.
 
 Return your response as a JSON object with a single key "findings" containing
 an array of objects with keys:
@@ -65,7 +79,112 @@ Return {"findings": []} if there are no bugs.
 GIT DIFF:
 """
 
-MAX_DIFF_CHARS = 80_000  # keep well under context limits
+MAX_DIFF_CHARS = 55_000  # ~27K tokens, 留 5K 给上下文附录 + 90K+ 给输出
+
+
+def _build_context_appendix(diff: str) -> str:
+    """Extract key context from changed files that the diff alone hides.
+
+    The LLM only sees the diff, not the full file.  This function appends
+    critical context for each changed file — argparse add_argument calls,
+    existence guards, etc. — so the LLM can accurately judge whether a
+    diff line is a bug or safe.
+    """
+    # Collect unique Python files from the diff
+    files = set()
+    for line in diff.split("\n"):
+        if line.startswith("diff --git a/") and line.endswith(".py"):
+            name = line.split(" b/", 1)[-1]
+            if name.endswith(".py"):
+                files.add(name)
+
+    if not files:
+        return ""
+
+    appendix = []
+    appendix.append("\n\n---\n## FILE CONTEXT (key definitions from changed files)\n")
+
+    for fname in sorted(files):
+        path = ROOT / fname
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8", errors="replace")
+        lines = content.split("\n")
+        gathered: list[str] = []
+
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # argparse add_argument calls — reveals existing CLI flags
+            if ".add_argument(" in stripped:
+                gathered.append(f"  L{i}: {stripped}")
+            # os.path.exists / .exists() guards — reveals file-existence checks
+            if ".exists()" in stripped:
+                gathered.append(f"  L{i}: {stripped}")
+
+        if gathered:
+            appendix.append(f"\n### {fname}")
+            for g in gathered[:30]:  # cap per file
+                appendix.append(g)
+
+    if len(appendix) <= 1:
+        return ""  # no context gathered
+
+    appendix.append("")
+    return "\n".join(appendix)
+
+
+def _smart_truncate(diff: str, max_chars: int) -> str:
+    """Keep the largest file diffs, include a summary for the rest.
+
+    A simple head-cut would silently drop important sections at the end.
+    Instead, sort file diffs by size and keep the largest ones — these
+    are usually the most important changes in the PR.
+    """
+    if len(diff) <= max_chars:
+        return diff
+
+    chunks = diff.split("\ndiff --git ")
+    if len(chunks) <= 1:
+        return diff[:max_chars] + "\n... (truncated)"
+
+    header = chunks[0]
+    file_diffs = [("diff --git " + c) for c in chunks[1:]]
+    file_diffs.sort(key=len, reverse=True)
+
+    included = [header]
+    total = len(header)
+    skipped_files = []
+
+    for fd in file_diffs:
+        fd_len = len(fd) + 1  # +1 for the leading \n
+        if total + fd_len < max_chars:
+            included.append(fd)
+            total += fd_len
+        else:
+            # Extract filename for the summary footer
+            name = (
+                fd.split("\n", 1)[0].split(" b/", 1)[-1].strip() if "\n" in fd else "?"
+            )
+            skipped_files.append(name)
+
+    parts = included
+    if skipped_files:
+        tail = (
+            "\n\n---\n"
+            f"({len(skipped_files)} smaller files omitted to fit context: "
+            + ", ".join(skipped_files)
+            + ")\n"
+        )
+        parts.append(tail)
+
+    result = "\n".join(parts)
+    print(
+        f"[review] Smart truncate: {len(file_diffs)} files, "
+        f"kept {len(included) - 1}, "
+        f"dropped {len(skipped_files)} "
+        f"({len(diff)} → {len(result)} chars)"
+    )
+    return result
 
 
 def get_pr_diff() -> Optional[str]:
@@ -148,19 +267,25 @@ def _call_openai_compatible(
     import urllib.error
 
     if len(diff) > MAX_DIFF_CHARS:
-        diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
-        print(f"[review] Diff truncated to {MAX_DIFF_CHARS} chars")
+        diff = _smart_truncate(diff, MAX_DIFF_CHARS)
+
+    context = _build_context_appendix(diff)
+    payload = REVIEW_PROMPT + diff
+    if context:
+        payload += context
+        print(f"[review] Appended file context ({len(context)} chars)")
 
     body = json.dumps(
         {
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": 16384,
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a code reviewer. Return only valid JSON with a 'findings' key.",
+                    "content": "You are a code reviewer. Return only valid JSON with a 'findings' key. "
+                    "Do NOT use reasoning or thinking. Output the JSON directly.",
                 },
-                {"role": "user", "content": REVIEW_PROMPT + diff},
+                {"role": "user", "content": payload},
             ],
         }
     ).encode()
@@ -177,10 +302,19 @@ def _call_openai_compatible(
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             data = json.loads(resp.read())
-            # OpenAI format: choices[0].message.content
             choices = data.get("choices", [])
             if choices and choices[0].get("message"):
-                return choices[0]["message"]["content"]
+                content = choices[0]["message"]["content"]
+                # V4-Pro may put output in reasoning_content and leave content empty
+                if not content and choices[0]["message"].get("reasoning_content"):
+                    content = choices[0]["message"]["reasoning_content"]
+                    print(
+                        "[review] Used reasoning_content fallback (content was empty)"
+                    )
+                if content and content.strip():
+                    return content
+                else:
+                    print("[review] Empty response content from API")
     except urllib.error.HTTPError as e:
         print(f"[review] HTTP {e.code}: {e.read().decode()[:500]}")
     except Exception as e:
@@ -235,8 +369,13 @@ def _call_anthropic_http(api_key: str, model: str, diff: str) -> Optional[str]:
 # ================================================================
 
 
-def parse_findings(text: str) -> list[dict]:
-    """Extract findings JSON from the LLM response text."""
+def parse_findings(text: str) -> Optional[list[dict]]:
+    """Extract findings JSON from the LLM response text.
+
+    Returns:
+        list[dict] — findings parsed successfully (may be empty).
+        None       — JSON parsing failed; the LLM response was malformed.
+    """
     # Try ```json ... ``` code block first
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
@@ -270,7 +409,8 @@ def parse_findings(text: str) -> list[dict]:
                     except json.JSONDecodeError:
                         break
 
-    return []
+    # If we reach here, JSON parsing failed
+    return None
 
 
 # ================================================================
@@ -278,8 +418,23 @@ def parse_findings(text: str) -> list[dict]:
 # ================================================================
 
 
-def format_markdown(findings: list[dict], diff_stats: str, backend: str) -> str:
-    """Format findings as a nice markdown PR comment."""
+def format_markdown(
+    findings: Optional[list[dict]], diff_stats: str, backend: str
+) -> str:
+    """Format findings as a nice markdown PR comment.
+
+    Args:
+        findings: list of finding dicts, empty list (no bugs), or
+                  None (JSON parsing failed).
+    """
+    if findings is None:
+        return (
+            f"## :warning: LLM Code Review ({backend})\n\n"
+            "**Unable to parse the review response.** The LLM returned "
+            "malformed output. Check the CI logs for the raw response.\n\n"
+            f"<sub>Reviewed {diff_stats}.</sub>"
+        )
+
     if not findings:
         return (
             f"## :robot: LLM Code Review ({backend})\n\n"
@@ -389,10 +544,15 @@ def main() -> int:
 
     # 3. Parse findings
     findings = parse_findings(response)
-    print(f"[review] {backend} found {len(findings)} finding(s)")
-
-    # 4. Format and save
-    markdown = format_markdown(findings, diff_stats, backend)
+    if findings is None:
+        print(f"[review] {backend} response could not be parsed as JSON")
+        print("[review] Raw response (first 500 chars):")
+        print(response[:500])
+        # Write a failure comment so the PR knows the review broke
+        markdown = format_markdown(None, diff_stats, backend)
+    else:
+        print(f"[review] {backend} found {len(findings)} finding(s)")
+        markdown = format_markdown(findings, diff_stats, backend)
 
     output_path = Path("/tmp/review_findings.md")
     output_path.write_text(markdown, encoding="utf-8")
