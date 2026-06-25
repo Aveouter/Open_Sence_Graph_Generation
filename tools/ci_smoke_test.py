@@ -165,7 +165,10 @@ def try_instantiate_method(
 
         # 4. Instantiate
         print(f"    Instantiating {method_cls.__name__} ...")
-        model = method_cls(steps_per_epoch=1, save_dir=args.save_dir, **vars(args))
+        kwargs = vars(args)
+        kwargs.pop("steps_per_epoch", None)
+        kwargs.pop("save_dir", None)
+        model = method_cls(steps_per_epoch=1, save_dir=args.save_dir, **kwargs)
         print(f"    ✓ Instantiated {method_cls.__name__}")
 
         # 5. Try a synthetic forward pass (CPU-safe, small tensors)
@@ -173,10 +176,9 @@ def try_instantiate_method(
             print("    Running synthetic forward pass ...")
             _synthetic_forward(model, method_name)
             print("    ✓ Forward pass OK")
-        except Exception as e:
-            # Forward pass failure is a warning, not a hard error
-            # (some models have complex input requirements)
-            print(f"    ⚠ Forward pass skipped: {e}")
+        except NotImplementedError:
+            # Models that explicitly cannot support synthetic forward
+            print("    ⚠ Forward pass skipped (not supported by this model)")
 
         return True, ""
 

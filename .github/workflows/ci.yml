@@ -51,8 +51,12 @@ jobs:
       - name: Get changed Python files
         id: changed-files
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          if [ -z "$BASE" ]; then
+          # On push events use github.event.before; on PRs use base.sha
+          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
+          elif [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
             BASE="origin/main"
           fi
           FILES=$(git diff --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.py' | tr '\n' ' ')
@@ -64,7 +68,7 @@ jobs:
         run: |
           echo "Changed files: ${{ steps.changed-files.outputs.files }}"
           ruff check ${{ steps.changed-files.outputs.files }}
-          ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
+          ruff format --check --diff ${{ steps.changed-files.outputs.files }}
 
   # ============================================================
   # Job 2: Review — LLM-based bug detection (~30s)
@@ -136,8 +140,13 @@ jobs:
       - name: Check if model/config code changed
         id: check-changes
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          if [ -z "$BASE" ]; then BASE="origin/main"; fi
+          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
+          elif [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="origin/main"
+          fi
           FILES=$(git diff --name-only "$BASE...HEAD" 2>/dev/null || true)
           NEEDS_SMOKE="false"
           for f in $FILES; do
@@ -149,6 +158,7 @@ jobs:
             esac
           done
           echo "needs_smoke=$NEEDS_SMOKE" >> $GITHUB_OUTPUT
+          echo "changed_files=$FILES" >> $GITHUB_OUTPUT
           echo "Changed files: $FILES"
 
       - name: Skip smoke test (no model/config changes)
@@ -179,4 +189,4 @@ jobs:
         shell: bash -el {0}
         run: |
           conda activate hsg
-          python tools/ci_smoke_test.py --skip-train
+          python tools/ci_smoke_test.py --changed-models "${{ steps.check-changes.outputs.changed_files }}"

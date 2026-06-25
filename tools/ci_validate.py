@@ -349,7 +349,7 @@ def get_pr_changed_files() -> List[str]:
     try:
         base_ref = os.environ.get("GITHUB_BASE_REF", "origin/main")
         result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base_ref}...HEAD"],
+            ["git", "diff", "--name-only", "--diff-filter=ACMRD", f"{base_ref}...HEAD"],
             capture_output=True,
             text=True,
             cwd=ROOT,
@@ -361,7 +361,7 @@ def get_pr_changed_files() -> List[str]:
 
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", "HEAD~1...HEAD"],
+            ["git", "diff", "--name-only", "--diff-filter=ACMRD", "HEAD~1...HEAD"],
             capture_output=True,
             text=True,
             cwd=ROOT,

@@ -235,8 +235,13 @@ def _call_anthropic_http(api_key: str, model: str, diff: str) -> Optional[str]:
 # ================================================================
 
 
-def parse_findings(text: str) -> list[dict]:
-    """Extract findings JSON from the LLM response text."""
+def parse_findings(text: str) -> Optional[list[dict]]:
+    """Extract findings JSON from the LLM response text.
+
+    Returns:
+        list[dict] — findings parsed successfully (may be empty).
+        None       — JSON parsing failed; the LLM response was malformed.
+    """
     # Try ```json ... ``` code block first
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
@@ -270,7 +275,8 @@ def parse_findings(text: str) -> list[dict]:
                     except json.JSONDecodeError:
                         break
 
-    return []
+    # If we reach here, JSON parsing failed
+    return None
 
 
 # ================================================================
@@ -278,8 +284,23 @@ def parse_findings(text: str) -> list[dict]:
 # ================================================================
 
 
-def format_markdown(findings: list[dict], diff_stats: str, backend: str) -> str:
-    """Format findings as a nice markdown PR comment."""
+def format_markdown(
+    findings: Optional[list[dict]], diff_stats: str, backend: str
+) -> str:
+    """Format findings as a nice markdown PR comment.
+
+    Args:
+        findings: list of finding dicts, empty list (no bugs), or
+                  None (JSON parsing failed).
+    """
+    if findings is None:
+        return (
+            f"## :warning: LLM Code Review ({backend})\n\n"
+            "**Unable to parse the review response.** The LLM returned "
+            "malformed output. Check the CI logs for the raw response.\n\n"
+            f"<sub>Reviewed {diff_stats}.</sub>"
+        )
+
     if not findings:
         return (
             f"## :robot: LLM Code Review ({backend})\n\n"
@@ -389,10 +410,15 @@ def main() -> int:
 
     # 3. Parse findings
     findings = parse_findings(response)
-    print(f"[review] {backend} found {len(findings)} finding(s)")
-
-    # 4. Format and save
-    markdown = format_markdown(findings, diff_stats, backend)
+    if findings is None:
+        print(f"[review] {backend} response could not be parsed as JSON")
+        print("[review] Raw response (first 500 chars):")
+        print(response[:500])
+        # Write a failure comment so the PR knows the review broke
+        markdown = format_markdown(None, diff_stats, backend)
+    else:
+        print(f"[review] {backend} found {len(findings)} finding(s)")
+        markdown = format_markdown(findings, diff_stats, backend)
 
     output_path = Path("/tmp/review_findings.md")
     output_path.write_text(markdown, encoding="utf-8")
