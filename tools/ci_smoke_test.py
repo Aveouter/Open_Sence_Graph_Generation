@@ -165,7 +165,11 @@ def try_instantiate_method(
 
         # 4. Instantiate
         print(f"    Instantiating {method_cls.__name__} ...")
-        model = method_cls(steps_per_epoch=1, save_dir=args.save_dir, **vars(args))
+        # Merge all kwargs: explicit values take precedence over config defaults
+        kwargs = dict(vars(args))
+        kwargs["steps_per_epoch"] = 1
+        kwargs["save_dir"] = kwargs.get("save_dir", args.save_dir)
+        model = method_cls(**kwargs)
         print(f"    ✓ Instantiated {method_cls.__name__}")
 
         # 5. Try a synthetic forward pass (CPU-safe, small tensors)

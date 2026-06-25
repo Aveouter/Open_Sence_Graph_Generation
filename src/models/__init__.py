@@ -15,6 +15,11 @@ from .penet import PENetContext, build_penet
 from .react_sgg import REACTModel, build_react
 from .squat import SquatModel, build_squat
 from .shagcl import SHAGCLModel, build_shagcl
+from .ci_adversarial import (
+    CIAdversarialModel,
+    CIAdversarialCriterion,
+    build_ci_adversarial,
+)
 
 __all__ = [
     "RelTR",
@@ -45,4 +50,7 @@ __all__ = [
     "build_squat",
     "SHAGCLModel",
     "build_shagcl",
+    "CIAdversarialModel",
+    "CIAdversarialCriterion",
+    "build_ci_adversarial",
 ]

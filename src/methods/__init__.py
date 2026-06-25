@@ -13,6 +13,7 @@ from .penet_method import PENet_Method
 from .react_method import REACT_Method
 from .squat_method import Squat_Method
 from .shagcl_method import SHAGCL_Method
+from .ci_adversarial_method import CiAdversarial_Method
 
 # 规范method name 为小写
 method_maps = {
@@ -31,6 +32,7 @@ method_maps = {
     "react": REACT_Method,
     "squat": Squat_Method,
     "shagcl": SHAGCL_Method,
+    "ci_adversarial": CiAdversarial_Method,
 }
 
 __all__ = [
@@ -49,4 +51,5 @@ __all__ = [
     "react_method",
     "squat_method",
     "shagcl_method",
+    "ci_adversarial_method",
 ]
