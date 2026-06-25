@@ -63,7 +63,7 @@ def create_parser():
     # method parameters
     parser.add_argument('--method', '-m', default='HSTRNet', type=str,
                         choices=[
-                            'RelTR', 'HSTRNet', 'EGTR', 'FlowSG',
+                            'RelTR', 'RelTR_B6', 'RelTR_Primitive', 'HSTRNet', 'EGTR', 'FlowSG',
                             'Motifs', 'VCTree', 'TDE', 'IMP', 'Transformer',
                             'GPSNet', 'PENet', 'SQUAT', 'SHAGCL', 'REACT',
                             'CVC',

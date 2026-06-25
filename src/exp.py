@@ -260,7 +260,7 @@ class BaseExperiment(object):
         with ``torch.load(..., weights_only=False)`` and call
         ``_adapt_state_dict`` yourself.
         """
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
 
         if not isinstance(ckpt, dict):
             return ckpt  # raw state dict
