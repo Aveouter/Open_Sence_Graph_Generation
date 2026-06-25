@@ -158,7 +158,8 @@ jobs:
             esac
           done
           echo "needs_smoke=$NEEDS_SMOKE" >> $GITHUB_OUTPUT
-          echo "changed_files=$FILES" >> $GITHUB_OUTPUT
+          SINGLE_LINE=$(echo "$FILES" | tr '\n' ' ')
+          echo "changed_files=$SINGLE_LINE" >> $GITHUB_OUTPUT
           echo "Changed files: $FILES"
 
       - name: Skip smoke test (no model/config changes)
