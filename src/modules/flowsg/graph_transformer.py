@@ -274,11 +274,21 @@ class FlowSGTransformerBlock(nn.Module):
         )
 
         # Edge update MLP (refines edges from node pair features + time)
+        # Paper §4.3 Eq.: z_ij = [h_i, h_j, h_i-h_j, M_i, M_j, φ(t)]
         self.edge_update = nn.Sequential(
-            nn.Linear(dim * 3 + time_dim, dim),
+            nn.Linear(dim * 5 + time_dim, dim),
             nn.SiLU(),
             nn.Linear(dim, dim),
         )
+
+        # Edge FiLM gate + projection (§4.3 Eq.(17))
+        # e_ij^(ℓ+1) = FiLM(Emb(e_ij^(ℓ+1))) + W_e · e_ij^(ℓ+1)
+        self.edge_norm = nn.LayerNorm(dim)
+        self.edge_film = nn.Sequential(
+            nn.Linear(dim, dim * 2),
+            nn.SiLU(),
+        )
+        self.edge_fc = nn.Linear(dim, dim)
 
     def forward(
         self,
@@ -298,7 +308,6 @@ class FlowSGTransformerBlock(nn.Module):
 
         # 2. Cross-Attention to image features
         q = self.adaln_cross(node_feat, t_emb.unsqueeze(1))
-        # image_mask: True=padded/ignore. Only pass mask if there are actual padded positions.
         if image_mask is not None and image_mask.any():
             cross_out, _ = self.cross_attn(
                 q, image_feat, image_feat, key_padding_mask=image_mask
@@ -308,28 +317,34 @@ class FlowSGTransformerBlock(nn.Module):
         node_feat = node_feat + cross_out
 
         # 3. FMA (Flow-conditioned Message Aggregation)
-        node_feat = node_feat + self.fma(
-            self.adaln_fma(node_feat, t_emb.unsqueeze(1)),
-            edge_feat,
-            t_emb,
-        )
+        # Capture per-node messages M_i(t) for edge update coupling.
+        fma_in = self.adaln_fma(node_feat, t_emb.unsqueeze(1))
+        msg_i = self.fma(fma_in, edge_feat, t_emb)  # [B, N, dim] — Eq.(17)
+        node_feat = node_feat + msg_i
 
         # 4. FFN
         node_feat = node_feat + self.ffn(self.adaln_ffn(node_feat, t_emb.unsqueeze(1)))
 
-        # 5. Edge update (from refined node pairs + time context)
-        # Build per-edge features: [h_i, h_j, h_i-h_j, φ(t)]
+        # 5. Edge update (from refined node pairs + FMA messages + time context)
+        # z_ij = [h_i, h_j, h_i-h_j, M_i, M_j, φ(t)]  — §4.3 Eq.(17)
         h_i = node_feat.unsqueeze(2).expand(-1, -1, N, -1)  # [B, N, N, D]
         h_j = node_feat.unsqueeze(1).expand(-1, N, -1, -1)  # [B, N, N, D]
         h_diff = h_i - h_j
-        t_edge = (
-            t_emb.unsqueeze(1).unsqueeze(1).expand(-1, N, N, -1)
-        )  # [B, N, N, time_dim]
+        m_i = msg_i.unsqueeze(2).expand(-1, -1, N, -1)  # [B, N, N, D]
+        m_j = msg_i.unsqueeze(1).expand(-1, N, -1, -1)  # [B, N, N, D]
+        t_edge = t_emb.unsqueeze(1).unsqueeze(1).expand(-1, N, N, -1)
 
         z_ij = torch.cat(
-            [h_i, h_j, h_diff, t_edge], dim=-1
-        )  # [B, N, N, 2*D + D + time_dim]
-        edge_feat = edge_feat + self.edge_update(z_ij)
+            [h_i, h_j, h_diff, m_i, m_j, t_edge], dim=-1
+        )  # [B, N, N, 5*D + time_dim]
+        edge_feat_raw = edge_feat + self.edge_update(z_ij)
+
+        # §4.3 Eq.(17): e_ij^(ℓ+1) = FiLM(Emb(e)) + W_e · e
+        edge_norm = self.edge_norm(edge_feat_raw)
+        film_params = self.edge_film(edge_norm)
+        scale, bias = film_params.chunk(2, dim=-1)
+        e_filmed = edge_feat_raw * (1.0 + scale.sigmoid()) + bias
+        edge_feat = e_filmed + self.edge_fc(edge_feat_raw)
 
         return node_feat, edge_feat
 

@@ -306,7 +306,7 @@ class FrozenMask2Former(nn.Module):
     def available(self) -> bool:
         return self._ok
 
-    def forward(self, images: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, images: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """Run frozen Mask2Former.
 
         Args:
@@ -314,8 +314,9 @@ class FrozenMask2Former(nn.Module):
                     Resized to 384×384 internally (Swin-S input size).
 
         Returns:
-            boxes:  [B, N, 4]  normalized cxcywh boxes (N = num_queries)
-            scores: [B, N]     detection confidence  (for logging)
+            boxes:       [B, N, 4]        normalized cxcywh boxes (N = num_queries)
+            coco_logits: [B, N, 134]      COCO class logits (133 classes + no-obj)
+            scores:      [B, N]           detection confidence  (for logging)
         """
         from torchvision.ops import masks_to_boxes
 
@@ -363,17 +364,22 @@ class FrozenMask2Former(nn.Module):
                 boxes_norm[b, nonempty, 3] = (bboxes[:, 3] - bboxes[:, 1]) / 96  # h
 
         # Take top-N by score; pad if fewer than N
+        num_coco_cls = cls.shape[-1]  # 81 (instance) or 134 (panoptic)
         top_boxes = torch.zeros(B, N, 4, device=device)
         top_scores = torch.zeros(B, N, device=device)
+        top_coco_logits = torch.zeros(B, N, num_coco_cls, device=device)
         for b in range(B):
             k = min(N, M)
-            _, idx = torch.topk(scores[b], k=k)
-            top_boxes[b, :k] = boxes_norm[b, idx]
-            top_scores[b, :k] = scores[b, idx]
-            if k == 0:
+            if k > 0:
+                _, idx = torch.topk(scores[b], k=k)
+                top_boxes[b, :k] = boxes_norm[b, idx]
+                top_scores[b, :k] = scores[b, idx]
+                top_coco_logits[b, :k] = cls[b, idx]
+            else:
                 top_boxes[b] = 0.1 + 0.8 * torch.rand(N, 4, device=device)
+                top_coco_logits[b, :, -1] = 1.0  # "no-object" for empty
 
-        return top_boxes, top_scores
+        return top_boxes, top_coco_logits, top_scores
 
 
 # ==============================================================================
@@ -438,6 +444,12 @@ class FlowSG(nn.Module):
         )
         nn.init.constant_(self.obj_bbox_head[-1].weight, 0)
         nn.init.constant_(self.obj_bbox_head[-1].bias, 0)
+
+        # COCO → VG class projection (§4.2: detector class priors)
+        # M2F outputs 81 (instance) or 134 (panoptic) COCO logits.
+        # Built on first forward once the actual count is known.
+        self.coco_to_vg = None
+        self._coco_cls_count = None
 
         # VQ-VAE: appearance tokenizer (§4.1)
         # Input: CLIP spatial ROI features u_i = CLIP_img(crop(I, b_i))
@@ -577,11 +589,18 @@ class FlowSG(nn.Module):
 
         # 2. Object proposals (§5.1: frozen Mask2Former)
         if self.detector.available:
-            # Frozen Mask2Former (COCO pretrained) → object boxes
-            obj_boxes, _obj_scores = self.detector(samples.tensors)
-            # Uniform class prior: VG class head learns from denoiser supervision
-            obj_logits = torch.zeros(B, N, self.num_classes, device=device)
-            obj_logits[..., -1] = 1.0  # "background" prior
+            # Frozen Mask2Former (COCO pretrained) → boxes + class priors
+            # §4.2: object categories from detector serve as priors, NOT masked
+            obj_boxes, coco_logits, _obj_scores = self.detector(samples.tensors)
+            # Lazy-init COCO→VG projection on first forward
+            if self.coco_to_vg is None:
+                self._coco_cls_count = coco_logits.shape[-1]
+                self.coco_to_vg = nn.Sequential(
+                    nn.Linear(self._coco_cls_count, self.dim),
+                    nn.SiLU(),
+                    nn.Linear(self.dim, self.num_classes),
+                ).to(device)
+            obj_logits = self.coco_to_vg(coco_logits)  # [B, N, num_classes]
         else:
             # Fallback: ResNet backbone + grid-based detection heads
             backbone_feats, _ = self.backbone(samples)
@@ -623,12 +642,12 @@ class FlowSG(nn.Module):
                 node_boxes_used = gt_boxes
                 node_labels_for_denoiser = gt_labels
             else:
-                # Normal: noisy boxes (CFM) + masked object labels (DFM §4.2)
+                # Normal: noisy boxes (CFM). Object labels NOT masked (§4.2: "object
+                # categories are not masked but serve as priors"). Only rel/app are DFM.
                 node_boxes_used = g_t
-                obj_mask_prob = 1.0 - kappa.squeeze(-1)  # [B, 1]
-                obj_rand = torch.rand(B, N, device=device)
-                node_labels_for_denoiser = gt_labels.clone()
-                node_labels_for_denoiser[obj_rand < obj_mask_prob] = self.mask_id_obj
+                node_labels_for_denoiser = (
+                    gt_labels  # clean GT → denoiser (+ loss supervision)
+                )
 
             # ── DFM: mask predicates & appearance (§4.2) ──
 
