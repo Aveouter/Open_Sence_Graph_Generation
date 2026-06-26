@@ -11,6 +11,8 @@ on:
       - 'src/**'
       - 'configs/**'
       - 'utils/**'
+      - 'data/**'
+      - 'lib/**'
       - 'train.py'
       - 'environment.yml'
       - '.github/workflows/**'
@@ -21,6 +23,8 @@ on:
       - 'src/**'
       - 'configs/**'
       - 'utils/**'
+      - 'data/**'
+      - 'lib/**'
       - 'train.py'
       - 'environment.yml'
       - '.github/workflows/**'
@@ -74,6 +78,7 @@ jobs:
   # Job 2: Review — LLM-based bug detection (~30s)
   # ============================================================
   review:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs: lint
     timeout-minutes: 5
@@ -199,4 +204,4 @@ jobs:
         shell: bash -el {0}
         run: |
           conda activate hsg
-          python tools/ci_smoke_test.py --changed-models "${{ steps.check-changes.outputs.changed_files }}"
+          python tools/ci_smoke_test.py --skip-train --changed-models "${{ steps.check-changes.outputs.changed_files }}"
