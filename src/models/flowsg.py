@@ -620,21 +620,20 @@ class FlowSG(nn.Module):
             # INFERENCE
             # ================================================================
 
-            # Initialize proposal boxes from detector (already sigmoid'd [0,1])
-            init_boxes = obj_boxes.detach()
-            # Add small noise for exploration, then clamp to valid range
-            g_t = (init_boxes + 0.01 * torch.randn_like(init_boxes)).clamp(0, 1)
+            # Sample boxes from Gaussian prior p_0 = N(0, I_4) (§4.2 CFM).
+            # Aligned with training: g_0 ~ N(0,I) → ODE integration → g_1 ≈ data.
+            g_0 = self.cfm.sample_prior((B, N, 4), device)
 
-            # Initialize appearance codes from VQ-VAE
+            # Initialize appearance codes from VQ-VAE (detector ROI features)
             with torch.no_grad():
                 vq_out = self.app_vqvae(roi_features)
             init_app = vq_out["indices"].clamp(0, self.codebook_size - 1)
 
-            # Initialize predicates at marginal (most common predicate = 1)
-            # In paper: "at" (pred 1 in VG) serves as default
+            # Initialize predicates at marginal (most common predicate)
             init_preds = torch.ones(B, N, N, dtype=torch.long, device=device)
 
-            # ODE solver velocity function
+            # ODE solver velocity function from t=0 → t=1.
+            # obj_logits and init_app are fixed (image-conditioned), only boxes evolve.
             def velocity_fn(x: Tensor, t_step: Tensor) -> Tensor:
                 node_emb = self._build_node_embedding(obj_logits, init_app, x)
                 edge_emb = self._build_edge_embedding(init_preds)
@@ -647,12 +646,14 @@ class FlowSG(nn.Module):
                 )
                 return self.geometry_head(node_feat)
 
-            # Solve ODE
+            # Solve ODE: dg/dt = v_θ(g_t, t) from t=0 → t=1 (§3, §4.2)
             solver = ODESolver(num_steps=self.num_flow_steps)
-            refined_boxes = solver.solve(velocity_fn, g_t)
+            refined_boxes = solver.solve(velocity_fn, g_0)
+            # Clamp to normalized coordinate range after integration
+            refined_boxes = refined_boxes.clamp(0, 1)
 
-            # Final forward pass at t≈0 (clean state)
-            t_final = torch.zeros(B, device=device)
+            # Final forward pass at t=1 (clean state) for semantic prediction (§4.2, Eq.19)
+            t_final = torch.ones(B, device=device)
             node_emb = self._build_node_embedding(obj_logits, init_app, refined_boxes)
             edge_emb = self._build_edge_embedding(init_preds)
             node_feat, edge_feat = self.denoiser(
