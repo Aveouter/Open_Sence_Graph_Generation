@@ -224,6 +224,13 @@ configs/
 
 ---
 
+## Reports And Guides
+
+- [Published Method Reproduction Results](guides/published_method_reproduction.md) — concise PR-ready summary of reproduced results for published paper methods.
+- [Adding A New Model](guides/adding_new_model.md) — step-by-step contributor guide for integrating a new method into the main training and evaluation pipeline.
+
+---
+
 ## CI/CD Pipeline
 
 GitHub Actions runs on every PR and push to `main`:
@@ -244,6 +251,7 @@ OpenSGG/
 ├── configs/                               # Per-dataset, per-method configs
 │   ├── _template.py
 │   └── VisualGenome/                      # 17 method configs
+├── guides/                                # Reproduction reports and contributor guides
 ├── src/                                   # Core framework
 │   ├── exp.py                             # Experiment orchestration
 │   ├── methods/                           # LightningModule wrappers (17 methods)
@@ -283,12 +291,8 @@ OpenSGG/
 
 ## How to Add a New Method
 
-1. **Model** — implement in `src/models/`
-2. **Lightning wrapper** — subclass `BaseMethod` in `src/methods/`
-3. **Register** — add to `method_maps` in `src/methods/__init__.py`
-4. **Config** — add `configs/<Dataset>/<Method>.py`
-5. (Optional) Evaluation adapter in `src/core/metrics.py`
-6. **CLI** — update `utils/parser.py` if adding a new method name
+See [Adding A New Model](guides/adding_new_model.md) for the complete model,
+method wrapper, config, registry, CLI, metric, and smoke-test checklist.
 
 ---
 
