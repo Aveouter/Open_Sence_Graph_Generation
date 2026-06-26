@@ -664,13 +664,14 @@ class FlowSG(nn.Module):
                 rels = target.get("rel_annotations", None)
                 if rels is not None and len(rels) > 0:
                     s, o, p = rels[:, 0].long(), rels[:, 1].long(), rels[:, 2].long()
-                    # Clamp to valid indices
-                    s = s.clamp(0, N - 1)
-                    o = o.clamp(0, N - 1)
-                    p = p.clamp(0, self.num_predicates - 1)
-                    clean_pred_dense[b_idx, s, o] = (
-                        p  # 0-indexed, 0 = background/no-relation
-                    )
+                    # Filter OOB indices (safety); valid targets should always be in range
+                    valid = (s >= 0) & (s < N) & (o >= 0) & (o < N)
+                    s, o, p = s[valid], o[valid], p[valid]
+                    if len(p) > 0:
+                        p = p.clamp(0, self.num_predicates - 1)
+                        clean_pred_dense[b_idx, s, o] = (
+                            p  # 0-indexed, 0 = background/no-relation
+                        )
 
             # Mask predicate tokens
             pred_tokens = clean_pred_dense.clone()
