@@ -54,37 +54,9 @@ def load_data(
         drop_last=kwargs.get('drop_last', False),
     )
 
-    if 'ThyroTriples' in dataname:
-        # radom num in shape (304,304,3,10) Imitated video dataloader
-        from .dataloader_thyrotriples import load_data as load_thyrotriples
-        prefer = dict(
-            # —— 核心参数 ——
-            batch_size=batch_size,
-            val_batch_size=val_batch_size,
-            test_batch_size=val_batch_size,
-            num_workers=num_workers,
-            data_root=data_root,
-            # —— 其他参数 ——
-            in_shape=cfg_dataloader['in_shape'],
-            pre_seq_length=cfg_dataloader['pre_seq_length'],
-            aft_seq_length=cfg_dataloader['aft_seq_length'],
-            distributed=cfg_dataloader['distributed'],
-            use_augment=cfg_dataloader['use_augment'],
-            use_prefetcher=cfg_dataloader['use_prefetcher'],
-            drop_last=cfg_dataloader['drop_last'],
-        )
-        extra_kwargs = kwargs.copy()
-        # 移除已经在 prefer 中设置的参数，避免重复
-        for key in ['pre_seq_length', 'aft_seq_length', 'in_shape', 'distributed',
-                    'use_augment', 'use_prefetcher', 'drop_last']:
-            if key in extra_kwargs:
-                del extra_kwargs[key]
-        return _safe_call(load_thyrotriples, prefer, extra_kwargs, verbose=False)
-    
-
-    elif 'VisualGenome' in dataname or 'OpenImagesV6' in dataname:
+    if 'VisualGenome' in dataname or 'OpenImageV6' in dataname:
         from .dataloader_VisualGenome import load_data as load_VG
-        dataname = 'vg' if 'VisualGenome' in dataname else ('oi' if 'OpenImagesV6' in dataname else dataname)
+        dataname = 'vg' if 'VisualGenome' in dataname else ('oi' if 'OpenImageV6' in dataname else dataname)
         merged = dict(
             dataset=dataname,
             batch_size=batch_size,

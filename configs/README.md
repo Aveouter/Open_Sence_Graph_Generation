@@ -11,12 +11,9 @@ configs/<DatasetName>/<ModelName>.py
 
 ```
 configs/
-├── VisualGenome/
-│   ├── HSTRNet.py
-│   └── RelTR.py
-├── ThyroTriples/
-│   └── ThyroTriples.yaml
-└── _template.py          # Template for new configs
+└── VisualGenome/
+    ├── HSTRNet.py
+    └── RelTR.py          # Template for new configs
 ```
 
 ## Adding a New Config

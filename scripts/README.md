@@ -11,8 +11,6 @@ scripts/
 │   └── build_clip_predicate_embeddings.py
 ├── cluster/                      # Clustering utilities
 │   └── GBC.py
-├── configs/                      # Auxiliary config files
-│   └── ThyroTriples.yaml
 └── output/                       # Generated output artifacts
     ├── meta.json
     ├── predicate_paragraphs.json
@@ -28,6 +26,3 @@ scripts/
 
 ### Cluster
 - `GBC.py` — Gradient-based clustering for predicate grouping/discovery.
-
-### Configs
-- `ThyroTriples.yaml` — Dataset configuration for the ThyroTriples dataset.
