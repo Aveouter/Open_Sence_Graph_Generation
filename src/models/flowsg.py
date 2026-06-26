@@ -488,7 +488,7 @@ class FlowSG(nn.Module):
             else:
                 # Normal: noisy boxes (CFM) + masked object labels (DFM §4.2)
                 node_boxes_used = g_t
-                obj_mask_prob = 1.0 - kappa  # [B, 1]
+                obj_mask_prob = 1.0 - kappa.squeeze(-1)  # [B, 1]
                 obj_rand = torch.rand(B, N, device=device)
                 node_labels_for_denoiser = gt_labels.clone()
                 node_labels_for_denoiser[obj_rand < obj_mask_prob] = self.mask_id_obj
