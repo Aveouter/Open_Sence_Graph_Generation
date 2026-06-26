@@ -16,11 +16,17 @@ Faithful reimplementation matching §4 and §5.1:
 from __future__ import annotations
 
 import math
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 from typing import Optional, Dict, List, Tuple
+
+# Use HF mirror for downloading frozen encoders (faster in China).
+# Respect explicit HF_ENDPOINT if already set; otherwise default to mirror.
+if "HF_ENDPOINT" not in os.environ:
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from utils.misc import NestedTensor
 from utils import box_ops
@@ -73,21 +79,20 @@ class CLIPImageEncoder(nn.Module):
             nn.Linear(dim * 2, dim),
         )
 
-    def forward(self, pixel_values: Tensor) -> Tuple[Tensor, Optional[Tensor]]:
+    def forward(self, pixel_values: Tensor) -> Tuple[Tensor, Optional[Tensor], Tensor]:
         """
         Args:
             pixel_values: [B, 3, H, W] (ImageNet normalized)
         Returns:
-            features: [B, L, dim] projected CLIP features
-            mask: [B, L] all-False mask (no padding in CLIP)
+            features: [B, L, dim] projected CLIP features (CLS + patches)
+            mask:     [B, L] all-False mask (no padding in CLIP)
+            spatial:  [B, dim, H_p, W_p] spatial patch features for ROI pooling
         """
         B = pixel_values.shape[0]
         device = pixel_values.device
 
         if self.encoder is not None:
-            # CLIP expects specific preprocessing; use as-is for now
             with torch.no_grad():
-                # Resize to CLIP input size if needed
                 if pixel_values.shape[-1] != 224:
                     pixel_values_resized = F.interpolate(
                         pixel_values,
@@ -99,14 +104,21 @@ class CLIPImageEncoder(nn.Module):
                     pixel_values_resized = pixel_values
 
                 out = self.encoder(pixel_values_resized)
-                features = out.last_hidden_state  # [B, 50, 768]  (1 CLS + 49 patches)
+                features_raw = out.last_hidden_state  # e.g. [B, 197, 768]
         else:
-            # Fallback: return zeros (will be overridden by backbone features)
-            features = torch.zeros(B, 50, self.clip_dim, device=device)
+            # Fallback: 1 CLS + 196 dummy patches to match ViT-B/16 shape
+            features_raw = torch.zeros(B, 197, self.clip_dim, device=device)
 
-        features = self.adapter(features)  # [B, L, dim]
+        # Adapter: clip_dim → model_dim for cross-attention conditioning
+        features = self.adapter(features_raw)  # [B, L, dim]
         mask = torch.zeros(B, features.shape[1], dtype=torch.bool, device=device)
-        return features, mask
+
+        # Spatial patch features for ROI pooling (§4.1: u_i = CLIP_img(crop(I,b_i)))
+        patch_tokens = features[:, 1:, :]  # [B, N_patches, dim]  (drop CLS)
+        N_p = int(math.sqrt(patch_tokens.shape[1]))
+        spatial = patch_tokens.transpose(1, 2).reshape(B, features.shape[-1], N_p, N_p)
+
+        return features, mask, spatial
 
 
 # ==============================================================================
@@ -239,6 +251,132 @@ class FlowSGCriterion(nn.Module):
 
 
 # ==============================================================================
+# Frozen Mask2Former Detector (§5.1)
+# ==============================================================================
+
+MASK2FORMER_AVAILABLE = False
+_m2f_model_name = "facebook/mask2former-swin-small-coco-instance"
+
+
+class FrozenMask2Former(nn.Module):
+    """Frozen Mask2Former (COCO pretrained) for object proposal generation.
+
+    Provides object boxes used to (1) crop CLIP spatial patch features for
+    VQ-VAE encoding (§4.1) and (2) serve as initial proposals for box
+    regression loss.
+
+    On first use, downloads ~500MB — set HF_HUB_OFFLINE=1 or pre-download
+    via ``transformers``.  Falls back to ``None`` (→ ResNet detection head)
+    when weights are unavailable.
+    """
+
+    def __init__(self, num_queries: int = 100):
+        super().__init__()
+        self.num_queries = num_queries
+        self._ok = False
+
+        try:
+            from transformers import Mask2FormerForUniversalSegmentation
+
+            self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
+                _m2f_model_name
+            )
+            for p in self.model.parameters():
+                p.requires_grad = False
+            self.model.eval()
+
+            # COCO → VG label remapping built lazily on first forward
+            self._coco_to_vg = None
+            self._ok = True
+            global MASK2FORMER_AVAILABLE
+            MASK2FORMER_AVAILABLE = True
+        except (ImportError, OSError, EnvironmentError):
+            self.model = None
+            import logging
+
+            logging.warning(
+                "Mask2Former (%s) not available — falling back to ResNet "
+                "detection head.  Pre-download with: "
+                "transformers.Mask2FormerForUniversalSegmentation.from_pretrained('%s')",
+                _m2f_model_name,
+                _m2f_model_name,
+            )
+
+    @property
+    def available(self) -> bool:
+        return self._ok
+
+    def forward(self, images: Tensor) -> Tuple[Tensor, Tensor]:
+        """Run frozen Mask2Former.
+
+        Args:
+            images: [B, 3, H, W] — ImageNet-normalized, already on device.
+                    Resized to 384×384 internally (Swin-S input size).
+
+        Returns:
+            boxes:  [B, N, 4]  normalized cxcywh boxes (N = num_queries)
+            scores: [B, N]     detection confidence  (for logging)
+        """
+        from torchvision.ops import masks_to_boxes
+
+        B, _, H_in, W_in = images.shape
+        device = images.device
+        N = self.num_queries
+
+        # Resize to M2F input resolution
+        if H_in != 384 or W_in != 384:
+            images_384 = F.interpolate(
+                images, size=(384, 384), mode="bilinear", align_corners=False
+            )
+        else:
+            images_384 = images
+
+        with torch.no_grad():
+            out = self.model(pixel_values=images_384)
+
+        # class_queries_logits: [B, M, 134]  (133 COCO + 1 no-object)
+        # masks_queries_logits:  [B, M, 96, 96]  (384 / 4 = 96)
+        cls = out.class_queries_logits  # [B, M, 134]
+        msk = out.masks_queries_logits  # [B, M, 96, 96]
+        M = cls.shape[1]
+
+        # Objectness: max over COCO classes (skip "no object" channel)
+        scores = cls[:, :, :-1].sigmoid().max(dim=-1).values  # [B, M]
+
+        # Binarize masks → extract bounding boxes (vectorized per batch item)
+        masks_bool = msk.sigmoid() > 0.5  # [B, M, 96, 96]
+        boxes_norm = torch.zeros(B, M, 4, device=device)
+
+        for b in range(B):
+            nonempty = masks_bool[b].flatten(1).any(dim=1)  # [M]
+            if nonempty.any():
+                bboxes = masks_to_boxes(
+                    masks_bool[b][nonempty]
+                )  # [K, 4] xyxy in [0, 96]
+                boxes_norm[b, nonempty, 0] = (bboxes[:, 0] + bboxes[:, 2]) / (
+                    2 * 96
+                )  # cx
+                boxes_norm[b, nonempty, 1] = (bboxes[:, 1] + bboxes[:, 3]) / (
+                    2 * 96
+                )  # cy
+                boxes_norm[b, nonempty, 2] = (bboxes[:, 2] - bboxes[:, 0]) / 96  # w
+                boxes_norm[b, nonempty, 3] = (bboxes[:, 3] - bboxes[:, 1]) / 96  # h
+
+        # Take top-N by score; pad if fewer than N
+        top_boxes = torch.zeros(B, N, 4, device=device)
+        top_scores = torch.zeros(B, N, device=device)
+        for b in range(B):
+            k = min(N, M)
+            _, idx = torch.topk(scores[b], k=k)
+            top_boxes[b, :k] = boxes_norm[b, idx]
+            top_scores[b, :k] = scores[b, idx]
+            if k == 0:
+                top_boxes[b] = 0.1 + 0.8 * torch.rand(N, 4, device=device)
+
+        return top_boxes, top_scores
+
+
+# ==============================================================================
 # FlowSG Model (§4)
 # ==============================================================================
 
@@ -278,41 +416,36 @@ class FlowSG(nn.Module):
         self.num_flow_steps = num_flow_steps
         self.edge_only_prob = edge_only_prob
 
-        # Backbone (for ROI features, object detection)
-        self.backbone = backbone
-        backbone_channels = backbone.num_channels
+        # Frozen Mask2Former detector (§5.1)
+        # Provides object proposals for ROI cropping + box initialization.
+        # Falls back to ResNet detection head when M2F weights unavailable.
+        self.detector = FrozenMask2Former(num_queries=num_queries)
 
-        # CLIP image encoder with adapter
+        # CLIP image encoder with adapter (§4.2)
+        # Returns (global features, mask, spatial patches) for denoiser + ROI
         self.image_encoder = CLIPImageEncoder(dim=dim)
 
-        # Backbone feature projection: Conv2d for 4D feature maps
+        # Fallback detection (ResNet → linear heads; used when M2F unavailable)
+        self.backbone = backbone
+        backbone_channels = backbone.num_channels
         self.backbone_proj = nn.Sequential(
             nn.Conv2d(backbone_channels, dim, kernel_size=1),
             nn.GroupNorm(32, dim),
         )
-        # ROI feature projection: Linear for per-object features
-        self.roi_proj = nn.Sequential(
-            nn.Linear(backbone_channels, dim),
-            nn.LayerNorm(dim),
-            nn.SiLU(),
-            nn.Linear(dim, dim),
-        )
-
-        # Object detection head (from backbone features, zero-init last layer)
         self.obj_class_head = nn.Linear(dim, num_classes)
         self.obj_bbox_head = nn.Sequential(
             nn.Linear(dim, dim), nn.SiLU(), nn.Linear(dim, 4)
         )
-        # Zero-initialize bbox head for stable training start
         nn.init.constant_(self.obj_bbox_head[-1].weight, 0)
         nn.init.constant_(self.obj_bbox_head[-1].bias, 0)
 
         # VQ-VAE: appearance tokenizer (§4.1)
+        # Input: CLIP spatial ROI features u_i = CLIP_img(crop(I, b_i))
         self.app_vqvae = SlotwiseVQVAE(
             num_slots=num_slots,
             codebook_size=codebook_size,
             embedding_dim=dim,
-            input_dim=dim,  # ROI-projected features as input
+            input_dim=dim,  # CLIP adapter output dim
             commitment_cost=0.25,
         )
 
@@ -353,15 +486,12 @@ class FlowSG(nn.Module):
         self.dfm = DiscreteFlowMatching()
 
     def _extract_detections(self, backbone_feat: Tensor) -> Tuple[Tensor, Tensor]:
-        """Extract object proposals from backbone features.
+        """Fallback detection — conv → grid pool → linear heads on ResNet features.
 
-        Uses a simple conv → global pool → linear head for detection.
-        In the paper, this is a frozen Mask2Former; we approximate with
-        lightweight detection heads on the backbone.
-
+        Only used when FrozenMask2Former weights are unavailable.
         Returns:
             obj_logits: [B, N, num_classes]
-            obj_boxes: [B, N, 4]  normalized (cx, cy, w, h)
+            obj_boxes: [B, N, 4]  normalized cxcywh
         """
         B, C, H, W = backbone_feat.shape
         D = self.dim
@@ -442,18 +572,25 @@ class FlowSG(nn.Module):
         device = samples.tensors.device
 
         # 1. Extract image features
-        #    a) CLIP features for global conditioning
-        clip_feat, clip_mask = self.image_encoder(samples.tensors)
+        #    a) CLIP features for global conditioning + spatial patches for ROI
+        clip_feat, clip_mask, clip_spatial = self.image_encoder(samples.tensors)
 
-        #    b) Backbone features for detection
-        backbone_feats, _ = self.backbone(samples)
-        backbone_src = backbone_feats[-1].tensors  # [B, C_b, H, W]
+        # 2. Object proposals (§5.1: frozen Mask2Former)
+        if self.detector.available:
+            # Frozen Mask2Former (COCO pretrained) → object boxes
+            obj_boxes, _obj_scores = self.detector(samples.tensors)
+            # Uniform class prior: VG class head learns from denoiser supervision
+            obj_logits = torch.zeros(B, N, self.num_classes, device=device)
+            obj_logits[..., -1] = 1.0  # "background" prior
+        else:
+            # Fallback: ResNet backbone + grid-based detection heads
+            backbone_feats, _ = self.backbone(samples)
+            backbone_src = backbone_feats[-1].tensors  # [B, C_b, H, W]
+            obj_logits, obj_boxes = self._extract_detections(backbone_src)
 
-        # 2. Object proposals from backbone (detector approximation)
-        obj_logits, obj_boxes = self._extract_detections(backbone_src)
-
-        # 3. Extract ROI features for appearance encoding
-        roi_features = self._roi_pool(backbone_src, obj_boxes)  # [B, N, D]
+        # 3. Extract ROI features from CLIP spatial patches (§4.1)
+        #    u_i = CLIP_img(crop(I, b_i)) — CLIP features at object locations
+        roi_features = self._roi_pool_clip(clip_spatial, obj_boxes)  # [B, N, dim]
 
         if targets is not None:
             # ================================================================
@@ -688,21 +825,28 @@ class FlowSG(nn.Module):
                 ].contiguous(),
             }
 
-    def _roi_pool(self, backbone_feat: Tensor, boxes: Tensor, size: int = 7) -> Tensor:
-        """Vectorized ROI pooling using torchvision.roi_align (fast)."""
+    def _roi_pool_clip(
+        self, clip_spatial: Tensor, boxes: Tensor, size: int = 7
+    ) -> Tensor:
+        """RoI-Align on CLIP spatial patch features (§4.1).
+
+        u_i = CLIP_img(crop(I, b_i)) — crops CLIP patch grid at box locations.
+        CLIP adapter has already projected features to model dim, so no
+        separate projection step is needed.
+        """
         import torchvision
 
-        B, C, H, W = backbone_feat.shape
+        B, C, H_p, W_p = clip_spatial.shape  # C = dim (512)
         N = boxes.shape[1]
-        device = backbone_feat.device
+        device = clip_spatial.device
 
-        # Clamp and convert cxcywh → xyxy in pixel coords
+        # Clamp and convert cxcywh → xyxy in CLIP spatial grid coords
         boxes_safe = boxes.nan_to_num(0.5).clamp(min=1e-4, max=1.0 - 1e-4).detach()
         xyxy = torch.zeros_like(boxes_safe)
-        xyxy[..., 0] = (boxes_safe[..., 0] - boxes_safe[..., 2] / 2) * W  # x1
-        xyxy[..., 1] = (boxes_safe[..., 1] - boxes_safe[..., 3] / 2) * H  # y1
-        xyxy[..., 2] = (boxes_safe[..., 0] + boxes_safe[..., 2] / 2) * W  # x2
-        xyxy[..., 3] = (boxes_safe[..., 1] + boxes_safe[..., 3] / 2) * H  # y2
+        xyxy[..., 0] = (boxes_safe[..., 0] - boxes_safe[..., 2] / 2) * W_p  # x1
+        xyxy[..., 1] = (boxes_safe[..., 1] - boxes_safe[..., 3] / 2) * H_p  # y1
+        xyxy[..., 2] = (boxes_safe[..., 0] + boxes_safe[..., 2] / 2) * W_p  # x2
+        xyxy[..., 3] = (boxes_safe[..., 1] + boxes_safe[..., 3] / 2) * H_p  # y2
 
         # Batch roi_align: [B*N, C, size, size]
         batch_indices = (
@@ -713,18 +857,15 @@ class FlowSG(nn.Module):
         )
 
         pooled = torchvision.ops.roi_align(
-            backbone_feat,
+            clip_spatial,
             rois,
             output_size=(size, size),
             spatial_scale=1.0,
             aligned=True,
         )  # [B*N, C, size, size]
 
-        # Average pool to [B*N, C]
-        pooled = pooled.mean(dim=[-2, -1]).reshape(B, N, C)
-
-        # Project to model dim via Linear
-        roi_feat = self.roi_proj(pooled)  # [B, N, D]
+        # Average pool to [B, N, dim] — features are already in model space
+        roi_feat = pooled.mean(dim=[-2, -1]).reshape(B, N, C)
         return roi_feat
 
     def _pad_gt_boxes(self, targets: List[Dict], N: int, device) -> Tensor:
