@@ -218,11 +218,30 @@ def _instantiate_with_timeout(method_cls, method_name, save_dir, kwargs):
     if error[0] is not None:
         exc = error[0]
         msg = str(exc).lower()
+        # Exception types that indicate network/IO failures
         if isinstance(exc, (OSError, IOError)):
             raise NotImplementedError(
                 f"{method_name}: skipping (download/network unavailable)"
             )
-        if any(kw in msg for kw in ("hf-mirror", "huggingface", "connection")):
+        # Keyword matches for urllib3 / requests / HuggingFace errors
+        # that don't subclass OSError (e.g. ReadTimeoutError, HTTPError)
+        network_kw = (
+            "hf-mirror",
+            "huggingface",
+            "connection",
+            "timeout",
+            "timed out",
+            "read timed",
+            "retry",
+            "max retries",
+            "urllib3",
+            "httperror",
+            "requests",
+            "connect call",
+            "name resolution",
+            "temporary failure",
+        )
+        if any(kw in msg for kw in network_kw):
             raise NotImplementedError(
                 f"{method_name}: skipping (remote model unavailable)"
             )

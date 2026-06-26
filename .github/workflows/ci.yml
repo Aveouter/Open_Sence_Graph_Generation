@@ -236,10 +236,9 @@ jobs:
       - name: Pre-warm HuggingFace models (cache miss)
         if: steps.check-changes.outputs.needs_smoke == 'true' && steps.cache-hf.outputs.cache-hit != 'true'
         shell: bash -el {0}
-        env:
-          HF_HOME: ~/.cache/huggingface
         run: |
           conda activate hsg
+          export HF_HOME="$HOME/.cache/huggingface"
           # FlowSG: CLIP ViT-B/16 encoder (~300 MB)
           python -c "
           from transformers import CLIPVisionModel
