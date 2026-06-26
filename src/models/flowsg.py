@@ -116,6 +116,10 @@ class CLIPImageEncoder(nn.Module):
         # Spatial patch features for ROI pooling (§4.1: u_i = CLIP_img(crop(I,b_i)))
         patch_tokens = features[:, 1:, :]  # [B, N_patches, dim]  (drop CLS)
         N_p = int(math.sqrt(patch_tokens.shape[1]))
+        assert N_p * N_p == patch_tokens.shape[1], (
+            f"CLIP patches must form a square grid "
+            f"(got {patch_tokens.shape[1]} patches)"
+        )
         spatial = patch_tokens.transpose(1, 2).reshape(B, features.shape[-1], N_p, N_p)
 
         return features, mask, spatial
@@ -185,8 +189,11 @@ class FlowSGCriterion(nn.Module):
         if "vq_loss" in outputs:
             loss_dict["loss_vq"] = outputs["vq_loss"] * self.vq_loss_coef
 
-        # Box supervision (L1 + GIoU on final predicted boxes vs GT)
-        if "pred_boxes" in outputs:
+        # Box supervision (L1 + GIoU on final predicted boxes vs GT).
+        # Skip in edge-only mode: denoiser sees clean GT boxes, so box regression
+        # is trivially an identity mapping and gradients would conflict with edge
+        # prediction (§5.1 edge-only training).
+        if "pred_boxes" in outputs and not outputs.get("_edge_only", False):
             pred_boxes = outputs["pred_boxes"]
             B, N, _ = pred_boxes.shape
             device = pred_boxes.device
@@ -652,11 +659,11 @@ class FlowSG(nn.Module):
             # ── DFM: mask predicates & appearance (§4.2) ──
 
             # Build GT predicate tokens from targets (used later for DFM loss)
-            # Randomly mask predicates based on kappa
-            pred_kappa = kappa.squeeze(-1).squeeze(-1)  # [B, 1]
-            pred_mask_prob = (1.0 - pred_kappa).unsqueeze(1)  # [B, 1]
-            pred_rand = torch.rand(B, N, device=device)
-            pred_is_masked = (pred_rand < pred_mask_prob).unsqueeze(-1)  # [B, N, 1]
+            # Per-edge masking: each edge independently masked with prob (1-κ_t)
+            pred_kappa = kappa.squeeze(-1)  # [B, 1]
+            pred_mask_prob = (1.0 - pred_kappa).unsqueeze(-1)  # [B, 1, 1]
+            pred_rand = torch.rand(B, N, N, device=device)  # [B, N, N] per-edge
+            pred_is_masked = pred_rand < pred_mask_prob  # [B, N, N] broadcast
 
             # Create dense edge tokens [B, N, N].
             # Default = background class (num_predicates - 1); non-edge pairs
@@ -675,9 +682,9 @@ class FlowSG(nn.Module):
                         p = p.clamp(0, self.num_predicates - 1)
                         clean_pred_dense[b_idx, s, o] = p
 
-            # Mask predicate tokens
+            # Mask predicate tokens (per-edge independent masking)
             pred_tokens = clean_pred_dense.clone()
-            pred_tokens[pred_is_masked.expand(-1, -1, N)] = self.mask_id_pred
+            pred_tokens[pred_is_masked] = self.mask_id_pred
 
             # Appearance tokens: mask with probability (1-κ_t)
             app_kappa = kappa  # [B, 1, 1] already
