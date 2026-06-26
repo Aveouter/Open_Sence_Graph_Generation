@@ -29,11 +29,27 @@ if __name__ == '__main__':
     import torch
     import gc
 
+    # Config file name alias map — some CLI method names differ from config
+    # file basenames (e.g. CLI "GPSNet" → config "GPS_Net.py").
+    _CONFIG_FILE_ALIASES = {
+        'gpsnet': 'GPS_Net',
+        'penet': 'PE_NET',
+        'shagcl': 'SHA_GCL',
+        # accept CLI names with underscores too
+        'gps_net': 'GPS_Net',
+        'pe_net': 'PE_NET',
+        'sha_gcl': 'SHA_GCL',
+    }
+
     args = create_parser().parse_args()
     config = args.__dict__
 
-    cfg_path = osp.join(".", "configs", args.dataname , args.method+".py") \
-        if args.config_file is None else args.config_file
+    if args.config_file is None:
+        method_key = args.method.lower()
+        config_basename = _CONFIG_FILE_ALIASES.get(method_key, args.method)
+        cfg_path = osp.join(".", "configs", args.dataname, config_basename + ".py")
+    else:
+        cfg_path = args.config_file
     if args.overwrite:
         config = update_config(config, load_config(cfg_path),
                                exclude_keys=['method'])

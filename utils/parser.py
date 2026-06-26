@@ -90,7 +90,8 @@ def create_parser():
     parser.add_argument('--clip_grad', type=float, default=None, metavar='NORM',
                         help='Clip gradient norm (default: None, no clipping)')
     parser.add_argument('--clip_mode', type=str, default='norm',
-                        help='Gradient clipping mode. One of ("norm", "value", "agc")')
+                        choices=['norm', 'value'],
+                        help='Gradient clipping mode. One of ("norm", "value")')
     parser.add_argument('--no_display_method_info', action='store_true', default=False,
                         help='Do not display method info')
 

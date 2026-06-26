@@ -54,15 +54,16 @@ def load_data(
         drop_last=kwargs.get('drop_last', False),
     )
 
-    if 'VisualGenome' in dataname or 'OpenImageV6' in dataname:
+    if 'VisualGenome' in dataname or 'OpenImage' in dataname:
         from .dataloader_VisualGenome import load_data as load_VG
-        dataname = 'vg' if 'VisualGenome' in dataname else ('oi' if 'OpenImageV6' in dataname else dataname)
+        dataname = 'vg' if 'VisualGenome' in dataname else ('oi' if 'OpenImage' in dataname else dataname)
         merged = dict(
             dataset=dataname,
             batch_size=batch_size,
             val_batch_size=val_batch_size,
             num_workers=num_workers,
             data_root=data_root,
+            distributed=dist,
 
             # 其他参数
             image_size=kwargs.get('image_size', (224, 224)),

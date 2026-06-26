@@ -82,7 +82,7 @@ def get_dataset(dataname, config):
     # from data.dataloaders.dataloader_weather import load_data
     # Preserve model-specific keys (set by config file) from being
     # overwritten by dataset-wide defaults.
-    saved = {k: config[k] for k in ('entity_nums', 'rel_nums', 'metrics') if k in config}
+    saved = {k: config[k] for k in ('entity_nums', 'rel_nums', 'metrics', 'distributed') if k in config}
     config.update(dataset_parameters[dataname])
     config.update(saved)  # config file values take priority over dataset defaults
     return load_data(**config)
@@ -128,15 +128,30 @@ def measure_throughput(model, input_dummy):
     return Throughput
 
 
-def load_config(filename:str = None):
-    """load and print config"""
+def load_config(filename:str = None, allow_missing: bool = False):
+    """load and print config.
+
+    Args:
+        filename: path to config .py file.
+        allow_missing: if True, return empty dict on missing file (for special
+            scripts).  The main training entry (train.py) should NOT use this
+            so that a missing config fails immediately rather than running with
+            unintended defaults.
+    """
     print('loading config from ' + filename + ' ...')
     try:
         configfile = Config(filename=filename)
         config = configfile._cfg_dict
     except (FileNotFoundError, IOError):
-        config = dict()
-        print('warning: fail to load the config!')
+        if allow_missing:
+            config = dict()
+            print('warning: fail to load the config!')
+        else:
+            raise FileNotFoundError(
+                f'Config file not found: {filename}. '
+                f'Check that the method name matches a config file under '
+                f'configs/<dataset>/, or use --config_file to specify a path.'
+            ) from None
     return config
 
 def update_config(args, config, exclude_keys=None):

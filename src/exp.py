@@ -96,7 +96,12 @@ class BaseExperiment(object):
         return int(devices)
 
     def _resolve_trainer_runtime(self, args, strategy):
-        accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
+        # Respect explicit CPU request even when CUDA is available
+        user_device = getattr(args, 'device', 'cuda')
+        if user_device == 'cpu':
+            accelerator = 'cpu'
+        else:
+            accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
 
         if accelerator == 'gpu':
             raw_devices = getattr(args, 'gpus', 1)
@@ -160,6 +165,20 @@ class BaseExperiment(object):
 
         if hasattr(args, 'num_nodes'):
             trainer_kwargs['num_nodes'] = args.num_nodes
+
+        # Gradient clipping (config key: clip_max_norm / CLI arg: clip_grad)
+        clip_val = getattr(args, 'clip_grad', None)
+        if clip_val is None:
+            clip_val = getattr(args, 'clip_max_norm', None)
+        if clip_val is not None and clip_val > 0:
+            trainer_kwargs['gradient_clip_val'] = float(clip_val)
+            clip_mode = getattr(args, 'clip_mode', 'norm') or 'norm'
+            if clip_mode not in ('norm', 'value'):
+                raise ValueError(
+                    f"Unsupported clip_mode '{clip_mode}'. "
+                    "PyTorch Lightning supports 'norm' and 'value'."
+                )
+            trainer_kwargs['gradient_clip_algorithm'] = clip_mode
 
         return Trainer(**trainer_kwargs)
 

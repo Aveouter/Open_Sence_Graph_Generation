@@ -28,6 +28,16 @@ dataset_parameters = {
         'entity_nums': 151,
     },
 
+    'OpenImageV6': {
+        'data_root': './data/OpenImage',
+        'in_shape': (1, 3, 224, 224),     # (T, C, H, W) 单帧输入
+        'pre_seq_length': 1,
+        'aft_seq_length': 1,
+        'metrics': ['predcls_mR@20','predcls_mR@50','sgcls_R@50','sgdet_R@100'],
+        'rel_nums': 10,
+        'entity_nums': 57,
+    },
+
     'OpenImage': {
         'data_root': './data/OpenImage',
         'in_shape': (1, 3, 224, 224),     # (T, C, H, W) 单帧输入
