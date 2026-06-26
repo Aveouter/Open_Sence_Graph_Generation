@@ -43,7 +43,12 @@ val_batch_size = 4
 accumulate_grad_batches = 1  # set >1 to simulate larger batch (e.g. 8 for eff bs=32)
 sched = 'cosine'             # cosine LR schedule (standard for diffusion/flow models)
 
-# ===== backbone =====
+# ===== image encoders (§4.2, §5.1) =====
+# PRIMARY (hardcoded in model, not read from config):
+#   - Frozen CLIP ViT-B/16 → global + spatial patch features (§4.2)
+#   - Frozen Mask2Former (Swin-S, COCO) → object proposals (§5.1)
+# FALLBACK (this config line, used when M2F weights unavailable):
+#   - ResNet50 → grid-based detection heads
 backbone = 'resnet50'
 dilation = False
 position_embedding = 'sine'
