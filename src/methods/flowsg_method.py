@@ -123,10 +123,10 @@ class FlowSG_Method(Base_method):
             if torch.is_tensor(v):
                 total_loss = total_loss + v
 
-        self.log('train_loss', total_loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train_loss", total_loss, on_step=True, on_epoch=True, prog_bar=True)
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'train_{k}', v, on_step=True, on_epoch=True, prog_bar=False)
+                self.log(f"train_{k}", v, on_step=True, on_epoch=True, prog_bar=False)
 
         return total_loss
 
@@ -148,21 +148,37 @@ class FlowSG_Method(Base_method):
         outputs = self.model(samples, targets=targets)
         loss_dict, total_loss = self._compute_losses(outputs, targets)
 
-        self.log(f'{prefix}_loss', total_loss, on_step=False, on_epoch=True,
-                 prog_bar=True, sync_dist=True)
+        self.log(
+            f"{prefix}_loss",
+            total_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
         for k, v in loss_dict.items():
             if torch.is_tensor(v):
-                self.log(f'{prefix}_{k}', v, on_step=False, on_epoch=True,
-                         prog_bar=False, sync_dist=True)
+                self.log(
+                    f"{prefix}_{k}",
+                    v,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=False,
+                    sync_dist=True,
+                )
 
         return outputs, targets, loss_dict, total_loss
 
     def validation_step(self, batch, batch_idx):
-        outputs, targets, loss_dict, total_loss = self._eval_step(batch, 'val')
-        self._cache_step_output(self.val_outputs, outputs, targets, loss_dict, total_loss)
+        outputs, targets, loss_dict, total_loss = self._eval_step(batch, "val")
+        self._cache_step_output(
+            self.val_outputs, outputs, targets, loss_dict, total_loss
+        )
         return total_loss
 
     def test_step(self, batch, batch_idx):
-        outputs, targets, loss_dict, total_loss = self._eval_step(batch, 'test')
-        self._cache_step_output(self.test_outputs, outputs, targets, loss_dict, total_loss)
+        outputs, targets, loss_dict, total_loss = self._eval_step(batch, "test")
+        self._cache_step_output(
+            self.test_outputs, outputs, targets, loss_dict, total_loss
+        )
         return total_loss

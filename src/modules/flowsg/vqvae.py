@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from typing import Optional, Tuple, Dict
+from typing import Tuple, Dict
 
 
 class VectorQuantizer(nn.Module):
@@ -34,8 +34,12 @@ class VectorQuantizer(nn.Module):
         commitment_cost: beta for commitment loss
     """
 
-    def __init__(self, num_embeddings: int = 64, embedding_dim: int = 512,
-                 commitment_cost: float = 0.25):
+    def __init__(
+        self,
+        num_embeddings: int = 64,
+        embedding_dim: int = 512,
+        commitment_cost: float = 0.25,
+    ):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
@@ -57,8 +61,8 @@ class VectorQuantizer(nn.Module):
         flat_z = z.reshape(-1, self.embedding_dim)
 
         distances = (
-            torch.sum(flat_z ** 2, dim=1, keepdim=True)
-            + torch.sum(self.embedding.weight ** 2, dim=1)
+            torch.sum(flat_z**2, dim=1, keepdim=True)
+            + torch.sum(self.embedding.weight**2, dim=1)
             - 2.0 * torch.matmul(flat_z, self.embedding.weight.t())
         )
 
@@ -68,8 +72,10 @@ class VectorQuantizer(nn.Module):
         z_q = z_q.reshape(z.shape)
 
         # VQ losses
-        codebook_loss = F.mse_loss(z_q.detach(), z)
-        commitment_loss = F.mse_loss(z_q, z.detach())
+        # codebook_loss: pulls codebook toward encoder output (sg[z_e] - e)^2
+        codebook_loss = F.mse_loss(z.detach(), z_q)
+        # commitment_loss: pulls encoder output toward codebook (z_e - sg[e])^2
+        commitment_loss = F.mse_loss(z, z_q.detach())
         vq_loss = codebook_loss + self.commitment_cost * commitment_loss
 
         # Straight-through
@@ -94,10 +100,10 @@ class SlotwiseVQVAE(nn.Module):
 
     def __init__(
         self,
-        num_slots: int = 4,         # M=4 ordered slots
-        codebook_size: int = 64,    # K=64 entries per slot
-        embedding_dim: int = 512,   # d=512
-        input_dim: int = 512,       # CLIP ViT-B/16 output dim
+        num_slots: int = 4,  # M=4 ordered slots
+        codebook_size: int = 64,  # K=64 entries per slot
+        embedding_dim: int = 512,  # d=512
+        input_dim: int = 512,  # CLIP ViT-B/16 output dim
         commitment_cost: float = 0.25,
     ):
         super().__init__()
@@ -107,24 +113,22 @@ class SlotwiseVQVAE(nn.Module):
         self.input_dim = input_dim
 
         # Per-slot encoders: project input → code_dim
-        self.encoders = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(input_dim, embedding_dim),
-                nn.LayerNorm(embedding_dim),
-            ) for _ in range(num_slots)
-        ])
+        self.encoders = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(input_dim, embedding_dim),
+                    nn.LayerNorm(embedding_dim),
+                )
+                for _ in range(num_slots)
+            ]
+        )
 
         # Per-slot quantizers
-        self.quantizers = nn.ModuleList([
-            VectorQuantizer(codebook_size, embedding_dim, commitment_cost)
-            for _ in range(num_slots)
-        ])
-
-        # Shared decoder: M concatenated code vectors → reconstructed feature
-        self.decoder = nn.Sequential(
-            nn.Linear(embedding_dim * num_slots, embedding_dim * 2),
-            nn.SiLU(),
-            nn.Linear(embedding_dim * 2, input_dim),
+        self.quantizers = nn.ModuleList(
+            [
+                VectorQuantizer(codebook_size, embedding_dim, commitment_cost)
+                for _ in range(num_slots)
+            ]
         )
 
         # Decoder for reconstruction check
@@ -158,7 +162,12 @@ class SlotwiseVQVAE(nn.Module):
 
         z_q_stack = torch.stack(z_q_list, dim=2)  # [B, N, M, D]
         indices_stack = torch.stack(idx_list, dim=2)  # [B, N, M]
-        return z_q_stack, indices_stack, total_vq_loss / self.num_slots, total_perp / self.num_slots
+        return (
+            z_q_stack,
+            indices_stack,
+            total_vq_loss / self.num_slots,
+            total_perp / self.num_slots,
+        )
 
     def decode(self, z_q_stack: Tensor) -> Tensor:
         """Decode quantized slot vectors back to feature space.
@@ -198,10 +207,10 @@ class SlotwiseVQVAE(nn.Module):
         rec = self.decode(z_q_stack)
         rec_loss = F.mse_loss(rec, x)
         return {
-            'z_q_stack': z_q_stack,    # [B, N, M, D]
-            'indices': indices,         # [B, N, M]
-            'vq_loss': vq_loss,
-            'perplexity': perplexity,
-            'rec_features': rec,
-            'rec_loss': rec_loss,
+            "z_q_stack": z_q_stack,  # [B, N, M, D]
+            "indices": indices,  # [B, N, M]
+            "vq_loss": vq_loss,
+            "perplexity": perplexity,
+            "rec_features": rec,
+            "rec_loss": rec_loss,
         }

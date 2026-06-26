@@ -16,11 +16,6 @@ from .flow_matching import (
     DiscreteFlowMatching,
     ODESolver,
 )
-
-# Legacy aliases for backward compatibility
-ConditionalFlowMatchingLoss = ContinuousFlowMatching
-FlowMatchingODESolver = ODESolver
-
 from .graph_transformer import (
     FlowSGDenoiser,
     FlowSGTransformerBlock,
@@ -30,3 +25,24 @@ from .graph_transformer import (
     SemanticHead,
     AdaLN,
 )
+
+# Legacy aliases for backward compatibility
+ConditionalFlowMatchingLoss = ContinuousFlowMatching
+FlowMatchingODESolver = ODESolver
+
+__all__ = [
+    "VectorQuantizer",
+    "SlotwiseVQVAE",
+    "ContinuousFlowMatching",
+    "DiscreteFlowMatching",
+    "ODESolver",
+    "FlowSGDenoiser",
+    "FlowSGTransformerBlock",
+    "RelationModulatedSelfAttention",
+    "FlowConditionedMessageAggregation",
+    "GeometryHead",
+    "SemanticHead",
+    "AdaLN",
+    "ConditionalFlowMatchingLoss",
+    "FlowMatchingODESolver",
+]

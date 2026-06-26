@@ -22,15 +22,19 @@ import torch.nn.functional as F
 from torch import Tensor
 from typing import Optional, Dict, List, Tuple
 
-from utils.misc import NestedTensor, nested_tensor_from_tensor_list
+from utils.misc import NestedTensor
 from utils import box_ops
 from src.modules.layers.backbone import build_backbone
 from src.modules.flowsg.vqvae import SlotwiseVQVAE
 from src.modules.flowsg.flow_matching import (
-    ContinuousFlowMatching, DiscreteFlowMatching, ODESolver,
+    ContinuousFlowMatching,
+    DiscreteFlowMatching,
+    ODESolver,
 )
 from src.modules.flowsg.graph_transformer import (
-    FlowSGDenoiser, GeometryHead, SemanticHead,
+    FlowSGDenoiser,
+    GeometryHead,
+    SemanticHead,
 )
 
 
@@ -38,16 +42,20 @@ from src.modules.flowsg.graph_transformer import (
 # CLIP Image Encoder Wrapper (§4.2)
 # ==============================================================================
 
+
 class CLIPImageEncoder(nn.Module):
     """Frozen CLIP ViT-B/16 image encoder with trainable adapter.
 
     Extracts global image features C for cross-attention conditioning.
     """
 
-    def __init__(self, model_name: str = "openai/clip-vit-base-patch16", dim: int = 512):
+    def __init__(
+        self, model_name: str = "openai/clip-vit-base-patch16", dim: int = 512
+    ):
         super().__init__()
         try:
             from transformers import CLIPVisionModel
+
             self.encoder = CLIPVisionModel.from_pretrained(model_name)
             for p in self.encoder.parameters():
                 p.requires_grad = False
@@ -82,7 +90,10 @@ class CLIPImageEncoder(nn.Module):
                 # Resize to CLIP input size if needed
                 if pixel_values.shape[-1] != 224:
                     pixel_values_resized = F.interpolate(
-                        pixel_values, size=(224, 224), mode='bilinear', align_corners=False
+                        pixel_values,
+                        size=(224, 224),
+                        mode="bilinear",
+                        align_corners=False,
                     )
                 else:
                     pixel_values_resized = pixel_values
@@ -101,6 +112,7 @@ class CLIPImageEncoder(nn.Module):
 # ==============================================================================
 # FlowSGCriterion: Combined Loss (§4.2, Eq.18-19)
 # ==============================================================================
+
 
 class FlowSGCriterion(nn.Module):
     """L = L_CFM + λ · L_DFM  (paper uses λ=1 implicitly via coefficient)."""
@@ -134,49 +146,58 @@ class FlowSGCriterion(nn.Module):
         # Class weights
         empty_weight = torch.ones(num_classes)
         empty_weight[-1] = eos_coef
-        self.register_buffer('empty_weight', empty_weight)
+        self.register_buffer("empty_weight", empty_weight)
 
         empty_weight_rel = torch.ones(num_predicates)
         empty_weight_rel[-1] = eos_coef
-        self.register_buffer('empty_weight_rel', empty_weight_rel)
+        self.register_buffer("empty_weight_rel", empty_weight_rel)
 
     def forward(self, outputs: Dict, targets: List[Dict]) -> Dict[str, Tensor]:
         loss_dict = {}
 
         # CFM loss (flow matching for boxes)
-        if 'pred_velocity' in outputs and 'u_star' in outputs:
-            mask = outputs.get('node_mask', None)
-            loss_dict['loss_cfm'] = self.cfm.loss(
-                outputs['pred_velocity'], outputs['u_star'], mask
-            ) * self.flow_loss_coef
+        # Skip in edge-only batches: geometry head sees clean gt_boxes, so
+        # the velocity prediction against u_star would be meaningless noise.
+        if (
+            "pred_velocity" in outputs
+            and "u_star" in outputs
+            and not outputs.get("_edge_only", False)
+        ):
+            mask = outputs.get("node_mask", None)
+            loss_dict["loss_cfm"] = (
+                self.cfm.loss(outputs["pred_velocity"], outputs["u_star"], mask)
+                * self.flow_loss_coef
+            )
 
         # VQ-VAE loss
-        if 'vq_loss' in outputs:
-            loss_dict['loss_vq'] = outputs['vq_loss'] * self.vq_loss_coef
+        if "vq_loss" in outputs:
+            loss_dict["loss_vq"] = outputs["vq_loss"] * self.vq_loss_coef
 
         # Box supervision (L1 + GIoU on final predicted boxes vs GT)
-        if 'pred_boxes' in outputs:
-            pred_boxes = outputs['pred_boxes']
+        if "pred_boxes" in outputs:
+            pred_boxes = outputs["pred_boxes"]
             B, N, _ = pred_boxes.shape
             device = pred_boxes.device
 
             gt_boxes = self._build_target_boxes(pred_boxes, targets)
-            mask = outputs.get('node_mask', None)
+            mask = outputs.get("node_mask", None)
 
-            loss_bbox = F.l1_loss(pred_boxes, gt_boxes, reduction='none').sum(-1)
+            loss_bbox = F.l1_loss(pred_boxes, gt_boxes, reduction="none").sum(-1)
             if mask is not None and mask.any():
                 loss_bbox = loss_bbox[mask].mean()
             else:
                 loss_bbox = loss_bbox.mean()
-            loss_dict['loss_bbox'] = loss_bbox * self.bbox_loss_coef
+            loss_dict["loss_bbox"] = loss_bbox * self.bbox_loss_coef
 
             # GIoU with 1:1 matching (per-image, avoids B*N × B*N full matrix)
             loss_giou_list = []
             for b_idx in range(B):
                 p_xyxy = box_ops.box_cxcywh_to_xyxy(
-                    pred_boxes[b_idx].clamp(1e-6, 1.0 - 1e-6))
+                    pred_boxes[b_idx].clamp(1e-6, 1.0 - 1e-6)
+                )
                 g_xyxy = box_ops.box_cxcywh_to_xyxy(
-                    gt_boxes[b_idx].clamp(1e-6, 1.0 - 1e-6))
+                    gt_boxes[b_idx].clamp(1e-6, 1.0 - 1e-6)
+                )
                 try:
                     giou_1to1 = box_ops.generalized_box_iou_1to1(p_xyxy, g_xyxy)
                     loss_giou_list.append(1.0 - giou_1to1.clamp(-1, 1))
@@ -187,15 +208,21 @@ class FlowSGCriterion(nn.Module):
                 loss_giou = loss_giou[mask].mean()
             else:
                 loss_giou = loss_giou.mean()
-            loss_dict['loss_giou'] = loss_giou * self.giou_loss_coef
+            loss_dict["loss_giou"] = loss_giou * self.giou_loss_coef
 
         # DFM loss (discrete flow for object classes and predicates)
-        if 'obj_dfm_loss' in outputs:
-            loss_dict['loss_dfm_obj'] = outputs['obj_dfm_loss'] * self.discrete_flow_coef
-        if 'pred_dfm_loss' in outputs:
-            loss_dict['loss_dfm_pred'] = outputs['pred_dfm_loss'] * self.discrete_flow_coef
-        if 'app_dfm_loss' in outputs:
-            loss_dict['loss_dfm_app'] = outputs['app_dfm_loss'] * self.discrete_flow_coef * 0.1
+        if "obj_dfm_loss" in outputs:
+            loss_dict["loss_dfm_obj"] = (
+                outputs["obj_dfm_loss"] * self.discrete_flow_coef
+            )
+        if "pred_dfm_loss" in outputs:
+            loss_dict["loss_dfm_pred"] = (
+                outputs["pred_dfm_loss"] * self.discrete_flow_coef
+            )
+        if "app_dfm_loss" in outputs:
+            loss_dict["loss_dfm_app"] = (
+                outputs["app_dfm_loss"] * self.discrete_flow_coef * 0.1
+            )
 
         return loss_dict
 
@@ -204,7 +231,7 @@ class FlowSGCriterion(nn.Module):
         device = pred.device
         gt = torch.zeros(B, N, 4, device=device)
         for b, t in enumerate(targets):
-            boxes = t.get('boxes', None)
+            boxes = t.get("boxes", None)
             if boxes is not None and len(boxes) > 0:
                 n = min(len(boxes), N)
                 gt[b, :n] = boxes[:n].to(device)
@@ -214,6 +241,7 @@ class FlowSGCriterion(nn.Module):
 # ==============================================================================
 # FlowSG Model (§4)
 # ==============================================================================
+
 
 class FlowSG(nn.Module):
     """FlowSG: Hybrid flow matching for scene graph generation.
@@ -227,18 +255,18 @@ class FlowSG(nn.Module):
 
     def __init__(
         self,
-        backbone: nn.Module,           # ResNet backbone (used as fallback / ROI features)
+        backbone: nn.Module,  # ResNet backbone (used as fallback / ROI features)
         num_classes: int = 151,
         num_predicates: int = 51,
-        dim: int = 512,                 # hidden dim (512 per paper)
+        dim: int = 512,  # hidden dim (512 per paper)
         num_heads: int = 8,
-        num_blocks: int = 5,            # 5 DiT blocks
-        num_slots: int = 4,             # M=4 ordered slots
-        codebook_size: int = 64,        # K=64
-        num_queries: int = 100,         # N object proposals
-        num_flow_steps: int = 10,      # ODE steps at inference
+        num_blocks: int = 5,  # 5 DiT blocks
+        num_slots: int = 4,  # M=4 ordered slots
+        codebook_size: int = 64,  # K=64
+        num_queries: int = 100,  # N object proposals
+        num_flow_steps: int = 10,  # ODE steps at inference
         dropout: float = 0.1,
-        edge_only_prob: float = 0.2,    # stochastic edge-only training (§5.1)
+        edge_only_prob: float = 0.2,  # stochastic edge-only training (§5.1)
     ):
         super().__init__()
         self.dim = dim
@@ -289,11 +317,13 @@ class FlowSG(nn.Module):
         )
 
         # Node embedding: object class + appearance codes + box encoding
-        self.obj_embed = nn.Embedding(num_classes + 1, dim)   # +1 for mask_id_obj (§4.2 DFM)
-        self.mask_id_obj = num_classes                         # MASK token for object classes
+        self.obj_embed = nn.Embedding(
+            num_classes + 1, dim
+        )  # +1 for mask_id_obj (§4.2 DFM)
+        self.mask_id_obj = num_classes  # MASK token for object classes
         self.app_embed = nn.Embedding(codebook_size + 1, dim)  # +1 for mask_id_app
-        self.mask_id_app = codebook_size                        # MASK token for appearance
-        self.box_encoder = nn.Linear(4, dim)                    # box → embedding
+        self.mask_id_app = codebook_size  # MASK token for appearance
+        self.box_encoder = nn.Linear(4, dim)  # box → embedding
 
         # Edge embedding: predicate code (+ mask_id_pred)
         self.pred_embed = nn.Embedding(num_predicates + 1, dim)
@@ -301,14 +331,19 @@ class FlowSG(nn.Module):
 
         # Graph Transformer Denoiser (DiT-style, §4.3)
         self.denoiser = FlowSGDenoiser(
-            dim=dim, num_heads=num_heads, num_blocks=num_blocks,
-            time_dim=256, mlp_ratio=4.0, dropout=dropout,
+            dim=dim,
+            num_heads=num_heads,
+            num_blocks=num_blocks,
+            time_dim=256,
+            mlp_ratio=4.0,
+            dropout=dropout,
         )
 
         # Output heads
-        self.geometry_head = GeometryHead(dim=dim)       # velocity field
-        self.semantic_head = SemanticHead(               # clean posteriors
-            dim=dim, num_classes=num_classes,
+        self.geometry_head = GeometryHead(dim=dim)  # velocity field
+        self.semantic_head = SemanticHead(  # clean posteriors
+            dim=dim,
+            num_classes=num_classes,
             num_predicates=num_predicates,
             codebook_size=codebook_size,
         )
@@ -317,9 +352,7 @@ class FlowSG(nn.Module):
         self.cfm = ContinuousFlowMatching()
         self.dfm = DiscreteFlowMatching()
 
-    def _extract_detections(
-        self, backbone_feat: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    def _extract_detections(self, backbone_feat: Tensor) -> Tuple[Tensor, Tensor]:
         """Extract object proposals from backbone features.
 
         Uses a simple conv → global pool → linear head for detection.
@@ -377,7 +410,7 @@ class FlowSG(nn.Module):
         else:
             obj_cls = obj_logits  # already [B, N] (may include mask_id_obj)
         obj_cls = obj_cls.clamp(0, self.mask_id_obj)
-        cls_emb = self.obj_embed(obj_cls)     # [B, N, dim]
+        cls_emb = self.obj_embed(obj_cls)  # [B, N, dim]
 
         # Appearance code embedding (sum over M slots). mask_id_app is a valid index.
         clamped = app_indices.clamp(0, self.mask_id_app)
@@ -406,7 +439,6 @@ class FlowSG(nn.Module):
     ) -> Dict[str, Tensor]:
         B = samples.tensors.shape[0]
         N = self.num_queries
-        D = self.dim
         device = samples.tensors.device
 
         # 1. Extract image features
@@ -435,13 +467,15 @@ class FlowSG(nn.Module):
 
             # VQ-VAE encode appearance from ROI features
             vq_out = self.app_vqvae(roi_features)
-            app_indices = vq_out['indices']  # [B, N, M]
+            app_indices = vq_out["indices"]  # [B, N, M]
             app_indices = app_indices.clamp(0, self.codebook_size - 1)
 
             # Sample time t ~ U[0, 1]
+            # NOTE: CFM interpolation always runs because kappa is needed for
+            # DFM masking (predicate + appearance) regardless of edge_only mode.
+            # In edge_only batches, g_t/u_star are computed but unused — the
+            # geometry head sees clean gt_boxes and CFM loss is excluded below.
             t = torch.rand(B, device=device)
-
-            # CFM: sample noise and interpolate
             g_0 = self.cfm.sample_prior((B, N, 4), device)
             g_t, u_star, kappa, kappa_dot = self.cfm.interpolate(g_0, gt_boxes, t)
 
@@ -461,8 +495,7 @@ class FlowSG(nn.Module):
 
             # ── DFM: mask predicates & appearance (§4.2) ──
 
-            # Sample predicate tokens for training
-            clean_pred_tokens = self._build_pred_tokens(targets, N, device)
+            # Build GT predicate tokens from targets (used later for DFM loss)
             # Randomly mask predicates based on kappa
             pred_kappa = kappa.squeeze(-1).squeeze(-1)  # [B, 1]
             pred_mask_prob = (1.0 - pred_kappa).unsqueeze(1)  # [B, 1]
@@ -472,14 +505,16 @@ class FlowSG(nn.Module):
             # Create dense edge tokens [B, N, N]
             clean_pred_dense = torch.zeros(B, N, N, dtype=torch.long, device=device)
             for b_idx, target in enumerate(targets):
-                rels = target.get('rel_annotations', None)
+                rels = target.get("rel_annotations", None)
                 if rels is not None and len(rels) > 0:
                     s, o, p = rels[:, 0].long(), rels[:, 1].long(), rels[:, 2].long()
                     # Clamp to valid indices
                     s = s.clamp(0, N - 1)
                     o = o.clamp(0, N - 1)
                     p = p.clamp(0, self.num_predicates - 1)
-                    clean_pred_dense[b_idx, s, o] = p + 1  # 1-indexed, 0 = no relation
+                    clean_pred_dense[b_idx, s, o] = (
+                        p  # 0-indexed, 0 = background/no-relation
+                    )
 
             # Mask predicate tokens
             pred_tokens = clean_pred_dense.clone()
@@ -494,8 +529,12 @@ class FlowSG(nn.Module):
             masked_app_indices[app_is_masked] = self.mask_id_app
 
             # Build node and edge embeddings
-            node_emb = self._build_node_embedding(node_labels_for_denoiser, masked_app_indices, node_boxes_used)
-            edge_emb = self._build_edge_embedding(pred_tokens.clamp(0, self.num_predicates - 1))
+            node_emb = self._build_node_embedding(
+                node_labels_for_denoiser, masked_app_indices, node_boxes_used
+            )
+            edge_emb = self._build_edge_embedding(
+                pred_tokens.clamp(0, self.mask_id_pred)
+            )
 
             # Graph Transformer denoiser
             node_feat, edge_feat = self.denoiser(
@@ -515,20 +554,26 @@ class FlowSG(nn.Module):
 
             # DFM losses (CE on clean predictions)
             obj_dfm_loss = self.dfm.loss(
-                sem_out['obj_logits'], gt_labels, t,
+                sem_out["obj_logits"],
+                gt_labels,
+                t,
                 mask=node_mask if node_mask.any() else None,
             )
-            pred_logits_flat = sem_out['pred_logits'].reshape(B * N * N, self.num_predicates)
+            pred_logits_flat = sem_out["pred_logits"].reshape(
+                B * N * N, self.num_predicates
+            )
             clean_pred_flat = clean_pred_dense.reshape(B * N * N)
             pred_dfm_loss = self.dfm.loss(pred_logits_flat, clean_pred_flat, t)
             # app_logits: [B, N, M, K]
-            app_logits_flat = sem_out['app_logits'].reshape(B * N * self.num_slots, self.codebook_size)
+            app_logits_flat = sem_out["app_logits"].reshape(
+                B * N * self.num_slots, self.codebook_size
+            )
             app_targets_flat = app_indices.reshape(B * N * self.num_slots)
             app_dfm_loss = self.dfm.loss(app_logits_flat, app_targets_flat, t)
 
             # For RelTR-compatible eval output: use semantic head predictions on edges
             # Extract top-K edges by predicate confidence
-            pred_scores = sem_out['pred_logits'].softmax(-1).max(-1).values  # [B, N, N]
+            pred_scores = sem_out["pred_logits"].softmax(-1).max(-1).values  # [B, N, N]
             # Flatten and take top-K
             K = min(400, N * N)
             flat_scores = pred_scores.reshape(B, -1)
@@ -538,31 +583,36 @@ class FlowSG(nn.Module):
 
             # Build batch indices for correct broadcasting with 2D pair indices
             b_idx = torch.arange(B, device=device).unsqueeze(1)  # [B, 1]
-            sub_logits = sem_out['obj_logits'][b_idx, pair_i].contiguous()  # [B, K, C]
-            obj_logits = sem_out['obj_logits'][b_idx, pair_j].contiguous()  # [B, K, C]
-            sub_boxes = pred_boxes[b_idx, pair_i].contiguous()               # [B, K, 4]
-            obj_boxes = pred_boxes[b_idx, pair_j].contiguous()               # [B, K, 4]
-            rel_logits = sem_out['pred_logits'][b_idx, pair_i, pair_j].contiguous()  # [B, K, P]
+            sub_logits = sem_out["obj_logits"][b_idx, pair_i].contiguous()  # [B, K, C]
+            obj_logits = sem_out["obj_logits"][b_idx, pair_j].contiguous()  # [B, K, C]
+            sub_boxes = pred_boxes[b_idx, pair_i].contiguous()  # [B, K, 4]
+            obj_boxes = pred_boxes[b_idx, pair_j].contiguous()  # [B, K, 4]
+            rel_logits = sem_out["pred_logits"][
+                b_idx, pair_i, pair_j
+            ].contiguous()  # [B, K, P]
 
             return {
-                'pred_velocity': pred_velocity,
-                'u_star': u_star,
-                'g_t': g_t,
-                't': t,
-                'vq_loss': vq_out['vq_loss'],
-                'vq_perplexity': vq_out['perplexity'],
-                'node_mask': node_mask,
-                'pred_boxes': pred_boxes,
-                'obj_dfm_loss': obj_dfm_loss,
-                'pred_dfm_loss': pred_dfm_loss,
-                'app_dfm_loss': app_dfm_loss,
+                "pred_velocity": pred_velocity,
+                "u_star": u_star,
+                "g_t": g_t,
+                "t": t,
+                "vq_loss": vq_out["vq_loss"],
+                "vq_perplexity": vq_out["perplexity"],
+                "node_mask": node_mask,
+                "pred_boxes": pred_boxes,
+                "obj_dfm_loss": obj_dfm_loss,
+                "pred_dfm_loss": pred_dfm_loss,
+                "app_dfm_loss": app_dfm_loss,
                 # For evaluation compatibility
-                'pred_logits': sem_out['obj_logits'],
-                'sub_logits': sub_logits,
-                'obj_logits': obj_logits,
-                'sub_boxes': sub_boxes,
-                'obj_boxes': obj_boxes,
-                'rel_logits': rel_logits,
+                "pred_logits": sem_out["obj_logits"],
+                "sub_logits": sub_logits,
+                "obj_logits": obj_logits,
+                "sub_boxes": sub_boxes,
+                "obj_boxes": obj_boxes,
+                "rel_logits": rel_logits,
+                # In edge-only mode, exclude u_star/t/g_t to skip CFM loss
+                # (geometry head sees clean boxes; velocity prediction is not meaningful)
+                "_edge_only": edge_only,
             }
 
         else:
@@ -570,16 +620,15 @@ class FlowSG(nn.Module):
             # INFERENCE
             # ================================================================
 
-            # Initialize proposal boxes from detector
+            # Initialize proposal boxes from detector (already sigmoid'd [0,1])
             init_boxes = obj_boxes.detach()
-            # Add small noise for exploration
-            g_t = init_boxes + 0.01 * torch.randn_like(init_boxes)
-            g_t = g_t.sigmoid()
+            # Add small noise for exploration, then clamp to valid range
+            g_t = (init_boxes + 0.01 * torch.randn_like(init_boxes)).clamp(0, 1)
 
             # Initialize appearance codes from VQ-VAE
             with torch.no_grad():
                 vq_out = self.app_vqvae(roi_features)
-            init_app = vq_out['indices'].clamp(0, self.codebook_size - 1)
+            init_app = vq_out["indices"].clamp(0, self.codebook_size - 1)
 
             # Initialize predicates at marginal (most common predicate = 1)
             # In paper: "at" (pred 1 in VG) serves as default
@@ -590,8 +639,10 @@ class FlowSG(nn.Module):
                 node_emb = self._build_node_embedding(obj_logits, init_app, x)
                 edge_emb = self._build_edge_embedding(init_preds)
                 node_feat, _ = self.denoiser(
-                    node_emb=node_emb, edge_emb=edge_emb,
-                    image_feat=clip_feat, image_mask=clip_mask,
+                    node_emb=node_emb,
+                    edge_emb=edge_emb,
+                    image_feat=clip_feat,
+                    image_mask=clip_mask,
                     t=t_step,
                 )
                 return self.geometry_head(node_feat)
@@ -605,14 +656,16 @@ class FlowSG(nn.Module):
             node_emb = self._build_node_embedding(obj_logits, init_app, refined_boxes)
             edge_emb = self._build_edge_embedding(init_preds)
             node_feat, edge_feat = self.denoiser(
-                node_emb=node_emb, edge_emb=edge_emb,
-                image_feat=clip_feat, image_mask=clip_mask,
+                node_emb=node_emb,
+                edge_emb=edge_emb,
+                image_feat=clip_feat,
+                image_mask=clip_mask,
                 t=t_final,
             )
             sem_out = self.semantic_head(node_feat, edge_feat)
 
             # Extract top-K edges
-            pred_scores = sem_out['pred_logits'].softmax(-1).max(-1).values
+            pred_scores = sem_out["pred_logits"].softmax(-1).max(-1).values
             K = min(400, N * N)
             flat_scores = pred_scores.reshape(B, -1)
             topk_idx = torch.topk(flat_scores, k=K, dim=-1).indices
@@ -623,18 +676,21 @@ class FlowSG(nn.Module):
             b_idx = torch.arange(B, device=device).unsqueeze(1)  # [B, 1]
 
             return {
-                'pred_logits': sem_out['obj_logits'],
-                'pred_boxes': refined_boxes,
-                'sub_logits': sem_out['obj_logits'][b_idx, pair_i].contiguous(),
-                'obj_logits': sem_out['obj_logits'][b_idx, pair_j].contiguous(),
-                'sub_boxes': refined_boxes[b_idx, pair_i].contiguous(),
-                'obj_boxes': refined_boxes[b_idx, pair_j].contiguous(),
-                'rel_logits': sem_out['pred_logits'][b_idx, pair_i, pair_j].contiguous(),
+                "pred_logits": sem_out["obj_logits"],
+                "pred_boxes": refined_boxes,
+                "sub_logits": sem_out["obj_logits"][b_idx, pair_i].contiguous(),
+                "obj_logits": sem_out["obj_logits"][b_idx, pair_j].contiguous(),
+                "sub_boxes": refined_boxes[b_idx, pair_i].contiguous(),
+                "obj_boxes": refined_boxes[b_idx, pair_j].contiguous(),
+                "rel_logits": sem_out["pred_logits"][
+                    b_idx, pair_i, pair_j
+                ].contiguous(),
             }
 
     def _roi_pool(self, backbone_feat: Tensor, boxes: Tensor, size: int = 7) -> Tensor:
         """Vectorized ROI pooling using torchvision.roi_align (fast)."""
         import torchvision
+
         B, C, H, W = backbone_feat.shape
         N = boxes.shape[1]
         device = backbone_feat.device
@@ -648,12 +704,19 @@ class FlowSG(nn.Module):
         xyxy[..., 3] = (boxes_safe[..., 1] + boxes_safe[..., 3] / 2) * H  # y2
 
         # Batch roi_align: [B*N, C, size, size]
-        batch_indices = torch.arange(B, device=device).unsqueeze(1).expand(-1, N).reshape(-1)
-        rois = torch.cat([batch_indices.unsqueeze(1).float(), xyxy.reshape(-1, 4)], dim=1)
+        batch_indices = (
+            torch.arange(B, device=device).unsqueeze(1).expand(-1, N).reshape(-1)
+        )
+        rois = torch.cat(
+            [batch_indices.unsqueeze(1).float(), xyxy.reshape(-1, 4)], dim=1
+        )
 
         pooled = torchvision.ops.roi_align(
-            backbone_feat, rois, output_size=(size, size),
-            spatial_scale=1.0, aligned=True,
+            backbone_feat,
+            rois,
+            output_size=(size, size),
+            spatial_scale=1.0,
+            aligned=True,
         )  # [B*N, C, size, size]
 
         # Average pool to [B*N, C]
@@ -667,7 +730,7 @@ class FlowSG(nn.Module):
         B = len(targets)
         gt = torch.zeros(B, N, 4, device=device)
         for b, t in enumerate(targets):
-            boxes = t.get('boxes', None)
+            boxes = t.get("boxes", None)
             if boxes is not None and len(boxes) > 0:
                 n = min(len(boxes), N)
                 gt[b, :n] = boxes[:n].to(device)
@@ -675,9 +738,17 @@ class FlowSG(nn.Module):
 
     def _pad_gt_labels(self, targets: List[Dict], N: int, device) -> Tensor:
         B = len(targets)
-        gt = torch.full((B, N,), self.num_classes, device=device, dtype=torch.long)
+        gt = torch.full(
+            (
+                B,
+                N,
+            ),
+            self.num_classes,
+            device=device,
+            dtype=torch.long,
+        )
         for b, t in enumerate(targets):
-            labels = t.get('labels', None)
+            labels = t.get("labels", None)
             if labels is not None and len(labels) > 0:
                 n = min(len(labels), N)
                 gt[b, :n] = labels[:n].to(device).long()
@@ -687,42 +758,29 @@ class FlowSG(nn.Module):
         B = len(targets)
         mask = torch.zeros(B, N, dtype=torch.bool, device=device)
         for b, t in enumerate(targets):
-            n = len(t.get('labels', t.get('boxes', [])))
+            n = len(t.get("labels", t.get("boxes", [])))
             if n > 0:
-                mask[b, :min(n, N)] = True
+                mask[b, : min(n, N)] = True
         return mask
-
-    def _build_pred_tokens(self, targets: List[Dict], N: int, device) -> Tensor:
-        """Build dense predicate token matrix [B, N, N] from GT relations."""
-        B = len(targets)
-        pred_dense = torch.zeros(B, N, N, dtype=torch.long, device=device)
-        for b, target in enumerate(targets):
-            rels = target.get('rel_annotations', None)
-            if rels is not None and len(rels) > 0:
-                s = rels[:, 0].long()
-                o = rels[:, 1].long()
-                p = rels[:, 2].long()
-                valid = (s < N) & (o < N)
-                pred_dense[b, s[valid], o[valid]] = p[valid]
-        return pred_dense.clamp(0, self.num_predicates - 1)
 
 
 # ==============================================================================
 # Build function
 # ==============================================================================
 
+
 def build_flowsg(args):
-    num_classes = getattr(args, 'entity_nums', 151)
-    num_predicates = getattr(args, 'rel_nums', 51)
-    dim = getattr(args, 'hidden_dim', 512)
-    num_heads = getattr(args, 'nheads', 8)
-    num_blocks = getattr(args, 'num_blocks', 5)
-    num_slots = getattr(args, 'num_slots', 4)
-    codebook_size = getattr(args, 'codebook_size', 64)
-    num_queries = getattr(args, 'num_queries', 100)
-    num_flow_steps = getattr(args, 'num_flow_steps', 10)
-    dropout = getattr(args, 'dropout', 0.1)
-    edge_only_prob = getattr(args, 'edge_only_prob', 0.2)
+    num_classes = getattr(args, "entity_nums", 151)
+    num_predicates = getattr(args, "rel_nums", 51)
+    dim = getattr(args, "hidden_dim", 512)
+    num_heads = getattr(args, "nheads", 8)
+    num_blocks = getattr(args, "num_blocks", 5)
+    num_slots = getattr(args, "num_slots", 4)
+    codebook_size = getattr(args, "codebook_size", 64)
+    num_queries = getattr(args, "num_queries", 100)
+    num_flow_steps = getattr(args, "num_flow_steps", 10)
+    dropout = getattr(args, "dropout", 0.1)
+    edge_only_prob = getattr(args, "edge_only_prob", 0.2)
 
     backbone = build_backbone(args)
 
@@ -745,12 +803,12 @@ def build_flowsg(args):
         num_classes=num_classes,
         num_predicates=num_predicates,
         codebook_size=codebook_size,
-        bbox_loss_coef=getattr(args, 'bbox_loss_coef', 5.0),
-        giou_loss_coef=getattr(args, 'giou_loss_coef', 2.0),
-        flow_loss_coef=getattr(args, 'flow_loss_coef', 1.0),
-        discrete_flow_coef=getattr(args, 'discrete_flow_coef', 1.0),
-        vq_loss_coef=getattr(args, 'vq_loss_coef', 1.0),
-        eos_coef=getattr(args, 'eos_coef', 0.1),
+        bbox_loss_coef=getattr(args, "bbox_loss_coef", 5.0),
+        giou_loss_coef=getattr(args, "giou_loss_coef", 2.0),
+        flow_loss_coef=getattr(args, "flow_loss_coef", 1.0),
+        discrete_flow_coef=getattr(args, "discrete_flow_coef", 1.0),
+        vq_loss_coef=getattr(args, "vq_loss_coef", 1.0),
+        eos_coef=getattr(args, "eos_coef", 0.1),
     )
 
     return model, criterion
