@@ -18,12 +18,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, Dict
 
 
 # ==============================================================================
 # Sinusoidal Time Embedding
 # ==============================================================================
+
 
 class SinusoidalTimeEmbedding(nn.Module):
     """Sinusoidal time embedding (same as diffusion/DiT)."""
@@ -45,6 +46,7 @@ class SinusoidalTimeEmbedding(nn.Module):
 # ==============================================================================
 # Adaptive Layer Normalization (AdaLN) — DiT-style [44]
 # ==============================================================================
+
 
 class AdaLN(nn.Module):
     """Time-conditioned adaptive layer normalization.
@@ -71,6 +73,7 @@ class AdaLN(nn.Module):
 # Relation-modulated Self-Attention (ReSA) — §4.3 Eq.(16)
 # ==============================================================================
 
+
 class RelationModulatedSelfAttention(nn.Module):
     """Self-attention with FiLM-based predicate injection.
 
@@ -86,7 +89,7 @@ class RelationModulatedSelfAttention(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
@@ -103,15 +106,17 @@ class RelationModulatedSelfAttention(nn.Module):
 
     def forward(
         self,
-        node_feat: Tensor,    # [B, N, dim]
-        edge_feat: Tensor,    # [B, N, N, dim] — dense edge features
+        node_feat: Tensor,  # [B, N, dim]
+        edge_feat: Tensor,  # [B, N, N, dim] — dense edge features
         attn_mask: Optional[Tensor] = None,  # [B, N, N] bool
     ) -> Tensor:
         B, N, D = node_feat.shape
         H = self.num_heads
         Hd = self.head_dim
 
-        q = self.q_proj(node_feat).view(B, N, H, Hd).permute(0, 2, 1, 3)  # [B, H, N, Hd]
+        q = (
+            self.q_proj(node_feat).view(B, N, H, Hd).permute(0, 2, 1, 3)
+        )  # [B, H, N, Hd]
         k = self.k_proj(node_feat).view(B, N, H, Hd).permute(0, 2, 1, 3)
         v = self.v_proj(node_feat).view(B, N, H, Hd).permute(0, 2, 1, 3)
 
@@ -124,7 +129,7 @@ class RelationModulatedSelfAttention(nn.Module):
         attn = attn + film_bias
 
         if attn_mask is not None:
-            attn = attn.masked_fill(~attn_mask.unsqueeze(1), float('-inf'))
+            attn = attn.masked_fill(~attn_mask.unsqueeze(1), float("-inf"))
 
         attn = F.softmax(attn, dim=-1)
         attn = self.dropout(attn)
@@ -137,6 +142,7 @@ class RelationModulatedSelfAttention(nn.Module):
 # ==============================================================================
 # Flow-conditioned Message Aggregation (FMA) — §4.3
 # ==============================================================================
+
 
 class FlowConditionedMessageAggregation(nn.Module):
     """Time/degree-aware neighborhood message aggregation.
@@ -172,12 +178,11 @@ class FlowConditionedMessageAggregation(nn.Module):
 
     def forward(
         self,
-        node_feat: Tensor,      # [B, N, dim]
-        edge_feat: Tensor,      # [B, N, N, dim] — dense edge features
-        t_emb: Tensor,           # [B, time_dim]
+        node_feat: Tensor,  # [B, N, dim]
+        edge_feat: Tensor,  # [B, N, N, dim] — dense edge features
+        t_emb: Tensor,  # [B, time_dim]
     ) -> Tensor:
         B, N, D = node_feat.shape
-        device = node_feat.device
 
         # Build degree information (from non-zero edges)
         # Edge "existence" is approximated by edge feature norm
@@ -191,7 +196,9 @@ class FlowConditionedMessageAggregation(nn.Module):
         # Context vector ζ_i(t) = [φ(t), log(1+deg), ||r̄||]
         log_deg = torch.log1p(deg).unsqueeze(-1)  # [B, N, 1]
         t_emb_expanded = t_emb.unsqueeze(1).expand(-1, N, -1)  # [B, N, time_dim]
-        zeta = torch.cat([t_emb_expanded, log_deg, r_bar_norm], dim=-1)  # [B, N, time_dim+2]
+        zeta = torch.cat(
+            [t_emb_expanded, log_deg, r_bar_norm], dim=-1
+        )  # [B, N, time_dim+2]
 
         context = self.context_proj(zeta)  # [B, N, dim]
         moment_weights = F.softmax(self.moment_attn(context), dim=-1)  # [B, N, M]
@@ -202,15 +209,15 @@ class FlowConditionedMessageAggregation(nn.Module):
 
         # Ψ₂ = variance
         diff = edge_feat - mean_nbr.unsqueeze(2)  # [B, N, N, dim]
-        var_nbr = (diff ** 2).mean(dim=2)  # [B, N, dim]
+        var_nbr = (diff**2).mean(dim=2)  # [B, N, dim]
 
         # Ψ₃ = skewness (normalized 3rd moment)
         var_eps = var_nbr + 1e-6
-        skew_nbr = (diff ** 3).mean(dim=2) / (var_eps ** 1.5)  # [B, N, dim]
+        skew_nbr = (diff**3).mean(dim=2) / (var_eps**1.5)  # [B, N, dim]
 
         # Stack moments and weight them
         moments = torch.stack([mean_nbr, var_nbr, skew_nbr], dim=-1)  # [B, N, dim, M]
-        weighted = torch.einsum('bndm,bnm->bnd', moments, moment_weights)  # [B, N, dim]
+        weighted = torch.einsum("bndm,bnm->bnd", moments, moment_weights)  # [B, N, dim]
 
         return self.update_proj(weighted)  # [B, N, dim]
 
@@ -218,6 +225,7 @@ class FlowConditionedMessageAggregation(nn.Module):
 # ==============================================================================
 # DiT-style Transformer Block (AdaLN + ReSA + FMA + Cross-Attn)
 # ==============================================================================
+
 
 class FlowSGTransformerBlock(nn.Module):
     """Single DiT-style block for FlowSG denoiser (§4.3).
@@ -231,8 +239,14 @@ class FlowSGTransformerBlock(nn.Module):
     Time code φ(t) modulates all blocks via AdaLN.
     """
 
-    def __init__(self, dim: int = 512, num_heads: int = 8, time_dim: int = 256,
-                 mlp_ratio: float = 4.0, dropout: float = 0.1):
+    def __init__(
+        self,
+        dim: int = 512,
+        num_heads: int = 8,
+        time_dim: int = 256,
+        mlp_ratio: float = 4.0,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.dim = dim
 
@@ -260,19 +274,29 @@ class FlowSGTransformerBlock(nn.Module):
         )
 
         # Edge update MLP (refines edges from node pair features + time)
+        # Paper §4.3 Eq.: z_ij = [h_i, h_j, h_i-h_j, M_i, M_j, φ(t)]
         self.edge_update = nn.Sequential(
-            nn.Linear(dim * 3 + time_dim, dim),
+            nn.Linear(dim * 5 + time_dim, dim),
             nn.SiLU(),
             nn.Linear(dim, dim),
         )
 
+        # Edge FiLM gate + projection (§4.3 Eq.(17))
+        # e_ij^(ℓ+1) = FiLM(Emb(e_ij^(ℓ+1))) + W_e · e_ij^(ℓ+1)
+        self.edge_norm = nn.LayerNorm(dim)
+        self.edge_film = nn.Sequential(
+            nn.Linear(dim, dim * 2),
+            nn.SiLU(),
+        )
+        self.edge_fc = nn.Linear(dim, dim)
+
     def forward(
         self,
-        node_feat: Tensor,          # [B, N, dim]
-        edge_feat: Tensor,          # [B, N, N, dim]
-        image_feat: Tensor,         # [B, L, dim] — CLIP image features
+        node_feat: Tensor,  # [B, N, dim]
+        edge_feat: Tensor,  # [B, N, N, dim]
+        image_feat: Tensor,  # [B, L, dim] — CLIP image features
         image_mask: Optional[Tensor],  # [B, L] or None
-        t_emb: Tensor,              # [B, time_dim]
+        t_emb: Tensor,  # [B, time_dim]
     ) -> Tuple[Tensor, Tensor]:
         B, N, D = node_feat.shape
 
@@ -284,34 +308,43 @@ class FlowSGTransformerBlock(nn.Module):
 
         # 2. Cross-Attention to image features
         q = self.adaln_cross(node_feat, t_emb.unsqueeze(1))
-        # image_mask: True=padded/ignore. Only pass mask if there are actual padded positions.
         if image_mask is not None and image_mask.any():
-            cross_out, _ = self.cross_attn(q, image_feat, image_feat, key_padding_mask=image_mask)
+            cross_out, _ = self.cross_attn(
+                q, image_feat, image_feat, key_padding_mask=image_mask
+            )
         else:
             cross_out, _ = self.cross_attn(q, image_feat, image_feat)
         node_feat = node_feat + cross_out
 
         # 3. FMA (Flow-conditioned Message Aggregation)
-        node_feat = node_feat + self.fma(
-            self.adaln_fma(node_feat, t_emb.unsqueeze(1)),
-            edge_feat,
-            t_emb,
-        )
+        # Capture per-node messages M_i(t) for edge update coupling.
+        fma_in = self.adaln_fma(node_feat, t_emb.unsqueeze(1))
+        msg_i = self.fma(fma_in, edge_feat, t_emb)  # [B, N, dim] — Eq.(17)
+        node_feat = node_feat + msg_i
 
         # 4. FFN
-        node_feat = node_feat + self.ffn(
-            self.adaln_ffn(node_feat, t_emb.unsqueeze(1))
-        )
+        node_feat = node_feat + self.ffn(self.adaln_ffn(node_feat, t_emb.unsqueeze(1)))
 
-        # 5. Edge update (from refined node pairs + time context)
-        # Build per-edge features: [h_i, h_j, h_i-h_j, φ(t)]
+        # 5. Edge update (from refined node pairs + FMA messages + time context)
+        # z_ij = [h_i, h_j, h_i-h_j, M_i, M_j, φ(t)]  — §4.3 Eq.(17)
         h_i = node_feat.unsqueeze(2).expand(-1, -1, N, -1)  # [B, N, N, D]
-        h_j = node_feat.unsqueeze(1).expand(-1, N, -1, -1)   # [B, N, N, D]
+        h_j = node_feat.unsqueeze(1).expand(-1, N, -1, -1)  # [B, N, N, D]
         h_diff = h_i - h_j
-        t_edge = t_emb.unsqueeze(1).unsqueeze(1).expand(-1, N, N, -1)  # [B, N, N, time_dim]
+        m_i = msg_i.unsqueeze(2).expand(-1, -1, N, -1)  # [B, N, N, D]
+        m_j = msg_i.unsqueeze(1).expand(-1, N, -1, -1)  # [B, N, N, D]
+        t_edge = t_emb.unsqueeze(1).unsqueeze(1).expand(-1, N, N, -1)
 
-        z_ij = torch.cat([h_i, h_j, h_diff, t_edge], dim=-1)  # [B, N, N, 2*D + D + time_dim]
-        edge_feat = edge_feat + self.edge_update(z_ij)
+        z_ij = torch.cat(
+            [h_i, h_j, h_diff, m_i, m_j, t_edge], dim=-1
+        )  # [B, N, N, 5*D + time_dim]
+        edge_feat_raw = edge_feat + self.edge_update(z_ij)
+
+        # §4.3 Eq.(17): e_ij^(ℓ+1) = FiLM(Emb(e)) + W_e · e
+        edge_norm = self.edge_norm(edge_feat_raw)
+        film_params = self.edge_film(edge_norm)
+        scale, bias = film_params.chunk(2, dim=-1)
+        e_filmed = edge_feat_raw * (1.0 + scale.sigmoid()) + bias
+        edge_feat = e_filmed + self.edge_fc(edge_feat_raw)
 
         return node_feat, edge_feat
 
@@ -319,6 +352,7 @@ class FlowSGTransformerBlock(nn.Module):
 # ==============================================================================
 # Full Denoiser: Graph Transformer with stacked DiT blocks
 # ==============================================================================
+
 
 class FlowSGDenoiser(nn.Module):
     """FlowSG Denoiser: L DiT-style blocks with time conditioning.
@@ -354,30 +388,29 @@ class FlowSGDenoiser(nn.Module):
         )
 
         # Stacked DiT blocks
-        self.blocks = nn.ModuleList([
-            FlowSGTransformerBlock(dim, num_heads, time_dim, mlp_ratio, dropout)
-            for _ in range(num_blocks)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                FlowSGTransformerBlock(dim, num_heads, time_dim, mlp_ratio, dropout)
+                for _ in range(num_blocks)
+            ]
+        )
 
         # Final AdaLN + output projections
         self.final_adaln = AdaLN(dim, time_dim)
 
     def forward(
         self,
-        node_emb: Tensor,           # [B, N, dim] — initial node embeddings
-        edge_emb: Tensor,           # [B, N, N, dim] — initial edge embeddings
-        image_feat: Tensor,         # [B, L, dim] — CLIP image features
+        node_emb: Tensor,  # [B, N, dim] — initial node embeddings
+        edge_emb: Tensor,  # [B, N, N, dim] — initial edge embeddings
+        image_feat: Tensor,  # [B, L, dim] — CLIP image features
         image_mask: Optional[Tensor],  # [B, L]
-        t: Tensor,                  # [B] ∈ [0,1]
+        t: Tensor,  # [B] ∈ [0,1]
     ) -> Tuple[Tensor, Tensor]:
         """
         Returns:
             node_feat: [B, N, dim] refined node features
             edge_feat: [B, N, N, dim] refined edge features
         """
-        B = node_emb.shape[0]
-        device = node_emb.device
-
         # Time embedding
         t_emb = self.time_embed(t)  # [B, time_dim]
 
@@ -386,7 +419,11 @@ class FlowSGDenoiser(nn.Module):
 
         for block in self.blocks:
             node_feat, edge_feat = block(
-                node_feat, edge_feat, image_feat, image_mask, t_emb,
+                node_feat,
+                edge_feat,
+                image_feat,
+                image_mask,
+                t_emb,
             )
 
         # Final normalization
@@ -398,6 +435,7 @@ class FlowSGDenoiser(nn.Module):
 # ==============================================================================
 # Output Heads (Geometry + Semantics)
 # ==============================================================================
+
 
 class GeometryHead(nn.Module):
     """Predicts velocity field for continuous box coordinates (§4.2, Eq.14).
@@ -426,14 +464,22 @@ class SemanticHead(nn.Module):
     For each slot, predicts time-conditioned p_{1|t}(clean | G_t, C).
     """
 
-    def __init__(self, dim: int = 512, num_classes: int = 151, num_predicates: int = 51,
-                 codebook_size: int = 64, num_slots: int = 4):
+    def __init__(
+        self,
+        dim: int = 512,
+        num_classes: int = 151,
+        num_predicates: int = 51,
+        codebook_size: int = 64,
+        num_slots: int = 4,
+    ):
         super().__init__()
         self.num_slots = num_slots
         self.codebook_size = codebook_size
-        self.obj_class_head = nn.Linear(dim, num_classes)          # object classes
-        self.pred_head = nn.Linear(dim, num_predicates)            # predicate classes
-        self.app_head = nn.Linear(dim, codebook_size * num_slots)  # per-slot appearance codes
+        self.obj_class_head = nn.Linear(dim, num_classes)  # object classes
+        self.pred_head = nn.Linear(dim, num_predicates)  # predicate classes
+        self.app_head = nn.Linear(
+            dim, codebook_size * num_slots
+        )  # per-slot appearance codes
 
     def forward(self, node_feat: Tensor, edge_feat: Tensor) -> Dict[str, Tensor]:
         """
@@ -447,7 +493,7 @@ class SemanticHead(nn.Module):
         B, N = node_feat.shape[:2]
         app_logits = app_raw.reshape(B, N, self.num_slots, self.codebook_size)
         return {
-            'obj_logits': self.obj_class_head(node_feat),
-            'pred_logits': self.pred_head(edge_feat),
-            'app_logits': app_logits,
+            "obj_logits": self.obj_class_head(node_feat),
+            "pred_logits": self.pred_head(edge_feat),
+            "app_logits": app_logits,
         }

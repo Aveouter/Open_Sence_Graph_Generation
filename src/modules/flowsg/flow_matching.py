@@ -21,12 +21,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from typing import Optional, Dict, Callable, Tuple
+from typing import Optional, Callable, Tuple
 
 
 # ==============================================================================
 # Cosine Scheduler — §4.2 "κ_t = 1 - cos(πt/2)"
 # ==============================================================================
+
 
 def cosine_schedule(t: Tensor) -> Tuple[Tensor, Tensor]:
     """Cosine noise schedule for flow matching.
@@ -51,6 +52,7 @@ def cosine_schedule(t: Tensor) -> Tuple[Tensor, Tensor]:
 # ==============================================================================
 # Continuous Flow Matching (CFM) — §3 Eq.(2), §4.2 Eq.(13-14, 18)
 # ==============================================================================
+
 
 class ContinuousFlowMatching(nn.Module):
     """Conditional Flow Matching for bounding box geometry.
@@ -108,7 +110,9 @@ class ContinuousFlowMatching(nn.Module):
         Returns:
             scalar loss
         """
-        loss = F.mse_loss(pred_velocity, u_star, reduction='none').mean(dim=-1)  # [B, N]
+        loss = F.mse_loss(pred_velocity, u_star, reduction="none").mean(
+            dim=-1
+        )  # [B, N]
         if mask is not None and mask.any():
             loss = (loss * mask.float()).sum() / mask.float().sum().clamp(min=1)
         else:
@@ -119,6 +123,7 @@ class ContinuousFlowMatching(nn.Module):
 # ==============================================================================
 # Discrete Flow Matching (DFM) — §3 Eq.(4), §4.2 Eq.(15, 19)
 # ==============================================================================
+
 
 class DiscreteFlowMatching(nn.Module):
     """Discrete flow for categorical tokens via masked prediction.
@@ -200,7 +205,7 @@ class DiscreteFlowMatching(nn.Module):
         loss = F.cross_entropy(
             pred_logits.reshape(-1, vocab_size),
             clean_tokens.reshape(-1).long(),
-            reduction='none',
+            reduction="none",
         ).reshape(clean_tokens.shape)
 
         if mask is not None and mask.any():
@@ -213,6 +218,7 @@ class DiscreteFlowMatching(nn.Module):
 # ==============================================================================
 # CFM + DFM Combined Wrapper
 # ==============================================================================
+
 
 class HybridFlowMatching(nn.Module):
     """Combined Continuous + Discrete flow matching.
@@ -234,6 +240,7 @@ class HybridFlowMatching(nn.Module):
 # ==============================================================================
 # ODE Solver for inference
 # ==============================================================================
+
 
 class ODESolver:
     """Euler ODE solver for CFM inference.
