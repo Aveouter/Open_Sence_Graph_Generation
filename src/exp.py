@@ -110,7 +110,14 @@ class BaseExperiment(object):
             resolved_strategy = strategy
         else:
             if accelerator == 'gpu' and device_count > 1:
-                resolved_strategy = 'ddp'
+                # Use find_unused_parameters=True to support models with frozen
+                # components (e.g. FlowSG CLIP encoder). This is safe for all
+                # models: it adds a small one-time profiling cost on the first
+                # forward pass, and gracefully handles parameters that don't
+                # participate in the loss. The strict 'ddp' alternative would
+                # crash on any model with intentionally frozen submodules.
+                # See: PyTorch DistributedDataParallel docs on find_unused_parameters.
+                resolved_strategy = 'ddp_find_unused_parameters_true'
             else:
                 resolved_strategy = 'auto'
 
