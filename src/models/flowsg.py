@@ -658,8 +658,12 @@ class FlowSG(nn.Module):
             pred_rand = torch.rand(B, N, device=device)
             pred_is_masked = (pred_rand < pred_mask_prob).unsqueeze(-1)  # [B, N, 1]
 
-            # Create dense edge tokens [B, N, N]
-            clean_pred_dense = torch.zeros(B, N, N, dtype=torch.long, device=device)
+            # Create dense edge tokens [B, N, N].
+            # Default = background class (num_predicates - 1); non-edge pairs
+            # should never be labeled as a real predicate.
+            clean_pred_dense = torch.full(
+                (B, N, N), self.num_predicates - 1, dtype=torch.long, device=device
+            )
             for b_idx, target in enumerate(targets):
                 rels = target.get("rel_annotations", None)
                 if rels is not None and len(rels) > 0:
@@ -669,9 +673,7 @@ class FlowSG(nn.Module):
                     s, o, p = s[valid], o[valid], p[valid]
                     if len(p) > 0:
                         p = p.clamp(0, self.num_predicates - 1)
-                        clean_pred_dense[b_idx, s, o] = (
-                            p  # 0-indexed, 0 = background/no-relation
-                        )
+                        clean_pred_dense[b_idx, s, o] = p
 
             # Mask predicate tokens
             pred_tokens = clean_pred_dense.clone()
