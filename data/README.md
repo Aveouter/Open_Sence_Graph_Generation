@@ -9,7 +9,6 @@ data/
 │   ├── dataloader.py      # Generic dataloader utilities
 │   ├── coco.py            # COCO dataset support
 │   ├── dataloader_VisualGenome.py
-│   ├── dataloader_thyrotriples.py
 │   ├── dataset_constant.py
 │   └── utils.py
 ├── <DatasetName>/         # Raw dataset files (one folder per dataset)
@@ -33,7 +32,6 @@ data/
 | Dataset | Folder | Dataloader |
 |---|---|---|
 | VisualGenome | `data/VisualGenome/` | `dataloaders/dataloader_VisualGenome.py` |
-| ThyroTriples | (pending) | `dataloaders/dataloader_thyrotriples.py` |
 | COCO | (pending) | `dataloaders/coco.py` |
 
 Note: The dataset files in `VisualGenome/` are git-ignored. Download them separately.

@@ -48,7 +48,7 @@ def create_parser():
                         help='Optional test subset size; overrides val_dataset_size in eval mode')
     parser.add_argument('--data_root', default='./data')
     parser.add_argument('--dataname', '-d', default='VisualGenome', type=str,
-                        choices=['ThyroTriples', 'VisualGenome', 'OpenImageV6',],
+                        choices=['VisualGenome', 'OpenImageV6'],
                         help='Dataset name (default: "rain_fall_short_2h")')
     parser.add_argument('--pre_seq_length', default=None, type=int, help='Sequence length before prediction')
     parser.add_argument('--aft_seq_length', default=None, type=int, help='Sequence length after prediction')
