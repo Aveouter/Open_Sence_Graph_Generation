@@ -129,6 +129,12 @@ class CVC_Method(Motifs_Method):
 
             out = {"outputs": batched}
 
+            # CVC uses VG predicate ids 1..50 directly as CE targets,
+            # meaning index 0 is background/unused. The evaluator default
+            # assumes background is LAST, so we must override it here.
+            out["outputs"]["predicate_bg_index"] = "first"
+            out["outputs"]["relation_softmax_scope"] = "all"
+
             if is_training and self.criterion is not None:
                 loss_dict = self.criterion(batched, targets)
                 out["loss_dict"] = loss_dict

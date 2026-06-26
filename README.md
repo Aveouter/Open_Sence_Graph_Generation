@@ -41,10 +41,10 @@ OpenSGG provides a unified training and evaluation framework for Scene Graph Gen
 | [TDE](https://arxiv.org/abs/2002.11949) | CVPR 2020 | Two-stage | `TDE` | Total Direct Effect causal debiasing (built on Motifs) |
 | [IMP](https://arxiv.org/abs/1701.02426) | CVPR 2017 | Two-stage | `IMP` | Iterative Message Passing for graph refinement |
 | [Transformer](https://arxiv.org/abs/2006.05676) | CVPR 2020 | Two-stage | `Transformer` | Transformer-based context predictor for two-stage SGG |
-| [GPS-Net](https://arxiv.org/abs/2006.05676) | CVPR 2020 | Two-stage | `GPS_Net` | Graph Property Sensing Network for relation proposal |
-| [PE-Net](https://arxiv.org/abs/2303.13020) | CVPR 2023 | Two-stage | `PE_NET` | Prototype-based Embedding Network with hierarchical alignment |
+| [GPS-Net](https://arxiv.org/abs/2006.05676) | CVPR 2020 | Two-stage | `GPSNet` | Graph Property Sensing Network for relation proposal |
+| [PE-Net](https://arxiv.org/abs/2303.13020) | CVPR 2023 | Two-stage | `PENet` | Prototype-based Embedding Network with hierarchical alignment |
 | [REACT](https://arxiv.org/abs/2406.18412) | BMVC 2025 | Two-stage | `REACT` | Prototype-regularized efficient SGG with composition analysis |
-| [SHA-GCL](https://arxiv.org/abs/2203.15249) | CVPR 2022 | Two-stage | `SHA_GCL` | Hybrid attention with group collaborative learning |
+| [SHA-GCL](https://arxiv.org/abs/2203.15249) | CVPR 2022 | Two-stage | `SHAGCL` | Hybrid attention with group collaborative learning |
 | [SQUAT](https://arxiv.org/abs/2303.13020) | CVPR 2023 | Two-stage | `SQUAT` | Selective quad attention for edge modeling |
 | HSTRNet | — | Two-stage | `HSTRNet` | Hierarchical prototype relation learning with temporal encoding |
 | CVC | — | Two-stage | `CVC` | Compositionally Verified Concept relation head with adversarial debiasing |
@@ -89,16 +89,18 @@ pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorc
 
 ```
 data/VisualGenome/
-├── VG_100K/                    # Raw images (part 1)
-├── VG_100K_2/                  # Raw images (part 2)
-├── annotations/                # COCO-style JSON annotations
-├── clip_prototypes.pth         # (optional) CLIP prototypes
-└── predicate_frequencies.json  # (optional) Head/Body/Tail analysis
+├── images/                     # Image files (from VG_100K and VG_100K_2)
+├── train.json                  # COCO-format training annotations
+├── val.json                    # COCO-format validation annotations
+├── test.json                   # COCO-format test annotations
+├── rel.json                    # Relationship metadata
+├── clip_prototypes.pth         # (optional) CLIP prototypes for hierarchical alignment
+└── predicate_frequencies.json  # (optional) for Head/Body/Tail analysis
 ```
 
 ### OpenImageV6 (Experimental)
 
-Place COCO-format annotations under `data/OpenImage/`.
+Place COCO-format annotations and images under `data/OpenImage/`.
 
 ---
 
@@ -119,10 +121,10 @@ python train.py --method VCTree     --dataname VisualGenome --gpus 0 --batch_siz
 python train.py --method TDE        --dataname VisualGenome --gpus 0 --batch_size 8
 python train.py --method IMP        --dataname VisualGenome --gpus 0 --batch_size 8
 python train.py --method Transformer --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method GPS_Net    --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method PE_NET     --dataname VisualGenome --gpus 0 --batch_size 8
+python train.py --method GPSNet     --dataname VisualGenome --gpus 0 --batch_size 8
+python train.py --method PENet      --dataname VisualGenome --gpus 0 --batch_size 8
 python train.py --method REACT      --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method SHA_GCL    --dataname VisualGenome --gpus 0 --batch_size 8
+python train.py --method SHAGCL     --dataname VisualGenome --gpus 0 --batch_size 8
 python train.py --method SQUAT      --dataname VisualGenome --gpus 0 --batch_size 8
 python train.py --method HSTRNet    --dataname VisualGenome --gpus 0 --batch_size 8
 python train.py --method CVC        --dataname VisualGenome --gpus 0 --batch_size 8

@@ -75,6 +75,44 @@ def get_parameter_groups(model, weight_decay=1e-5, skip_list=(), get_num_layer=N
     return list(parameter_group_vars.values())
 
 
+def split_backbone_param_groups(parameters, model, lr, lr_backbone, weight_decay):
+    """Split existing optimizer groups by backbone membership while preserving group options."""
+    param_to_name = {
+        id(p): name
+        for name, p in model.named_parameters()
+        if p.requires_grad
+    }
+
+    if isinstance(parameters, list):
+        source_groups = parameters
+    else:
+        source_groups = [{'params': list(parameters), 'weight_decay': weight_decay}]
+
+    split_groups = []
+    for group in source_groups:
+        base_group = {k: v for k, v in group.items() if k != 'params'}
+        backbone_params = []
+        other_params = []
+
+        for param in group['params']:
+            name = param_to_name.get(id(param), '')
+            if 'backbone' in name.lower():
+                backbone_params.append(param)
+            else:
+                other_params.append(param)
+
+        if backbone_params:
+            backbone_group = dict(base_group)
+            backbone_group.update(params=backbone_params, lr=lr_backbone)
+            split_groups.append(backbone_group)
+        if other_params:
+            other_group = dict(base_group)
+            other_group.update(params=other_params, lr=lr)
+            split_groups.append(other_group)
+
+    return split_groups
+
+
 def get_optim_scheduler(args, epoch, model, steps_per_epoch):
     opt_lower = (args.opt or 'adam').lower()
     weight_decay = args.weight_decay if args.weight_decay is not None else 1e-4
@@ -89,6 +127,16 @@ def get_optim_scheduler(args, epoch, model, steps_per_epoch):
         weight_decay = 0.
     else:
         parameters = model.parameters()
+
+    # Backbone low-LR param group: configs set lr_backbone (e.g. 1e-5) but
+    # previously it was only used to gate trainability.  Honour it by
+    # splitting existing groups by backbone/non-backbone with distinct LRs.
+    lr_backbone = getattr(args, 'lr_backbone', None)
+    if lr_backbone and lr_backbone > 0 and lr_backbone != args.lr:
+        parameters = split_backbone_param_groups(
+            parameters, model, args.lr, lr_backbone, weight_decay
+        )
+        weight_decay = 0.  # already applied per-group
 
     opt_args = optim_parameters.get(opt_lower, dict())
     opt_args.update(lr=args.lr, weight_decay=weight_decay)
@@ -142,9 +190,14 @@ def get_optim_scheduler(args, epoch, model, steps_per_epoch):
     total_steps = epoch * steps_per_epoch
     by_epoch = True
     if sched_lower == 'onecycle':
+        max_lr = (
+            [group['lr'] for group in optimizer.param_groups]
+            if len(optimizer.param_groups) > 1
+            else args.lr
+        )
         lr_scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer,
-            max_lr=args.lr,
+            max_lr=max_lr,
             total_steps=total_steps,
             final_div_factor=getattr(args, 'final_div_factor', 1e4))
         by_epoch = False

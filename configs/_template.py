@@ -41,7 +41,7 @@ lr = 1e-4                         # Learning rate
 lr_backbone = 1e-5                # Backbone learning rate
 weight_decay = 1e-4               # Weight decay
 clip_grad = None                  # Gradient clipping (None = disabled)
-clip_mode = "norm"                # Clip mode: "norm", "value", "agc"
+clip_mode = "norm"                # Clip mode: "norm", "value"
 
 # ---------------------------------------------------------------------------
 # Scheduler
