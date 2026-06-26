@@ -85,17 +85,18 @@ MAX_DIFF_CHARS = 55_000  # ~27K tokens, 留 5K 给上下文附录 + 90K+ 给输�
 def _build_context_appendix(diff: str) -> str:
     """Extract key context from changed files that the diff alone hides.
 
-    The LLM only sees the diff, not the full file.  This function appends
-    critical context for each changed file — argparse CLI flags, existence
-    guards, etc. — so the LLM can accurately judge whether a diff line is
-    a bug or safe.
+    The LLM only sees the diff, not the full file.  This function scans
+    every changed file and appends:
+      - Python: module-level dicts, class/function defs, exception chains,
+        argparse calls, .exists() guards
+      - YAML: workflow step names and 'uses:' action references
     """
 
-    files = set()
+    files: set[str] = set()
     for line in diff.split("\n"):
-        if line.startswith("diff --git a/") and line.endswith(".py"):
-            name = line.split(" b/", 1)[-1]
-            if name.endswith(".py"):
+        if line.startswith("diff --git a/"):
+            name = line.split(" b/", 1)[-1].strip()
+            if name:
                 files.add(name)
 
     if not files:
@@ -103,10 +104,9 @@ def _build_context_appendix(diff: str) -> str:
 
     appendix = [
         "\n\n---\n"
-        "## :rotating_light: ANTI-FALSE-POSITIVE CONTEXT\n"
-        "Below are definitions that exist in the FULL files.\n"
-        "If you are about to report any of these as missing or broken, "
-        "**STOP** — they already exist outside the diff hunk.\n"
+        "## :rotating_light: FULL-FILE CONTEXT (outside your diff view)\n"
+        "These definitions exist in the COMPLETE files. Before reporting\n"
+        "any of these as missing or broken, **STOP** — you are wrong.\n"
     ]
 
     for fname in sorted(files):
@@ -114,32 +114,87 @@ def _build_context_appendix(diff: str) -> str:
         if not path.exists():
             continue
         content = path.read_text(encoding="utf-8", errors="replace")
-        lines = content.split("\n")
+        flines = content.split("\n")
         gathered: list[str] = []
 
-        for i, line in enumerate(lines, 1):
-            stripped = line.strip()
-            # argparse: extract the flag name from multi-line add_argument calls
-            if ".add_argument(" in stripped:
-                flag = _extract_flag_name(stripped, lines, i)
-                if flag:
-                    gathered.append(f"  L{i}: add_argument({flag})")
-                else:
-                    gathered.append(f"  L{i}: add_argument(...)")
-            # existence guards
-            if ".exists()" in stripped:
-                gathered.append(f"  L{i}: {stripped}")
+        if fname.endswith(".py"):
+            _gather_python_context(flines, gathered)
+        elif fname.endswith((".yml", ".yaml")):
+            _gather_yaml_context(flines, gathered)
 
         if gathered:
             appendix.append(f"\n### {fname}")
-            for g in gathered[:30]:
+            for g in gathered[:40]:
                 appendix.append(g)
 
-    if len(appendix) <= 4:  # header only, no context
+    if len(appendix) <= 4:
         return ""
 
     appendix.append("")
     return "\n".join(appendix)
+
+
+def _gather_python_context(lines: list[str], out: list[str]) -> None:
+    """Extract definitions the LLM needs to see but the diff hides."""
+
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        # Module-level constants / dicts — e.g. CONFIG_NAME_ALIASES
+        m = re.match(r"^([A-Z][A-Z_0-9]*)\s*[:=]", stripped)
+        if (
+            m
+            and not stripped.startswith("from ")
+            and not stripped.startswith("import ")
+        ):
+            name = m.group(1)
+            # Only show the first line of multi-line dicts to avoid bloat
+            val = stripped[:120]
+            out.append(f"  L{i}: {name} = {val}")
+
+        # Class definitions
+        if stripped.startswith("class ") or stripped.startswith("def "):
+            out.append(f"  L{i}: {stripped[:120]}")
+
+        # except / raise chains — reveals exception handling intent
+        if re.match(r"^(except|raise)\b", stripped):
+            out.append(f"  L{i}: {stripped[:120]}")
+
+        # argparse
+        if ".add_argument(" in stripped:
+            flag = _extract_flag_name(stripped, lines, i)
+            if flag:
+                out.append(f"  L{i}: add_argument({flag})")
+            else:
+                out.append(f"  L{i}: add_argument(...)")
+
+        # Existence guards
+        if ".exists()" in stripped and "import" not in stripped:
+            out.append(f"  L{i}: {stripped[:120]}")
+
+
+def _gather_yaml_context(lines: list[str], out: list[str]) -> None:
+    """Extract workflow step names and action references from YAML."""
+
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+
+        # Step names — "Commit lint fixes back to PR"
+        m = re.match(r"^\s*-\s*name:\s*(.+)", stripped)
+        if m:
+            out.append(f"  L{i}: step: {m.group(1)[:100]}")
+
+        # Action references — uses: stefanzweifel/git-auto-commit-action@v5
+        m = re.match(r"^\s*uses:\s*(.+)", stripped)
+        if m:
+            out.append(f"  L{i}: uses: {m.group(1)[:100]}")
+
+        # Cache paths — path: ~/.cache/huggingface
+        m = re.match(r"^\s*path:\s*(.+)", stripped)
+        if m:
+            out.append(f"  L{i}: cache-path: {m.group(1)[:100]}")
 
 
 def _extract_flag_name(current_line: str, all_lines: list[str], line_idx: int) -> str:
@@ -151,10 +206,9 @@ def _extract_flag_name(current_line: str, all_lines: list[str], line_idx: int) -
             ...
         )
     """
-    import re as _re
 
     # Check current line first: add_argument("-x", "--xxx", ...)
-    m = _re.search(r'add_argument\(\s*["\'](--?\w[\w-]*)', current_line)
+    m = re.search(r'add_argument\(\s*["\'](--?\w[\w-]*)', current_line)
     if m:
         return f'"{m.group(1)}"'
 
@@ -164,7 +218,7 @@ def _extract_flag_name(current_line: str, all_lines: list[str], line_idx: int) -
         if idx >= len(all_lines):
             break
         look = all_lines[idx].strip()
-        m = _re.search(r'["\'](--?\w[\w-]*)["\']', look)
+        m = re.search(r'["\'](--?\w[\w-]*)["\']', look)
         if m:
             flag = m.group(1)
             # Skip help strings (they're long, not flag names)

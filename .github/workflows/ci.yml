@@ -1,7 +1,7 @@
 name: CI
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 on:
@@ -39,6 +39,7 @@ jobs:
   # Job 1: Lint — fast (~1 min), only on changed Python files
   # ============================================================
   lint:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,12 +68,25 @@ jobs:
           echo "files=$FILES" >> $GITHUB_OUTPUT
           echo "Changed files: $FILES"
 
-      - name: Lint + format (ruff — changed files only)
+      - name: Lint + format (ruff — fix dead code, check style)
         if: steps.changed-files.outputs.files != ''
         run: |
           echo "Changed files: ${{ steps.changed-files.outputs.files }}"
+          # Step 1: auto-remove dead code (unused imports etc.)
+          # These are objectively bugs — always safe to fix.
+          ruff check --fix ${{ steps.changed-files.outputs.files }}
+          # Step 2: check style — non-blocking, author decides.
+          # Warnings only; formatting is subjective, not auto-committed.
+          ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
+          # Step 3: remaining unfixable issues → blocking error
           ruff check ${{ steps.changed-files.outputs.files }}
-          ruff format ${{ steps.changed-files.outputs.files }}
+
+      - name: Commit dead-code fixes back to PR
+        if: steps.changed-files.outputs.files != '' && github.event_name == 'pull_request'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-remove unused imports [skip ci]"
+          file_pattern: "*.py"
 
   # ============================================================
   # Job 2: Review — LLM-based bug detection (~30s)
@@ -171,6 +185,26 @@ jobs:
         if: steps.check-changes.outputs.needs_smoke != 'true'
         run: echo "Skipping smoke test — no model/config files changed."
 
+      - name: Restore HuggingFace model cache
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        id: cache-hf
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-v2-${{ runner.os }}-${{ hashFiles('src/models/flowsg.py', 'src/methods/egtr_method.py') }}
+          restore-keys: |
+            hf-v2-${{ runner.os }}-
+
+      - name: Restore OpenCLIP model cache
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        id: cache-openclip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/open_clip
+          key: openclip-v2-${{ runner.os }}-${{ hashFiles('src/models/usg.py') }}
+          restore-keys: |
+            openclip-v2-${{ runner.os }}-
+
       - name: Setup Miniconda
         if: steps.check-changes.outputs.needs_smoke == 'true'
         uses: conda-incubator/setup-miniconda@v3
@@ -198,6 +232,35 @@ jobs:
           pip install opencv-python-headless
           # USG backbone (optional — graceful fallback if unavailable)
           pip install open_clip_torch || echo "open_clip_torch skipped"
+
+      - name: Pre-warm HuggingFace models (cache miss)
+        if: steps.check-changes.outputs.needs_smoke == 'true' && steps.cache-hf.outputs.cache-hit != 'true'
+        shell: bash -el {0}
+        run: |
+          conda activate hsg
+          export HF_HOME="$HOME/.cache/huggingface"
+          # FlowSG: CLIP ViT-B/16 encoder (~300 MB)
+          python -c "
+          from transformers import CLIPVisionModel
+          CLIPVisionModel.from_pretrained('openai/clip-vit-base-patch16')" 2>&1 ||
+            echo "(CLIP pre-warm skipped — network may be unavailable)"
+          # EGTR: DeformableDETR config (~200 MB)
+          python -c "
+          from transformers import AutoConfig
+          AutoConfig.from_pretrained('SenseTime/deformable-detr')" 2>&1 ||
+            echo "(DETR pre-warm skipped — network may be unavailable)"
+
+      - name: Pre-warm OpenCLIP models (cache miss)
+        if: steps.check-changes.outputs.needs_smoke == 'true' && steps.cache-openclip.outputs.cache-hit != 'true'
+        shell: bash -el {0}
+        run: |
+          conda activate hsg
+          # USG: ConvNeXt-L CLIP backbone (~800 MB)
+          python -c "
+          import open_clip
+          open_clip.create_model_and_transforms(
+              'convnext_large_d_320', pretrained='laion2b_s29b_b131k_ft_soup')" 2>&1 ||
+            echo "(ConvNeXt-L pre-warm skipped — network may be unavailable)"
 
       - name: Run smoke tests
         if: steps.check-changes.outputs.needs_smoke == 'true'

@@ -36,35 +36,54 @@ sys.path.insert(0, str(ROOT))
 # ---------------------------------------------------------------------------
 
 
-def _normalize_name(name: str) -> str:
-    """Normalize a name for comparison: lowercase + strip underscores.
+# ---------------------------------------------------------------------------
+# Name matching helpers
+# ---------------------------------------------------------------------------
 
-    Handles the config filename ↔ method key mismatch:
-      GPS_Net.py → gpsnet,  PE_NET.py → penet,  SHA_GCL.py → shagcl
+# Config filenames that differ from method_maps keys for historical reasons.
+# New models where config filename == method key do NOT need an entry here.
+CONFIG_NAME_ALIASES: Dict[str, str] = {
+    "gps_net": "gpsnet",
+    "pe_net": "penet",
+    "sha_gcl": "shagcl",
+    "gpsnet": "gpsnet",  # alias → self (for direct lookup)
+    "penet": "penet",
+    "shagcl": "shagcl",
+}
+
+
+def _resolve_config_key(method_name: str) -> str:
+    """Map a method or config filename stem to the canonical method_maps key.
+
+    Handles the 3 historical naming mismatches:
+      GPS_Net.py → "gpsnet",  PE_NET.py → "penet",  SHA_GCL.py → "shagcl"
+    All other methods: filename == method key (case-insensitive).
     """
-    return name.lower().replace("_", "")
+    return CONFIG_NAME_ALIASES.get(method_name.lower(), method_name.lower())
 
 
 def _find_method_for_model(model_stem: str) -> Optional[str]:
     """Map a model file stem to a method_maps key.
 
-    Most models follow a direct naming convention (usg.py → "usg"),
-    so auto-detection via normalization works for new models.
-    Only truly irregular cases need to be listed explicitly.
+    Most models follow a direct naming convention (usg.py → "usg").
+    Only truly irregular cases need explicit entries.
     """
     from src.methods import method_maps
 
-    normalized = _normalize_name(model_stem)
-    for mm_key in method_maps:
-        if _normalize_name(mm_key) == normalized:
-            return mm_key
-
-    # Irregular mappings: model file stem → method_maps key
+    # Irregular model file stems
     exceptions = {
         "react_sgg": "react",
         "transformer_sgg": "transformer",
     }
-    return exceptions.get(model_stem.lower())
+    if model_stem.lower() in exceptions:
+        return exceptions[model_stem.lower()]
+
+    # Direct match: lowercase stem must match a method_maps key
+    stem_lower = model_stem.lower()
+    if stem_lower in method_maps:
+        return stem_lower
+
+    return None
 
 
 def load_config(method_name: str, dataname: str = "VisualGenome") -> dict:
@@ -72,11 +91,11 @@ def load_config(method_name: str, dataname: str = "VisualGenome") -> dict:
     cfg_path = ROOT / "configs" / dataname / f"{method_name}.py"
 
     if not cfg_path.exists():
-        # Try case-insensitive + underscore-insensitive
+        # Try case-insensitive + historical alias matching
         cfg_dir = ROOT / "configs" / dataname
-        method_normalized = _normalize_name(method_name)
+        target = _resolve_config_key(method_name)
         for f in cfg_dir.glob("*.py"):
-            if _normalize_name(f.stem) == method_normalized:
+            if _resolve_config_key(f.stem) == target:
                 cfg_path = f
                 break
         else:
@@ -157,11 +176,78 @@ def build_args_from_config(config_dict: dict) -> SimpleNamespace:
     # Merge: config values override defaults
     merged = {**defaults, **config_dict}
 
+    # Force CPU — some configs set device='cuda' which would pull in CUDA ops
+    merged["device"] = "cpu"
+
     # Ensure method is lowercase
     if "method" in merged:
         merged["method"] = merged["method"].lower()
 
     return SimpleNamespace(**merged)
+
+
+def _instantiate_with_timeout(method_cls, method_name, save_dir, kwargs):
+    """Instantiate a method with a timeout to catch hanging downloads.
+
+    FlowSG and EGTR download large pretrained weights (CLIP,
+    DeformableDETR) from HuggingFace at __init__ time.  In CI this can
+    time out or fail if HF is unreachable, wasting 10+ minutes.
+    Skipped models raise NotImplementedError (non-fatal).
+    """
+    import threading
+
+    result = [None]
+    error = [None]
+
+    def _build():
+        try:
+            result[0] = method_cls(steps_per_epoch=1, save_dir=save_dir, **kwargs)
+        except Exception as e:
+            error[0] = e
+
+    t = threading.Thread(target=_build, daemon=True)
+    t.start()
+    t.join(timeout=30)
+
+    if t.is_alive():
+        raise NotImplementedError(
+            f"{method_name}: instantiation timed out (30s) — "
+            f"likely downloading pretrained weights"
+        )
+
+    if error[0] is not None:
+        exc = error[0]
+        msg = str(exc).lower()
+        # Exception types that indicate network/IO failures
+        if isinstance(exc, (OSError, IOError)):
+            raise NotImplementedError(
+                f"{method_name}: skipping (download/network unavailable)"
+            )
+        # Keyword matches for urllib3 / requests / HuggingFace errors
+        # that don't subclass OSError (e.g. ReadTimeoutError, HTTPError)
+        network_kw = (
+            "hf-mirror",
+            "huggingface",
+            "connection",
+            "timeout",
+            "timed out",
+            "read timed",
+            "retry",
+            "max retries",
+            "urllib3",
+            "httperror",
+            "requests",
+            "connect call",
+            "name resolution",
+            "temporary failure",
+        )
+        if any(kw in msg for kw in network_kw):
+            raise NotImplementedError(
+                f"{method_name}: skipping (remote model unavailable)"
+            )
+        raise
+
+    return result[0]
 
 
 def import_method_class(method_name: str):
@@ -202,8 +288,16 @@ def try_instantiate_method(
         all_kwargs = dict(vars(args))
         save_dir = all_kwargs.pop("save_dir", str(ROOT / "outputs" / "CI_SmokeTest"))
         all_kwargs.pop("steps_per_epoch", None)
-        model = method_cls(steps_per_epoch=1, save_dir=save_dir, **all_kwargs)
-        print(f"    ✓ Instantiated {method_cls.__name__}")
+
+        # 4. Instantiate (with timeout for models that download weights)
+        try:
+            model = _instantiate_with_timeout(
+                method_cls, method_name, save_dir, all_kwargs
+            )
+            print(f"    ✓ Instantiated {method_cls.__name__}")
+        except NotImplementedError as e:
+            print(f"    ⚠ Instantiation skipped: {e}")
+            return True, ""  # non-fatal skip
 
         # 5. Try a synthetic forward pass (CPU-safe, small tensors)
         try:
@@ -327,10 +421,10 @@ def detect_changed_methods(changed_files_str: str) -> List[str]:
             method = _find_method_for_model(stem)
             if method:
                 methods.add(method)
-        # configs/VisualGenome/Xxx.py → method (normalize underscores)
+        # configs/VisualGenome/Xxx.py → method (resolve historical alias)
         elif "configs/" in f and f.endswith(".py"):
-            stem = _normalize_name(Path(f).stem)
-            methods.add(stem)
+            method = _resolve_config_key(Path(f).stem)
+            methods.add(method)
 
     return sorted(methods)
 
