@@ -2,7 +2,6 @@ from functools import partial
 from types import SimpleNamespace
 
 import torch
-from .coco import CocoDetection
 from torch.utils.data import DataLoader, DistributedSampler, Subset
 import utils.misc as utils
 from data.dataloaders import build_dataset, get_coco_api_from_dataset
@@ -41,13 +40,17 @@ def load_data(args=None, **kwargs):
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
-    batch_sampler_train = torch.utils.data.BatchSampler(
-        sampler_train, args.batch_size, drop_last=True
-    )
-
+    # NOTE: Do NOT pass an explicit batch_sampler to DataLoader.
+    # Lightning's _dataloader_init_kwargs_resolve_sampler() has a bug (as of 2.6.1)
+    # where the batch_sampler code path hardcodes batch_size=1/drop_last=False in
+    # the reconstructed kwargs, corrupting DDP training. Using batch_size+sampler
+    # instead lets PyTorch auto-create the BatchSampler internally, which makes
+    # Lightning use the safe sampler-only code path.
     data_loader_train = DataLoader(
         dataset_train,
-        batch_sampler=batch_sampler_train,
+        batch_size=args.batch_size,
+        sampler=sampler_train,
+        drop_last=True,
         collate_fn=utils.collate_fn,
         num_workers=args.num_workers
     )
