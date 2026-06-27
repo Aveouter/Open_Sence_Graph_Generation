@@ -51,4 +51,5 @@ __all__ = [
     "react_method",
     "squat_method",
     "shagcl_method",
+    "usg_method",
 ]

@@ -59,20 +59,13 @@ class ConvNeXtBackbone(nn.Module):
         self._frozen = freeze
 
     def forward(self, x: Tensor) -> List[Tensor]:
-        if self._frozen:
-            with torch.no_grad():
-                y = self.trunk.stem(x)
-                feats = []
-                for stage in self.trunk.stages:
-                    y = stage(y)
-                    feats.append(y)
-                return feats[1:]  # drop stride-4
-        y = self.trunk.stem(x)
-        feats = []
-        for stage in self.trunk.stages:
-            y = stage(y)
-            feats.append(y)
-        return feats[1:]
+        with torch.set_grad_enabled(not self._frozen):
+            y = self.trunk.stem(x)
+            feats = []
+            for stage in self.trunk.stages:
+                y = stage(y)
+                feats.append(y)
+            return feats[1:]  # drop stride-4
 
 
 # ==============================================================================
@@ -471,7 +464,10 @@ class RelationProposalConstructor(nn.Module):
             x_sub, x_obj = layer(x_sub, x_obj)
 
         c = _pairwise_cosine(x_sub, x_obj)
-        k = min(k, N * N)
+        # Mask self-pairs (diagonal) — subject-i→object-i relations are
+        # virtually absent in VG and waste top-k capacity.
+        c = c + torch.eye(N, device=c.device).unsqueeze(0) * (-1e9)
+        k = min(k, N * (N - 1))
         scores, flat_idx = c.reshape(B, N * N).topk(k, dim=-1)
         sub_idx = flat_idx // N
         obj_idx = flat_idx % N
@@ -644,13 +640,18 @@ class USGModel(nn.Module):
 
         # ---- Step 2: Shared Mask Decoder ----
         q0 = self.query_embed.unsqueeze(0).expand(B, -1, -1)
-        queries, _ = self.mask_decoder(q0, feats_per_scale, feat_sizes, mask_features)
+        queries, mask_logits = self.mask_decoder(q0, feats_per_scale, feat_sizes, mask_features)
+        # VG: mask_logits not used (no mask supervision needed).
+        # PSG: retain mask_logits for panoptic mask loss.
 
         # ---- Step 3: Detection Head ----
         class_logits, pred_boxes = self.detection_head(queries)
 
         # ---- Step 4: RPC ----
-        if targets is not None and all(
+        # During training, inflate K from GT so the matcher has headroom.
+        # During eval, use fixed K so output shapes are consistent across batches
+        # (required by _aggregate_step_outputs → torch.cat).
+        if self.training and targets is not None and all(
             t.get("rel_annotations") is not None and len(t["rel_annotations"]) > 0
             for t in targets
         ):
@@ -801,8 +802,10 @@ class USGCriterion(nn.Module):
         )
         tc[bi, si] = tco
         return F.cross_entropy(
-            cl.flatten(0, 1), tc.flatten(0), weight=self.empty_weight, ignore_index=0
+            cl.flatten(0, 1), tc.flatten(0), weight=self.empty_weight,
         )
+        # All N queries participate in classification loss:
+        # matched queries → GT class (weight=1.0), unmatched → bg class (weight=eos_coef).
 
     def _loss_box(self, pb, targets, indices):
         bi, si = self._perm_idx(indices)
@@ -824,8 +827,11 @@ class USGCriterion(nn.Module):
 
         Uses Hungarian matching indices to translate RPC query-pair indices
         into GT object indices, then checks against GT relation annotations.
+        Fully vectorised ― no per-element Python loop.
         """
-        _, dev, K = len(targets), rl.device, rl.shape[1]
+        import warnings
+
+        _, dev = len(targets), rl.device
         total, n_pairs = torch.tensor(0.0, device=dev), 0
         sub_idx = rpc["sub_idx"]  # (B, K): query indices [0..N-1]
         obj_idx = rpc["obj_idx"]
@@ -837,25 +843,54 @@ class USGCriterion(nn.Module):
 
             # Build query→GT mapping from Hungarian matching
             pred_idx, gt_idx = indices[b]
-            # q2g must cover [0..num_queries-1] (100); Hungarian only matches
-            # a subset, but RPC pair indices can reference ANY query
             q2g = torch.full((self.num_queries,), -1, dtype=torch.long, device=dev)
             q2g[pred_idx] = gt_idx.to(dev)
 
-            # GT relation lookup: (gt_s, gt_o) → predicate
-            gp = {(int(r[0]), int(r[1])): int(r[2]) for r in rels}
+            # Build (M, M) predicate lookup matrix from GT relations.
+            # Warn when the same (s, o) pair has multiple predicates
+            # (common in VG, e.g. "man wearing/has shirt") — our
+            # architecture predicts one predicate per pair, so only the
+            # last annotation is retained.
+            M = len(t["labels"])
+            pmat = torch.full((M, M), -1, dtype=torch.long, device=dev)
+            seen = {}
+            for s, o, p in rels:
+                key = (int(s), int(o))
+                if key in seen:
+                    warnings.warn(
+                        f"USG: duplicate (s={s}, o={o}) relation — "
+                        f"overwriting predicate {seen[key]} → {int(p)}. "
+                        f"Only the last predicate is retained per pair."
+                    )
+                seen[key] = int(p)
+                pmat[s, o] = int(p)
 
-            gt = torch.full((K,), -1, dtype=torch.long, device=dev)
-            for k_idx in range(K):
-                qs, qo = int(sub_idx[b, k_idx].item()), int(obj_idx[b, k_idx].item())
-                gs, go = q2g[qs].item(), q2g[qo].item()
-                if gs >= 0 and go >= 0 and (gs, go) in gp:
-                    gt[k_idx] = gp[(gs, go)]
+            # Vectorised lookup: map query indices → GT object indices → predicate
+            qs = sub_idx[b]  # (K,)
+            qo = obj_idx[b]  # (K,)
+            gs = q2g[qs]     # (K,)  — -1 for unmatched queries
+            go = q2g[qo]     # (K,)
 
-            v = gt >= 0
-            if v.any():
-                total += self.rel_ce(rl[b][v], gt[v])
-                n_pairs += v.sum().item()
+            valid = (gs >= 0) & (go >= 0)
+            if not valid.any():
+                continue
+
+            # Gather predicates from the matrix for valid (gs, go) pairs
+            gs_v = gs[valid].long()
+            go_v = go[valid].long()
+            gt_preds = pmat[gs_v, go_v]  # (V,)  — -1 where no GT relation exists
+
+            keep = gt_preds >= 0
+            if not keep.any():
+                continue
+
+            # Map back: valid mask positions → K positions
+            valid_pos = valid.nonzero(as_tuple=False).squeeze(-1)  # (V,)
+            target_pos = valid_pos[keep]   # positions in [0..K-1]
+            gt_labels = gt_preds[keep]     # predicate labels
+
+            total += self.rel_ce(rl[b][target_pos], gt_labels)
+            n_pairs += keep.sum().item()
 
         return total / max(n_pairs, 1)
 
@@ -923,6 +958,40 @@ class USGCriterion(nn.Module):
             "loss_rel": l_rel,
             "loss_pair": l_pair,
         }
+
+
+# ==============================================================================
+# Fallback backbone (ResNet-50 when OpenCLIP unavailable)
+# ==============================================================================
+
+
+class _ResNetBackbone(nn.Module):
+    """ResNet-50 fallback when OpenCLIP unavailable. Outputs 3 stage features."""
+
+    def __init__(self, freeze: bool = True):
+        super().__init__()
+        import torchvision
+
+        rn = torchvision.models.resnet50(weights="DEFAULT")
+        self.stem = nn.Sequential(rn.conv1, rn.bn1, rn.relu, rn.maxpool)
+        self.layer1 = rn.layer1
+        self.layer2 = rn.layer2
+        self.layer3 = rn.layer3
+        self.layer4 = rn.layer4
+        self.out_channels = [512, 1024, 2048]
+        self._frozen = freeze
+        if freeze:
+            for p in self.parameters():
+                p.requires_grad_(False)
+
+    def forward(self, x: Tensor) -> List[Tensor]:
+        with torch.set_grad_enabled(not self._frozen):
+            x = self.stem(x)
+            x = self.layer1(x)
+            f2 = self.layer2(x)
+            f3 = self.layer3(f2)
+            f4 = self.layer4(f3)
+            return [f2, f3, f4]
 
 
 # ==============================================================================
@@ -1015,39 +1084,3 @@ def build_usg(args):
     )
 
     return model, criterion
-
-
-class _ResNetBackbone(nn.Module):
-    """ResNet-50 fallback when OpenCLIP unavailable. Outputs 3 stage features."""
-
-    def __init__(self, freeze: bool = True):
-        super().__init__()
-        import torchvision
-
-        rn = torchvision.models.resnet50(weights="DEFAULT")
-        self.stem = nn.Sequential(rn.conv1, rn.bn1, rn.relu, rn.maxpool)
-        self.layer1 = rn.layer1
-        self.layer2 = rn.layer2
-        self.layer3 = rn.layer3
-        self.layer4 = rn.layer4
-        self.out_channels = [512, 1024, 2048]
-        self._frozen = freeze
-        if freeze:
-            for p in self.parameters():
-                p.requires_grad_(False)
-
-    def forward(self, x: Tensor) -> List[Tensor]:
-        if self._frozen:
-            with torch.no_grad():
-                x = self.stem(x)
-                x = self.layer1(x)
-                f2 = self.layer2(x)
-                f3 = self.layer3(f2)
-                f4 = self.layer4(f3)
-                return [f2, f3, f4]
-        x = self.stem(x)
-        x = self.layer1(x)
-        f2 = self.layer2(x)
-        f3 = self.layer3(f2)
-        f4 = self.layer4(f3)
-        return [f2, f3, f4]
