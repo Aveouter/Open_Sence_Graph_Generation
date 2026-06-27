@@ -15,6 +15,7 @@ from .penet import PENetContext, build_penet
 from .react_sgg import REACTModel, build_react
 from .squat import SquatModel, build_squat
 from .shagcl import SHAGCLModel, build_shagcl
+from .usg import USGModel, build_usg
 
 __all__ = [
     "RelTR",
@@ -48,4 +49,3 @@ __all__ = [
     "USGModel",
     "build_usg",
 ]
-from .usg import USGModel, build_usg
