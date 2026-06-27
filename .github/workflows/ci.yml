@@ -56,11 +56,14 @@ jobs:
       - name: Get changed Python files
         id: changed-files
         run: |
-          # On push events use github.event.before; on PRs use base.sha
-          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"
-          elif [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+          # PR events: always diff against the base branch, never github.event.before
+          # (github.event.before on a PR synchronize event is the previous PR HEAD,
+          #  not a commit on the base branch — using it picks up unrelated changes
+          #  that landed on the base branch between pushes).
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
           else
             BASE="origin/main"
           fi
@@ -159,10 +162,11 @@ jobs:
       - name: Check if model/config code changed
         id: check-changes
         run: |
-          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"
-          elif [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+          # PR events: always diff against the base branch (see lint job for rationale).
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
           else
             BASE="origin/main"
           fi
@@ -191,19 +195,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-v2-${{ runner.os }}-${{ hashFiles('src/models/flowsg.py', 'src/methods/egtr_method.py') }}
+          key: hf-v3-${{ runner.os }}-${{ hashFiles('src/models/flowsg.py', 'src/methods/egtr_method.py', 'src/models/usg.py') }}
           restore-keys: |
+            hf-v3-${{ runner.os }}-
             hf-v2-${{ runner.os }}-
-
-      - name: Restore OpenCLIP model cache
-        if: steps.check-changes.outputs.needs_smoke == 'true'
-        id: cache-openclip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/open_clip
-          key: openclip-v2-${{ runner.os }}-${{ hashFiles('src/models/usg.py') }}
-          restore-keys: |
-            openclip-v2-${{ runner.os }}-
 
       - name: Setup Miniconda
         if: steps.check-changes.outputs.needs_smoke == 'true'
@@ -249,13 +244,7 @@ jobs:
           from transformers import AutoConfig
           AutoConfig.from_pretrained('SenseTime/deformable-detr')" 2>&1 ||
             echo "(DETR pre-warm skipped — network may be unavailable)"
-
-      - name: Pre-warm OpenCLIP models (cache miss)
-        if: steps.check-changes.outputs.needs_smoke == 'true' && steps.cache-openclip.outputs.cache-hit != 'true'
-        shell: bash -el {0}
-        run: |
-          conda activate hsg
-          # USG: ConvNeXt-L CLIP backbone (~800 MB)
+          # USG: ConvNeXt-L CLIP backbone (~800 MB, stored under HF cache)
           python -c "
           import open_clip
           open_clip.create_model_and_transforms(
@@ -267,4 +256,5 @@ jobs:
         shell: bash -el {0}
         run: |
           conda activate hsg
+          export HF_HUB_OFFLINE=1
           python tools/ci_smoke_test.py --skip-train --changed-models "${{ steps.check-changes.outputs.changed_files }}"
