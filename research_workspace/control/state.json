@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "run_id": "manual-bootstrap",
+  "task_id": "bootstrap",
+  "phase": "planning",
+  "status": "idle",
+  "owner": "codex",
+  "last_update_utc": null,
+  "summary": "Automatic research workspace initialized. Replace this summary when a real research task starts.",
+  "next_action": "Codex should define the first research task and write codex_to_claude.md.",
+  "success_criteria": [],
+  "open_questions": [],
+  "artifact_root": "outputs/research_workspace/bootstrap",
+  "git": {
+    "base_ref": "origin/main",
+    "branch": null,
+    "last_known_commit": null
+  }
+}

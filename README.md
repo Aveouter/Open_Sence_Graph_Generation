@@ -25,6 +25,26 @@ OpenSGG provides a unified training and evaluation framework for Scene Graph Gen
 - 📊 **Unified evaluation** — standard R@K, mR@K, and Head/Body/Tail breakdowns
 - 🧩 **Modular** — drop in new models, losses, and datasets with minimal friction
 - 🤖 **CI/CD** — GitHub Actions pipeline with smoke tests and LLM-based code review
+- 🧪 **Automatic research workspace** — file-based Codex/Claude Code handoffs with recoverable state, logs, reports, and git audit trails
+
+---
+
+## Automatic Research Workspace
+
+This repository includes a lightweight file-based coordination layer for long-running autonomous research:
+
+- `research_workspace/control/` stores shared state, locks, task queues, handoff notes, event logs, and decision logs.
+- `research_workspace/agents/` defines the Codex planner/judge role and Claude Code implementer/runner role.
+- `tools/auto_research.py` updates state, writes handoffs, claims/release locks, creates snapshots, and validates the workspace.
+
+Start with:
+
+```bash
+python tools/auto_research.py status
+python tools/auto_research.py validate
+```
+
+See [`research_workspace/README.md`](research_workspace/README.md) for the operating protocol.
 
 ---
 

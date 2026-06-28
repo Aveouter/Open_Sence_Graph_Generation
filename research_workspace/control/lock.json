@@ -1,0 +1,10 @@
+{
+  "locked": false,
+  "actor": null,
+  "task_id": null,
+  "acquired_at_utc": null,
+  "expires_at_utc": null,
+  "host": null,
+  "pid": null,
+  "note": "Use tools/auto_research.py lock/unlock. Expired locks may be reclaimed."
+}
