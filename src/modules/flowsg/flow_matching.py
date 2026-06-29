@@ -183,17 +183,21 @@ class DiscreteFlowMatching(nn.Module):
         clean_tokens: Tensor,
         t: Tensor,
         mask: Optional[Tensor] = None,
+        masked_positions: Optional[Tensor] = None,
     ) -> Tensor:
         """DFM loss: time-conditioned cross-entropy.
 
-        Only computes loss on tokens that were masked (i.e., where
-        the model needs to predict the clean value).
+        Computes CE only on positions where the token was actually masked
+        (i.e., where the model needs to predict the clean value from [MASK]).
 
         Args:
             pred_logits: [..., vocab_size] predicted clean posteriors
             clean_tokens: [...] ground-truth token indices
             t: [B] time (not used here — classifier is time-conditioned externally)
-            mask: [...] bool (True = valid position)
+            mask: [...] bool (True = valid position, e.g. padding mask)
+            masked_positions: [...] bool (True = position was actually masked by DFM).
+                When provided, loss is averaged only over masked positions.
+                When None, falls back to all positions (or mask-filtered).
 
         Returns:
             scalar loss
@@ -208,7 +212,10 @@ class DiscreteFlowMatching(nn.Module):
             reduction="none",
         ).reshape(clean_tokens.shape)
 
-        if mask is not None and mask.any():
+        # Primary filter: only compute loss on actually-masked positions
+        if masked_positions is not None and masked_positions.any():
+            loss = loss[masked_positions].mean()
+        elif mask is not None and mask.any():
             loss = (loss * mask.float()).sum() / mask.float().sum().clamp(min=1)
         else:
             loss = loss.mean()

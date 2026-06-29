@@ -229,11 +229,9 @@ class FlowSGCriterion(nn.Module):
                 loss_giou = loss_giou.mean()
             loss_dict["loss_giou"] = loss_giou * self.giou_loss_coef
 
-        # DFM loss (discrete flow for object classes and predicates)
-        if "obj_dfm_loss" in outputs:
-            loss_dict["loss_dfm_obj"] = (
-                outputs["obj_dfm_loss"] * self.discrete_flow_coef
-            )
+        # DFM losses (discrete flow for predicates and appearance codes).
+        # NOTE: No obj_dfm_loss — object labels serve as priors per §4.2 and are
+        # never masked; DFM loss only applies to actually-masked positions.
         if "pred_dfm_loss" in outputs:
             loss_dict["loss_dfm_pred"] = (
                 outputs["pred_dfm_loss"] * self.discrete_flow_coef
@@ -718,24 +716,33 @@ class FlowSG(nn.Module):
             # Box prediction from geometry head (direct regression for supervision)
             pred_boxes = self.obj_bbox_head(node_feat).sigmoid().clamp(1e-6, 1.0 - 1e-6)
 
-            # DFM losses (CE on clean predictions)
-            obj_dfm_loss = self.dfm.loss(
-                sem_out["obj_logits"],
-                gt_labels,
-                t,
-                mask=node_mask if node_mask.any() else None,
-            )
+            # DFM losses — only on masked positions (§4.2)
+            # NOTE: object labels are NOT masked (they serve as priors per §4.2),
+            # so there is no obj_dfm_loss. Only predicates and appearance codes
+            # are DFM targets.
+
+            # Predicate DFM loss: only on per-edge masked positions
             pred_logits_flat = sem_out["pred_logits"].reshape(
                 B * N * N, self.num_predicates
             )
             clean_pred_flat = clean_pred_dense.reshape(B * N * N)
-            pred_dfm_loss = self.dfm.loss(pred_logits_flat, clean_pred_flat, t)
+            pred_is_masked_flat = pred_is_masked.reshape(B * N * N)
+            pred_dfm_loss = self.dfm.loss(
+                pred_logits_flat, clean_pred_flat, t,
+                masked_positions=pred_is_masked_flat,
+            )
+
+            # Appearance DFM loss: only on masked slots
             # app_logits: [B, N, M, K]
             app_logits_flat = sem_out["app_logits"].reshape(
                 B * N * self.num_slots, self.codebook_size
             )
             app_targets_flat = app_indices.reshape(B * N * self.num_slots)
-            app_dfm_loss = self.dfm.loss(app_logits_flat, app_targets_flat, t)
+            app_is_masked_flat = app_is_masked.reshape(B * N * self.num_slots)
+            app_dfm_loss = self.dfm.loss(
+                app_logits_flat, app_targets_flat, t,
+                masked_positions=app_is_masked_flat,
+            )
 
             # For RelTR-compatible eval output: use semantic head predictions on edges
             # Extract top-K edges by predicate confidence
@@ -766,7 +773,6 @@ class FlowSG(nn.Module):
                 "vq_perplexity": vq_out["perplexity"],
                 "node_mask": node_mask,
                 "pred_boxes": pred_boxes,
-                "obj_dfm_loss": obj_dfm_loss,
                 "pred_dfm_loss": pred_dfm_loss,
                 "app_dfm_loss": app_dfm_loss,
                 # For evaluation compatibility

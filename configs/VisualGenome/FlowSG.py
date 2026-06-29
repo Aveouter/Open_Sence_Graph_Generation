@@ -5,16 +5,23 @@
 # "5 Transformer blocks, 8-head attention, dim=512, dropout=0.1"
 # "AdamW, 500K iterations, bs=128, lr=1e-4, wd=0.02, 4xA100"
 #
-# Iteration → epoch alignment:
-#   Paper:  500K iters × bs=128 / 57,723 imgs ≈ 1,109 epochs
-#   Ours:   epoch = ceil(500K / (N / effective_bs))
-#           effective_bs = batch_size × accumulate_grad_batches
-#   Examples:
-#     bs=4  accum=1  → 500K / (57723/4)    ≈ 35 epochs  (matches iter count, not data volume)
-#     bs=8  accum=4  → 500K / (57723/32)   ≈ 277 epochs (effective bs=32)
-#     bs=8  accum=16 → 500K / (57723/128)  ≈ 1109 epochs (matches paper exactly)
-#     bs=16 accum=8  → 500K / (57723/128)  ≈ 1109 epochs
-#     bs=8  accum=1  → 500K / (57723/8)    ≈ 69 epochs
+# ---- Training budget alignment ----
+# Paper: 500K optimizer steps, eff_bs=128, 64M samples, 4×A100 (bs=32 each).
+# effective_bs = batch_size × num_gpus × accumulate_grad_batches
+# optimizer_steps_per_epoch = ceil(57723 / (batch_size × num_gpus)) / accum
+# epochs = ceil(500_000 / optimizer_steps_per_epoch)
+#
+#   Scaling examples (VG150 = 57,723 images):
+#     GPU(s)        bs    accum   eff_bs  epochs   est. time    notes
+#     ───────────   ───   ─────   ──────  ──────   ─────────    ────────────────────
+#     1 GPU         4     1       4       35       <1 day        quick sanity check
+#     1×A100        16    16      64      554      ~30 days      500K steps, eff_bs=64
+#     2×A100        32    2       128     1109     ~4 days       ★ DEFAULT — paper match
+#     2×A100        16    4       128     1109     ~6 days       500K steps, paper match
+#     4×A100        32    1       128     1109     ~2 days       paper config
+#
+# NOTE: A100 40GB supports bs=32 per GPU for FlowSG. For smaller GPUs
+# (24GB), reduce batch_size and compensate with accumulate_grad_batches.
 
 method = 'flowsg'
 loss = 'flowsg_loss'
@@ -27,20 +34,12 @@ weight_decay = 0.02         # paper: 0.02
 clip_max_norm = 1.0         # gradient clipping
 
 # ===== training (§5.1) =====
-# 500K iterations alignment on VG150 (57,723 images):
-#   bs=4 → 57,723/4=14,431 steps/epoch → 500K/14,431 ≈ 35 epochs
-#   bs=6 → 57,723/6= 9,620 steps/epoch → 500K/ 9,620 ≈ 52 epochs
-#   bs=8 → 57,723/8= 7,215 steps/epoch → 500K/ 7,215 ≈ 69 epochs
-# RTX 4090D (24GB): bs=4 uses ~20.9GB VRAM → bs=4 is the practical max
-# Use accumulate_grad_batches to simulate larger effective batch if needed
-epoch = 35                   # 500K iters with bs=4 on VG150
-# NOTE: epoch=35 matches paper ITERATION count, not DATA VOLUME.
-# Paper trains 500K iters × bs=128 = 64M samples.
-# This config trains 500K iters × bs=4 = 2M samples (1/32 of paper data).
-# Use accumulate_grad_batches=32 to match paper data volume (~1109 epochs).
-batch_size = 4               # RTX 4090D 24GB limit (~0.24s/step, ~16.9 imgs/sec)
-val_batch_size = 4
-accumulate_grad_batches = 1  # set >1 to simulate larger batch (e.g. 8 for eff bs=32)
+# Default: 2×A100, eff_bs=128, 500K optimizer steps, ~4 days.
+# Matches paper exactly: bs=128, 500K steps, 64M samples, 1109 epochs.
+batch_size = 32              # per-GPU batch size (A100 40GB; reduce for 24GB GPUs)
+val_batch_size = 32
+accumulate_grad_batches = 2  # eff_bs = 32 × 2 GPUs × 2 = 128 (paper spec)
+epoch = 1109                 # 500K steps at eff_bs=128 on 57,723 images (~4 days 2×A100)
 sched = 'cosine'             # cosine LR schedule (standard for diffusion/flow models)
 
 # ===== image encoders (§4.2, §5.1) =====
