@@ -86,6 +86,10 @@ def main() -> int:
             [sys.executable, "-m", "unittest", "discover", "-s", "tests/reproduction"],
         ),
         (
+            "Build missing-artifact manifest",
+            [sys.executable, "tools/reproduction/build_artifact_manifest.py"],
+        ),
+        (
             "Check reproduction report completeness",
             [sys.executable, "tools/reproduction/check_reproduction_docs.py"],
         ),

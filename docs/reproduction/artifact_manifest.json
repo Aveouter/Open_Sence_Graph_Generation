@@ -1,0 +1,311 @@
+{
+  "artifact_count": 15,
+  "artifacts": [
+    {
+      "baseline": "freq",
+      "blocker": "VG-SGG-with-attri.h5",
+      "kind": "vg_inputs",
+      "label": "FREQ",
+      "next_action": "Provide missing SGB-format Visual Genome files before exporting pred_dist",
+      "source_report": "docs/reproduction/freq/sgb_freq_input_check.json"
+    },
+    {
+      "baseline": "tde",
+      "blocker": "missing_sgb_vg_inputs",
+      "kind": "vg_inputs",
+      "label": "TDE",
+      "next_action": "Provide missing SGB-format VG inputs and official TDE checkpoints",
+      "source_report": "docs/reproduction/tde/tde_official_input_check.json"
+    },
+    {
+      "baseline": "tde",
+      "blocker": "missing_official_tde_checkpoints",
+      "kind": "checkpoint",
+      "label": "TDE",
+      "next_action": "Provide missing SGB-format VG inputs and official TDE checkpoints",
+      "source_report": "docs/reproduction/tde/tde_official_input_check.json"
+    },
+    {
+      "baseline": "vctree",
+      "blocker": "missing_sgb_vg_inputs",
+      "kind": "vg_inputs",
+      "label": "VCTree",
+      "next_action": "Provide SGB-format VG inputs and a trusted VCTree checkpoint",
+      "source_report": "docs/reproduction/vctree/vctree_official_input_check.json"
+    },
+    {
+      "baseline": "vctree",
+      "blocker": "missing_trusted_vctree_checkpoint",
+      "kind": "checkpoint",
+      "label": "VCTree",
+      "next_action": "Provide SGB-format VG inputs and a trusted VCTree checkpoint",
+      "source_report": "docs/reproduction/vctree/vctree_official_input_check.json"
+    },
+    {
+      "baseline": "penet",
+      "blocker": "missing_penet_vg_inputs",
+      "kind": "vg_inputs",
+      "label": "PENet",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+      "source_report": "docs/reproduction/penet/penet_official_input_check.json"
+    },
+    {
+      "baseline": "penet",
+      "blocker": "missing_pretrained_detector_checkpoint",
+      "kind": "detector_checkpoint",
+      "label": "PENet",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+      "source_report": "docs/reproduction/penet/penet_official_input_check.json"
+    },
+    {
+      "baseline": "penet",
+      "blocker": "missing_official_penet_checkpoints",
+      "kind": "checkpoint",
+      "label": "PENet",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+      "source_report": "docs/reproduction/penet/penet_official_input_check.json"
+    },
+    {
+      "baseline": "shagcl",
+      "blocker": "missing_shagcl_vg_inputs",
+      "kind": "vg_inputs",
+      "label": "SHA-GCL",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+      "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json"
+    },
+    {
+      "baseline": "shagcl",
+      "blocker": "missing_pretrained_detector_checkpoint",
+      "kind": "detector_checkpoint",
+      "label": "SHA-GCL",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+      "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json"
+    },
+    {
+      "baseline": "shagcl",
+      "blocker": "missing_official_shagcl_checkpoint",
+      "kind": "checkpoint",
+      "label": "SHA-GCL",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+      "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json"
+    },
+    {
+      "baseline": "ra_sgg",
+      "blocker": "missing_rasgg_vg_inputs",
+      "kind": "vg_inputs",
+      "label": "RA-SGG",
+      "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+      "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+    },
+    {
+      "baseline": "ra_sgg",
+      "blocker": "missing_official_retag_checkpoints",
+      "kind": "checkpoint",
+      "label": "RA-SGG",
+      "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+      "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+    },
+    {
+      "baseline": "ra_sgg",
+      "blocker": "missing_pretrained_penet_checkpoints",
+      "kind": "checkpoint",
+      "label": "RA-SGG",
+      "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+      "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+    },
+    {
+      "baseline": "ra_sgg",
+      "blocker": "missing_official_memory_bank_features",
+      "kind": "memory_bank",
+      "label": "RA-SGG",
+      "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+      "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+    }
+  ],
+  "baselines": {
+    "freq": {
+      "artifact_count": 1,
+      "artifacts": [
+        {
+          "baseline": "freq",
+          "blocker": "VG-SGG-with-attri.h5",
+          "kind": "vg_inputs",
+          "label": "FREQ",
+          "next_action": "Provide missing SGB-format Visual Genome files before exporting pred_dist",
+          "source_report": "docs/reproduction/freq/sgb_freq_input_check.json"
+        }
+      ],
+      "label": "FREQ",
+      "next_action": "Provide missing SGB-format Visual Genome files before exporting pred_dist",
+      "reported_status": "BLOCKED_MISSING_SGB_VG_INPUTS",
+      "source_report": "docs/reproduction/freq/sgb_freq_input_check.json",
+      "status": "BLOCKED"
+    },
+    "penet": {
+      "artifact_count": 3,
+      "artifacts": [
+        {
+          "baseline": "penet",
+          "blocker": "missing_penet_vg_inputs",
+          "kind": "vg_inputs",
+          "label": "PENet",
+          "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+          "source_report": "docs/reproduction/penet/penet_official_input_check.json"
+        },
+        {
+          "baseline": "penet",
+          "blocker": "missing_pretrained_detector_checkpoint",
+          "kind": "detector_checkpoint",
+          "label": "PENet",
+          "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+          "source_report": "docs/reproduction/penet/penet_official_input_check.json"
+        },
+        {
+          "baseline": "penet",
+          "blocker": "missing_official_penet_checkpoints",
+          "kind": "checkpoint",
+          "label": "PENet",
+          "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+          "source_report": "docs/reproduction/penet/penet_official_input_check.json"
+        }
+      ],
+      "label": "PENet",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+      "reported_status": "BLOCKED",
+      "source_report": "docs/reproduction/penet/penet_official_input_check.json",
+      "status": "BLOCKED"
+    },
+    "ra_sgg": {
+      "artifact_count": 4,
+      "artifacts": [
+        {
+          "baseline": "ra_sgg",
+          "blocker": "missing_rasgg_vg_inputs",
+          "kind": "vg_inputs",
+          "label": "RA-SGG",
+          "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+          "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+        },
+        {
+          "baseline": "ra_sgg",
+          "blocker": "missing_official_retag_checkpoints",
+          "kind": "checkpoint",
+          "label": "RA-SGG",
+          "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+          "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+        },
+        {
+          "baseline": "ra_sgg",
+          "blocker": "missing_pretrained_penet_checkpoints",
+          "kind": "checkpoint",
+          "label": "RA-SGG",
+          "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+          "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+        },
+        {
+          "baseline": "ra_sgg",
+          "blocker": "missing_official_memory_bank_features",
+          "kind": "memory_bank",
+          "label": "RA-SGG",
+          "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+          "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json"
+        }
+      ],
+      "label": "RA-SGG",
+      "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+      "reported_status": "BLOCKED",
+      "source_report": "docs/reproduction/ra_sgg/rasgg_official_input_check.json",
+      "status": "BLOCKED"
+    },
+    "shagcl": {
+      "artifact_count": 3,
+      "artifacts": [
+        {
+          "baseline": "shagcl",
+          "blocker": "missing_shagcl_vg_inputs",
+          "kind": "vg_inputs",
+          "label": "SHA-GCL",
+          "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+          "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json"
+        },
+        {
+          "baseline": "shagcl",
+          "blocker": "missing_pretrained_detector_checkpoint",
+          "kind": "detector_checkpoint",
+          "label": "SHA-GCL",
+          "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+          "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json"
+        },
+        {
+          "baseline": "shagcl",
+          "blocker": "missing_official_shagcl_checkpoint",
+          "kind": "checkpoint",
+          "label": "SHA-GCL",
+          "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+          "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json"
+        }
+      ],
+      "label": "SHA-GCL",
+      "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+      "reported_status": "BLOCKED",
+      "source_report": "docs/reproduction/shagcl/shagcl_official_input_check.json",
+      "status": "BLOCKED"
+    },
+    "tde": {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "baseline": "tde",
+          "blocker": "missing_sgb_vg_inputs",
+          "kind": "vg_inputs",
+          "label": "TDE",
+          "next_action": "Provide missing SGB-format VG inputs and official TDE checkpoints",
+          "source_report": "docs/reproduction/tde/tde_official_input_check.json"
+        },
+        {
+          "baseline": "tde",
+          "blocker": "missing_official_tde_checkpoints",
+          "kind": "checkpoint",
+          "label": "TDE",
+          "next_action": "Provide missing SGB-format VG inputs and official TDE checkpoints",
+          "source_report": "docs/reproduction/tde/tde_official_input_check.json"
+        }
+      ],
+      "label": "TDE",
+      "next_action": "Provide missing SGB-format VG inputs and official TDE checkpoints",
+      "reported_status": "BLOCKED",
+      "source_report": "docs/reproduction/tde/tde_official_input_check.json",
+      "status": "BLOCKED"
+    },
+    "vctree": {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "baseline": "vctree",
+          "blocker": "missing_sgb_vg_inputs",
+          "kind": "vg_inputs",
+          "label": "VCTree",
+          "next_action": "Provide SGB-format VG inputs and a trusted VCTree checkpoint",
+          "source_report": "docs/reproduction/vctree/vctree_official_input_check.json"
+        },
+        {
+          "baseline": "vctree",
+          "blocker": "missing_trusted_vctree_checkpoint",
+          "kind": "checkpoint",
+          "label": "VCTree",
+          "next_action": "Provide SGB-format VG inputs and a trusted VCTree checkpoint",
+          "source_report": "docs/reproduction/vctree/vctree_official_input_check.json"
+        }
+      ],
+      "label": "VCTree",
+      "next_action": "Provide SGB-format VG inputs and a trusted VCTree checkpoint",
+      "reported_status": "BLOCKED",
+      "source_report": "docs/reproduction/vctree/vctree_official_input_check.json",
+      "status": "BLOCKED"
+    }
+  },
+  "claim": "not reproduction-ready",
+  "claim_note": "This manifest lists missing official artifacts only. It does not prove method, checkpoint, config, inference, or evaluator parity.",
+  "source_summary": "docs/reproduction/evidence_gate_summary.json",
+  "status": "BLOCKED"
+}

@@ -85,6 +85,16 @@ This aggregate guardrail compiles reproduction tools, checks tracked report
 completeness, runs reproduction guardrail unit tests, and scans claim-bearing
 text. It does not run model evaluation or rewrite evidence JSON files.
 
+Missing artifact manifest:
+
+```bash
+python tools/reproduction/build_artifact_manifest.py
+```
+
+This creates `docs/reproduction/artifact_manifest.json`, a structured list of
+official inputs, checkpoints, detector weights, and memory-bank artifacts still
+needed before any deferred baseline can be reconsidered for reproduction.
+
 Individual claim guardrail:
 
 ```bash

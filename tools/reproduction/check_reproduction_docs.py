@@ -53,12 +53,14 @@ BASELINES: dict[str, dict[str, Any]] = {
 REQUIRED_GLOBAL_DOCS = (
     "README.md",
     "alignment_reaudit.md",
+    "artifact_manifest.json",
     "baseline_matrix.md",
     "evidence_gates.md",
     "evidence_gate_summary.json",
 )
 
 REQUIRED_TOOLS = (
+    "build_artifact_manifest.py",
     "check_reproduction_claims.py",
     "check_reproduction_docs.py",
     "run_evidence_gate_checks.py",
@@ -66,6 +68,7 @@ REQUIRED_TOOLS = (
 )
 
 REQUIRED_TESTS = (
+    "tests/reproduction/test_build_artifact_manifest.py",
     "tests/reproduction/test_check_reproduction_claims.py",
     "tests/reproduction/test_check_reproduction_docs.py",
     "tests/reproduction/test_run_evidence_gate_checks.py",
