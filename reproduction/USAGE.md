@@ -158,5 +158,15 @@ python tools/reproduction/check_vctree_official_inputs.py \
   --output docs/reproduction/vctree/vctree_official_input_check.json
 ```
 
+Full target-suite evidence gate audit:
+
+```bash
+python tools/reproduction/run_evidence_gate_checks.py
+```
+
+Exit code `2` means at least one baseline is blocked by missing official inputs
+or checkpoints. Treat that as a deferred reproduction state, not as a successful
+metric result.
+
 The audit commands report blockers. A blocker is not a failure to hide; it is
 the evidence needed to keep the reproduction claim honest.
