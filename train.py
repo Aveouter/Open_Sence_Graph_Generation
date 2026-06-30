@@ -32,6 +32,7 @@ if __name__ == '__main__':
     # Config file name alias map — some CLI method names differ from config
     # file basenames (e.g. CLI "GPSNet" → config "GPS_Net.py").
     _CONFIG_FILE_ALIASES = {
+        'freq': 'FREQ',
         'gpsnet': 'GPS_Net',
         'penet': 'PE_NET',
         'shagcl': 'SHA_GCL',
@@ -53,6 +54,10 @@ if __name__ == '__main__':
     if args.overwrite:
         config = update_config(config, load_config(cfg_path),
                                exclude_keys=['method'])
+        default_values = default_parser()
+        for attribute in default_values.keys():
+            if config[attribute] is None:
+                config[attribute] = default_values[attribute]
     else:
         loaded_cfg = load_config(cfg_path)
         config = update_config(config, loaded_cfg,

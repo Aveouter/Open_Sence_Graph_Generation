@@ -2,6 +2,7 @@ from .hstrnet_method import HSTRNet_Method
 from .reltr_method import RelTR_Method
 from .egtr_method import EGTR_Method
 from .flowsg_method import FlowSG_Method
+from .freq_method import FREQ_Method
 from .motifs_method import Motifs_Method
 from .vctree_method import VCTree_Method
 from .tde_method import TDE_Method
@@ -21,6 +22,7 @@ method_maps = {
     "reltr": RelTR_Method,
     "egtr": EGTR_Method,
     "flowsg": FlowSG_Method,
+    "freq": FREQ_Method,
     "usg": USG_Method,
     "motifs": Motifs_Method,
     "vctree": VCTree_Method,
@@ -40,6 +42,7 @@ __all__ = [
     "reltr_method",
     "egtr_method",
     "flowsg_method",
+    "freq_method",
     "motifs_method",
     "vctree_method",
     "tde_method",

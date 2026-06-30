@@ -64,7 +64,7 @@ def create_parser():
     parser.add_argument('--method', '-m', default='HSTRNet', type=str,
                         choices=[
                             'RelTR', 'HSTRNet', 'EGTR', 'FlowSG', 'USG',
-                            'Motifs', 'VCTree', 'TDE', 'IMP', 'Transformer',
+                            'FREQ', 'freq', 'Motifs', 'VCTree', 'TDE', 'IMP', 'Transformer',
                             'GPSNet', 'PENet', 'SQUAT', 'SHAGCL', 'REACT',
                             'CVC',
                         ],
