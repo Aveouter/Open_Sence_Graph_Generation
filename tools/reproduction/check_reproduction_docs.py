@@ -62,6 +62,7 @@ REQUIRED_TOOLS = (
     "check_reproduction_claims.py",
     "check_reproduction_docs.py",
     "run_evidence_gate_checks.py",
+    "run_reproduction_guardrails.py",
 )
 
 REQUIRED_PHASE_DOCS = (

@@ -71,6 +71,8 @@ meets the full standard above.
 Before opening a PR, run:
 
 ```bash
+python tools/reproduction/run_reproduction_guardrails.py
+
 python tools/reproduction/check_reproduction_docs.py
 
 python tools/reproduction/check_reproduction_claims.py \
@@ -82,4 +84,6 @@ The documentation check verifies that the target baseline reports are present
 and tracked. The claim script scans text files only. Include changed
 Markdown/text docs, copied PR body text, release notes, and any other
 claim-bearing files. It does not inspect GitHub metadata automatically. Passing
-these checks does not prove reproduction.
+these checks does not prove reproduction. The aggregate guardrail script runs
+the lightweight syntax, documentation, and claim-boundary checks without running
+model evaluation or rewriting evidence JSON files.

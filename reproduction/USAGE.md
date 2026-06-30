@@ -78,6 +78,16 @@ checkpoint remaps, or all-zero metrics.
 Before opening or updating a PR, run:
 
 ```bash
+python tools/reproduction/run_reproduction_guardrails.py
+```
+
+This aggregate guardrail compiles reproduction tools, checks tracked report
+completeness, and scans claim-bearing text. It does not run model evaluation or
+rewrite evidence JSON files.
+
+Individual claim guardrail:
+
+```bash
 python tools/reproduction/check_reproduction_claims.py \
   --changed-from origin/main \
   AGENTS.md reproduction <pr-body-or-release-note-files>
