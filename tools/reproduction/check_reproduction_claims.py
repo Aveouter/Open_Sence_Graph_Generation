@@ -102,7 +102,9 @@ def iter_paths(inputs: list[str]) -> list[Path]:
             missing.append(raw)
     if missing:
         joined = ", ".join(missing)
-        raise ValueError(f"input path does not exist or is not a file/directory: {joined}")
+        raise ValueError(
+            f"input path does not exist or is not a file/directory: {joined}"
+        )
     return paths
 
 

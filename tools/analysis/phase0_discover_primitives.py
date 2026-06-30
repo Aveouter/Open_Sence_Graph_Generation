@@ -128,7 +128,9 @@ def train_one(x, labels, label_names, k, lambda_disc, lambda_sparse, seed, devic
     labels = labels.to(device)
     model = SparseAE(x.size(1), k, len(label_names)).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    per_class = min(64, min(int((labels == c).sum().item()) for c in range(len(label_names))))
+    per_class = min(
+        64, min(int((labels == c).sum().item()) for c in range(len(label_names)))
+    )
     per_class = max(per_class, 8)
     all_label_list = labels.detach().cpu().tolist()
     for epoch in range(80):
@@ -141,10 +143,14 @@ def train_one(x, labels, label_names, k, lambda_disc, lambda_sparse, seed, devic
         loss_disc = F.cross_entropy(logits, yb)
         loss_sparse = z.abs().mean()
         loss = loss_rec + lambda_disc * loss_disc + lambda_sparse * loss_sparse
-        opt.zero_grad(); loss.backward(); opt.step()
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
     with torch.no_grad():
         z, recon, logits = model(x)
-    metrics = compute_metrics(z.cpu(), labels.cpu(), label_names, recon.cpu(), x.cpu(), k)
+    metrics = compute_metrics(
+        z.cpu(), labels.cpu(), label_names, recon.cpu(), x.cpu(), k
+    )
     return model, metrics
 
 
@@ -157,8 +163,16 @@ def make_random_baselines(labels, label_names, features, args, device):
         shuffled = labels_cpu[torch.randperm(labels_cpu.numel())]
         best_v = -1
         for k in args.k_values:
-            _, m = train_one(features, shuffled, label_names, k, args.lambda_disc_values[0],
-                             args.lambda_sparse, args.seed + 1000 + r * 17 + k, device)
+            _, m = train_one(
+                features,
+                shuffled,
+                label_names,
+                k,
+                args.lambda_disc_values[0],
+                args.lambda_sparse,
+                args.seed + 1000 + r * 17 + k,
+                device,
+            )
             best_v = max(best_v, m["family_validity"])
         baselines.append(best_v)
     return baselines
@@ -170,7 +184,9 @@ def main():
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--k_values", type=int, nargs="+", default=[4, 6, 8, 10, 12])
-    parser.add_argument("--lambda_disc_values", type=float, nargs="+", default=[0.05, 0.1, 0.2])
+    parser.add_argument(
+        "--lambda_disc_values", type=float, nargs="+", default=[0.05, 0.1, 0.2]
+    )
     parser.add_argument("--lambda_sparse", type=float, default=0.05)
     parser.add_argument("--random_families", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
@@ -192,7 +208,9 @@ def main():
     if "on" in labels_names_sorted:
         labels_names_sorted = ["on"] + [p for p in labels_names_sorted if p != "on"]
     name_to_idx = {n: i for i, n in enumerate(labels_names_sorted)}
-    labels = torch.tensor([name_to_idx[row["gt_predicate_name"]] for row in meta], dtype=torch.long)
+    labels = torch.tensor(
+        [name_to_idx[row["gt_predicate_name"]] for row in meta], dtype=torch.long
+    )
     x, mean, std = standardize(x)
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -200,8 +218,16 @@ def main():
     best = None
     for k in args.k_values:
         for ld in args.lambda_disc_values:
-            model, metrics = train_one(x, labels, labels_names_sorted, k, ld,
-                                       args.lambda_sparse, args.seed + k * 31 + int(ld * 1000), device)
+            model, metrics = train_one(
+                x,
+                labels,
+                labels_names_sorted,
+                k,
+                ld,
+                args.lambda_sparse,
+                args.seed + k * 31 + int(ld * 1000),
+                device,
+            )
             row = {
                 "k": k,
                 "lambda_disc": ld,
@@ -221,22 +247,32 @@ def main():
     rand_mean = float(sum(random_vals) / len(random_vals)) if random_vals else 0.0
     v_margin = best_row["family_validity"] - rand_mean
 
-    torch.save({
-        "model_state": best_model.cpu().state_dict(),
-        "feature_mean": mean,
-        "feature_std": std,
-        "label_names": labels_names_sorted,
-        "best_config": best_row,
-    }, out_dir / "best_model.pt")
+    torch.save(
+        {
+            "model_state": best_model.cpu().state_dict(),
+            "feature_mean": mean,
+            "feature_std": std,
+            "label_names": labels_names_sorted,
+            "best_config": best_row,
+        },
+        out_dir / "best_model.pt",
+    )
 
     with open(out_dir / "k_sweep_results.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        writer.writeheader(); writer.writerows(results)
+        writer.writeheader()
+        writer.writerows(results)
 
     mean_z = best_metrics["mean_z"]
     spec = best_metrics["specificity"]
-    with open(out_dir / "sharedness_specificity.csv", "w", newline="", encoding="utf-8") as f:
-        fieldnames = ["primitive", "shared_score"] + [f"mean_{n}" for n in labels_names_sorted] + [f"spec_{n}" for n in labels_names_sorted]
+    with open(
+        out_dir / "sharedness_specificity.csv", "w", newline="", encoding="utf-8"
+    ) as f:
+        fieldnames = (
+            ["primitive", "shared_score"]
+            + [f"mean_{n}" for n in labels_names_sorted]
+            + [f"spec_{n}" for n in labels_names_sorted]
+        )
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for kk, sh in enumerate(best_metrics["shared_scores"]):
@@ -247,11 +283,15 @@ def main():
             writer.writerow(row)
 
     # Heatmap as same matrix in CSV compact form
-    with open(out_dir / "primitive_activation_heatmap.csv", "w", newline="", encoding="utf-8") as f:
+    with open(
+        out_dir / "primitive_activation_heatmap.csv", "w", newline="", encoding="utf-8"
+    ) as f:
         writer = csv.writer(f)
         writer.writerow(["primitive"] + labels_names_sorted)
         for kk in range(mean_z.shape[0]):
-            writer.writerow([kk] + [float(mean_z[kk, ci]) for ci in range(len(labels_names_sorted))])
+            writer.writerow(
+                [kk] + [float(mean_z[kk, ci]) for ci in range(len(labels_names_sorted))]
+            )
 
     family_validity = {
         "best_config": best_row,

@@ -96,10 +96,14 @@ def select_exposed_head_or_coarse(labels, parent_map, freq_map):
                 cur = parent_map[cur]
                 d += 1
             return d
-        best = max(parents_in_labels, key=lambda l: (depth(l), -freq_map.get(l, 0), -l))
+
+        best = max(
+            parents_in_labels,
+            key=lambda label: (depth(label), -freq_map.get(label, 0), -label),
+        )
         return best
     # Otherwise expose highest-frequency label
-    return max(labels, key=lambda l: (freq_map.get(l, 0), -l))
+    return max(labels, key=lambda label: (freq_map.get(label, 0), -label))
 
 
 def select_exposed_random(labels, rng):
@@ -113,7 +117,7 @@ def select_exposed_fine_or_tail(labels, parent_map, freq_map):
         if lbl in parent_map and parent_map[lbl] in labels:
             return lbl
     # Otherwise expose lowest-frequency label (tail)
-    return min(labels, key=lambda l: (freq_map.get(l, 999999), l))
+    return min(labels, key=lambda label: (freq_map.get(label, 999999), label))
 
 
 def build_manifest(split, image_ids, rel_data, parent_map, policy, rng, freq_map):
@@ -140,14 +144,16 @@ def build_manifest(split, image_ids, rel_data, parent_map, policy, rng, freq_map
                 multi_count += 1
                 # Select exposed label
                 if policy == "head_or_coarse_one":
-                    exposed = select_exposed_head_or_coarse(labels, parent_map, freq_map)
+                    exposed = select_exposed_head_or_coarse(
+                        labels, parent_map, freq_map
+                    )
                 elif policy == "random_one":
                     exposed = select_exposed_random(labels, rng)
                 elif policy == "fine_or_tail_one":
                     exposed = select_exposed_fine_or_tail(labels, parent_map, freq_map)
                 else:
                     raise ValueError(f"Unknown policy: {policy}")
-                hidden = [l for l in labels if l != exposed]
+                hidden = [label for label in labels if label != exposed]
                 # Count hidden fine labels
                 for h in hidden:
                     if h in parent_map:
@@ -156,15 +162,17 @@ def build_manifest(split, image_ids, rel_data, parent_map, policy, rng, freq_map
                 exposed = labels[0]
                 hidden = []
 
-            pairs_data.append({
-                "image_id": image_id,
-                "sub_idx": entry["sub_idx"],
-                "obj_idx": entry["obj_idx"],
-                "all_labels": labels,
-                "exposed_label": exposed,
-                "hidden_labels": hidden,
-                "is_mapped_fine": entry.get("has_mapped_fine", False),
-            })
+            pairs_data.append(
+                {
+                    "image_id": image_id,
+                    "sub_idx": entry["sub_idx"],
+                    "obj_idx": entry["obj_idx"],
+                    "all_labels": labels,
+                    "exposed_label": exposed,
+                    "hidden_labels": hidden,
+                    "is_mapped_fine": entry.get("has_mapped_fine", False),
+                }
+            )
 
     manifest = {
         "schema_version": 2,
@@ -172,9 +180,11 @@ def build_manifest(split, image_ids, rel_data, parent_map, policy, rng, freq_map
         "policy": policy,
         "seed": rng.randint(0, 2**31) if policy == "random_one" else 0,
         "parent_map_sha": file_sha256(
-            _PROJECT_ROOT / "configs" / "pob_strong_mappings.json"),
+            _PROJECT_ROOT / "configs" / "pob_strong_mappings.json"
+        ),
         "source_annotation_sha": file_sha256(
-            _PROJECT_ROOT / "data" / "VisualGenome" / "rel.json"),
+            _PROJECT_ROOT / "data" / "VisualGenome" / "rel.json"
+        ),
         "train_predicate_frequencies": {str(k): v for k, v in freq_map.items()},
         "num_pairs": total_pairs,
         "num_multi_label_pairs": multi_count,
@@ -200,13 +210,25 @@ def compute_train_frequencies(train_image_ids, rel_data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build EXP-009 hidden-positive manifests")
-    parser.add_argument("--policy", choices=["head_or_coarse_one", "random_one", "fine_or_tail_one"],
-                        default="head_or_coarse_one")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Seed for random_one policy and for selecting which seed's manifests to build")
-    parser.add_argument("--all_seeds", action="store_true",
-                        help="Build manifests for seeds 42, 123, 2027")
+    parser = argparse.ArgumentParser(
+        description="Build EXP-009 hidden-positive manifests"
+    )
+    parser.add_argument(
+        "--policy",
+        choices=["head_or_coarse_one", "random_one", "fine_or_tail_one"],
+        default="head_or_coarse_one",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Seed for random_one policy and for selecting which seed's manifests to build",
+    )
+    parser.add_argument(
+        "--all_seeds",
+        action="store_true",
+        help="Build manifests for seeds 42, 123, 2027",
+    )
     args = parser.parse_args()
 
     # Load data
@@ -222,8 +244,7 @@ def main():
     out_dir = manifest_dir  # same output directory
 
     seeds = [42, 123, 2027] if args.all_seeds else [args.seed]
-    parent_map = load_parent_map(
-        _PROJECT_ROOT / "configs" / "pob_strong_mappings.json")
+    parent_map = load_parent_map(_PROJECT_ROOT / "configs" / "pob_strong_mappings.json")
 
     for seed in seeds:
         rng = random.Random(seed)
@@ -231,7 +252,9 @@ def main():
         val_manifest_path = manifest_dir / f"gen_sgg_exp001_val5k_seed{seed}.json"
 
         if not train_manifest_path.exists():
-            print(f"SKIP seed {seed}: canonical manifest not found at {train_manifest_path}")
+            print(
+                f"SKIP seed {seed}: canonical manifest not found at {train_manifest_path}"
+            )
             continue
 
         train_ids = load_manifest_image_ids(train_manifest_path)
@@ -242,23 +265,29 @@ def main():
 
         # Build train manifest
         train_manifest = build_manifest(
-            "train", train_ids, train_rels, parent_map, args.policy, rng, freq_map)
+            "train", train_ids, train_rels, parent_map, args.policy, rng, freq_map
+        )
         train_out = out_dir / f"exp009_train_hidden_{args.policy}_seed{seed}.json"
         with open(train_out, "w") as f:
             json.dump(train_manifest, f, indent=2)
-        print(f"Train {args.policy} seed={seed}: {train_manifest['num_multi_label_pairs']} multi-label pairs, "
-              f"{train_manifest['hidden_fine_count']} hidden fine, "
-              f"total {train_manifest['num_pairs']} pairs -> {train_out}")
+        print(
+            f"Train {args.policy} seed={seed}: {train_manifest['num_multi_label_pairs']} multi-label pairs, "
+            f"{train_manifest['hidden_fine_count']} hidden fine, "
+            f"total {train_manifest['num_pairs']} pairs -> {train_out}"
+        )
 
         # Build val manifest
         val_manifest = build_manifest(
-            "val", val_ids, val_rels, parent_map, args.policy, rng, freq_map)
+            "val", val_ids, val_rels, parent_map, args.policy, rng, freq_map
+        )
         val_out = out_dir / f"exp009_val_hidden_{args.policy}_seed{seed}.json"
         with open(val_out, "w") as f:
             json.dump(val_manifest, f, indent=2)
-        print(f"Val   {args.policy} seed={seed}: {val_manifest['num_multi_label_pairs']} multi-label pairs, "
-              f"{val_manifest['hidden_fine_count']} hidden fine, "
-              f"total {val_manifest['num_pairs']} pairs -> {val_out}")
+        print(
+            f"Val   {args.policy} seed={seed}: {val_manifest['num_multi_label_pairs']} multi-label pairs, "
+            f"{val_manifest['hidden_fine_count']} hidden fine, "
+            f"total {val_manifest['num_pairs']} pairs -> {val_out}"
+        )
 
     # Integrity checks for last-built val manifest
     pairs = val_manifest["pairs"]
@@ -266,10 +295,12 @@ def main():
     assert len(keys) == len(set(keys)), "DUPLICATE PAIR KEYS!"
     for p in pairs:
         if p["hidden_labels"]:
-            assert p["exposed_label"] not in p["hidden_labels"], \
+            assert p["exposed_label"] not in p["hidden_labels"], (
                 f"Exposed label {p['exposed_label']} found in hidden {p['hidden_labels']}"
-            assert p["exposed_label"] in p["all_labels"], \
+            )
+            assert p["exposed_label"] in p["all_labels"], (
                 f"Exposed label {p['exposed_label']} not in all_labels {p['all_labels']}"
+            )
     print("INTEGRITY CHECKS PASSED")
 
 

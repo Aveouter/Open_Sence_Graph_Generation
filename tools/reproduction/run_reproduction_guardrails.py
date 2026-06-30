@@ -79,7 +79,12 @@ def main() -> int:
     steps = [
         (
             "Compile reproduction tools",
-            [sys.executable, "-m", "py_compile", *(str(path) for path in reproduction_tools)],
+            [
+                sys.executable,
+                "-m",
+                "py_compile",
+                *(str(path) for path in reproduction_tools),
+            ],
         ),
         (
             "Run reproduction unit tests",

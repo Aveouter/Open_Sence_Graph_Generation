@@ -63,7 +63,12 @@ def public_blocker(blocker: str) -> str:
 
 
 def extract_blockers(summary_item: dict[str, Any], detail: dict[str, Any]) -> list[str]:
-    blockers = summary_item.get("blockers") or detail.get("blockers") or detail.get("missing") or []
+    blockers = (
+        summary_item.get("blockers")
+        or detail.get("blockers")
+        or detail.get("missing")
+        or []
+    )
     if isinstance(blockers, str):
         return [blockers]
     return [str(item) for item in blockers]

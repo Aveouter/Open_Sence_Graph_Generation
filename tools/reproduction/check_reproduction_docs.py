@@ -138,16 +138,24 @@ def add_file_check(
         findings.append(f"file exists but is not tracked by git: {path}")
 
 
-def check_global_docs(root: Path, tracked_paths: set[Path], require_tracked: bool) -> list[str]:
+def check_global_docs(
+    root: Path, tracked_paths: set[Path], require_tracked: bool
+) -> list[str]:
     findings: list[str] = []
     docs_root = root / "docs" / "reproduction"
     for name in REQUIRED_GLOBAL_DOCS:
-        add_file_check(findings, docs_root / name, tracked_paths, require_tracked=require_tracked)
+        add_file_check(
+            findings, docs_root / name, tracked_paths, require_tracked=require_tracked
+        )
     tools_root = root / "tools" / "reproduction"
     for name in REQUIRED_TOOLS:
-        add_file_check(findings, tools_root / name, tracked_paths, require_tracked=require_tracked)
+        add_file_check(
+            findings, tools_root / name, tracked_paths, require_tracked=require_tracked
+        )
     for name in REQUIRED_TESTS:
-        add_file_check(findings, root / name, tracked_paths, require_tracked=require_tracked)
+        add_file_check(
+            findings, root / name, tracked_paths, require_tracked=require_tracked
+        )
     return findings
 
 
@@ -159,7 +167,9 @@ def check_suite_summary(
 ) -> list[str]:
     findings: list[str] = []
     summary_path = root / "docs" / "reproduction" / "evidence_gate_summary.json"
-    add_file_check(findings, summary_path, tracked_paths, require_tracked=require_tracked)
+    add_file_check(
+        findings, summary_path, tracked_paths, require_tracked=require_tracked
+    )
     if not summary_path.is_file():
         return findings
 
@@ -172,7 +182,9 @@ def check_suite_summary(
             f"{summary_path}: claim must remain 'not reproduction-ready' until all gates pass"
         )
     if summary.get("status") not in {"BLOCKED", "PASS"}:
-        findings.append(f"{summary_path}: unexpected suite status {summary.get('status')!r}")
+        findings.append(
+            f"{summary_path}: unexpected suite status {summary.get('status')!r}"
+        )
 
     results = summary.get("results")
     if not isinstance(results, list):
@@ -193,7 +205,9 @@ def check_suite_summary(
         if item.get("status") == "PASS":
             continue
         if item.get("status") != "BLOCKED":
-            findings.append(f"{summary_path}: {key} unexpected status {item.get('status')!r}")
+            findings.append(
+                f"{summary_path}: {key} unexpected status {item.get('status')!r}"
+            )
         if not item.get("blockers"):
             findings.append(f"{summary_path}: {key} BLOCKED result must list blockers")
 
@@ -279,7 +293,9 @@ def main() -> int:
         action="store_true",
         help="Do not fail when required docs exist locally but are not tracked by git",
     )
-    parser.add_argument("--json", type=Path, help="Optional path for JSON report output")
+    parser.add_argument(
+        "--json", type=Path, help="Optional path for JSON report output"
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()

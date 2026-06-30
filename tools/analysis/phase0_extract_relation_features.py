@@ -30,6 +30,7 @@ ON_FAMILY = {
 
 def load_predicate_names():
     from tools.analysis.export_relation_predictions import load_predicate_names
+
     return load_predicate_names()
 
 
@@ -62,14 +63,20 @@ def move_images_to_device(images, device):
 def reltr_forward_with_features(model, samples):
     """Copy RelTR.forward while returning relation pre-logit features."""
     from utils.misc import nested_tensor_from_tensor_list
+
     if isinstance(samples, (list, torch.Tensor)):
         samples = nested_tensor_from_tensor_list(samples)
     features, pos = model.backbone(samples)
     src, mask = features[-1].decompose()
     assert mask is not None
     hs, hs_t, so_masks, memory = model.transformer(
-        model.input_proj(src), mask, model.entity_embed.weight,
-        model.triplet_embed.weight, pos[-1], model.so_embed.weight)
+        model.input_proj(src),
+        mask,
+        model.entity_embed.weight,
+        model.triplet_embed.weight,
+        pos[-1],
+        model.so_embed.weight,
+    )
     so_masks = so_masks.detach()
     so_masks = model.so_mask_conv(
         so_masks.view(-1, 2, src.shape[-2], src.shape[-1])
@@ -111,16 +118,19 @@ def box_geom(sub_box, obj_box):
     sx, sy, sw, sh = sub_box.unbind(-1)
     ox, oy, ow, oh = obj_box.unbind(-1)
     eps = 1e-6
-    return torch.stack([
-        sx - ox,
-        sy - oy,
-        torch.log((sw + eps) / (ow + eps)),
-        torch.log((sh + eps) / (oh + eps)),
-        sw * sh,
-        ow * oh,
-        torch.abs(sx - ox),
-        torch.abs(sy - oy),
-    ], dim=-1)
+    return torch.stack(
+        [
+            sx - ox,
+            sy - oy,
+            torch.log((sw + eps) / (ow + eps)),
+            torch.log((sh + eps) / (oh + eps)),
+            sw * sh,
+            ow * oh,
+            torch.abs(sx - ox),
+            torch.abs(sy - oy),
+        ],
+        dim=-1,
+    )
 
 
 def extract_reltr(args, predicate_names, device):
@@ -129,15 +139,18 @@ def extract_reltr(args, predicate_names, device):
     from tools.analysis.export_reltr_predictions import _build_reltr_config
     from utils.main_utils import get_dataset
 
-    _, config = _build_reltr_config(args.test_dataset_size, args.val_batch_size,
-                                    args.num_workers, device)
+    _, config = _build_reltr_config(
+        args.test_dataset_size, args.val_batch_size, args.num_workers, device
+    )
     _, _, test_loader = get_dataset("VisualGenome", config)
     method = RelTR_Method(steps_per_epoch=1, save_dir=str(args.output_dir), **config)
     method.to(torch.device(device))
     method.eval()
     ckpt = torch.load(args.ckpt_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
-    state_dict = {k[6:] if k.startswith("model.") else k: v for k, v in state_dict.items()}
+    state_dict = {
+        k[6:] if k.startswith("model.") else k: v for k, v in state_dict.items()
+    }
     BaseExperiment._adapt_state_dict(state_dict, method.model)
     method.to(torch.device(device))
     method.eval()
@@ -157,7 +170,11 @@ def extract_reltr(args, predicate_names, device):
             samples = method._to_nested_tensor(images)
             outputs, hidden = reltr_forward_with_features(method.model, samples)
             method.criterion(outputs, targets)
-            triplet_indices = method.criterion.indices[1] if getattr(method.criterion, "indices", None) is not None else None
+            triplet_indices = (
+                method.criterion.indices[1]
+                if getattr(method.criterion, "indices", None) is not None
+                else None
+            )
             rel_pre = hidden["rel_pre_feature"]
             sub_boxes = outputs["sub_boxes"]
             obj_boxes = outputs["obj_boxes"]
@@ -172,7 +189,9 @@ def extract_reltr(args, predicate_names, device):
                 match_map = {}
                 if triplet_indices is not None and i < len(triplet_indices):
                     src_idx, tgt_idx = triplet_indices[i]
-                    for src, tgt in zip(src_idx.detach().cpu().tolist(), tgt_idx.detach().cpu().tolist()):
+                    for src, tgt in zip(
+                        src_idx.detach().cpu().tolist(), tgt_idx.detach().cpu().tolist()
+                    ):
                         match_map[int(tgt)] = int(src)
                 for r, rel in enumerate(rels.detach().cpu()):
                     gt_id = int(rel[2].item())
@@ -185,24 +204,28 @@ def extract_reltr(args, predicate_names, device):
                         continue
                     coverage_matched += 1
                     geom = box_geom(sub_boxes[i, q].detach(), obj_boxes[i, q].detach())
-                    feat = torch.cat([rel_pre[i, q].detach().cpu(), geom.detach().cpu()], dim=0)
+                    feat = torch.cat(
+                        [rel_pre[i, q].detach().cpu(), geom.detach().cpu()], dim=0
+                    )
                     feats.append(feat.float())
                     s_idx, o_idx = int(rel[0].item()), int(rel[1].item())
-                    meta.append({
-                        "row_id": len(meta),
-                        "batch_idx": batch_idx,
-                        "image_id": image_id,
-                        "subject_idx": s_idx,
-                        "object_idx": o_idx,
-                        "subject_class_id": int(labels[s_idx].item()),
-                        "object_class_id": int(labels[o_idx].item()),
-                        "gt_predicate_id": gt_id,
-                        "gt_predicate_name": gt_name,
-                        "query_idx": q,
-                        "matched_pair_found": True,
-                        "feature_source": "rel_pre_feature+pred_box_geom",
-                        "model": "RelTR",
-                    })
+                    meta.append(
+                        {
+                            "row_id": len(meta),
+                            "batch_idx": batch_idx,
+                            "image_id": image_id,
+                            "subject_idx": s_idx,
+                            "object_idx": o_idx,
+                            "subject_class_id": int(labels[s_idx].item()),
+                            "object_class_id": int(labels[o_idx].item()),
+                            "gt_predicate_id": gt_id,
+                            "gt_predicate_name": gt_name,
+                            "query_idx": q,
+                            "matched_pair_found": True,
+                            "feature_source": "rel_pre_feature+pred_box_geom",
+                            "model": "RelTR",
+                        }
+                    )
             processed += 1
             if processed % 10 == 0:
                 print(f"batch {batch_idx}: features={len(feats)}", flush=True)
@@ -215,31 +238,49 @@ def motifs_forward_with_features(method, images, targets, device):
     boxes_list = [t["boxes"] for t in targets]
     labels_list = [t["labels"] for t in targets]
     image_sizes = [t.get("size", t.get("orig_size")) for t in targets]
-    visual_feats_list = method._extract_visual_features(images, boxes_list, labels_list, image_sizes)
+    visual_feats_list = method._extract_visual_features(
+        images, boxes_list, labels_list, image_sizes
+    )
     outputs = []
     hidden = []
     model = method.model
     with torch.no_grad():
-        for i, (box, lab, vis) in enumerate(zip(boxes_list, labels_list, visual_feats_list)):
-            extra_kwargs = method._extra_model_kwargs(targets[i], box, lab, return_obj_preds)
+        for i, (box, lab, vis) in enumerate(
+            zip(boxes_list, labels_list, visual_feats_list)
+        ):
+            extra_kwargs = method._extra_model_kwargs(
+                targets[i], box, lab, return_obj_preds
+            )
             num_objects = vis.size(0)
             pairs = model._generate_pairs(num_objects, vis.device)
             motif_visual_feats = model.input_visual_proj(vis)
-            out = model(vis, box, lab, return_obj_preds=return_obj_preds, **extra_kwargs)
+            out = model(
+                vis, box, lab, return_obj_preds=return_obj_preds, **extra_kwargs
+            )
             if num_objects == 0 or pairs.numel() == 0:
-                outputs.append(out); hidden.append({}); continue
+                outputs.append(out)
+                hidden.append({})
+                continue
             obj_logits, obj_preds, edge_ctx = model.context_layer(
-                motif_visual_feats, box, lab, return_obj_preds=return_obj_preds,
-                obj_dists=extra_kwargs.get("obj_dists"))
+                motif_visual_feats,
+                box,
+                lab,
+                return_obj_preds=return_obj_preds,
+                obj_dists=extra_kwargs.get("obj_dists"),
+            )
             edge_rep = model.post_emb(edge_ctx).view(num_objects, 2, model.hidden_dim)
             head_rep = edge_rep[:, 0].contiguous()
             tail_rep = edge_rep[:, 1].contiguous()
-            prod_context = torch.cat((head_rep[pairs[:, 0]], tail_rep[pairs[:, 1]]), dim=-1)
+            prod_context = torch.cat(
+                (head_rep[pairs[:, 0]], tail_rep[pairs[:, 1]]), dim=-1
+            )
             prod_context = model.post_cat(prod_context)
             if model.use_vision:
-                edge_visual_feats = (model._project_union_features(extra_kwargs.get("union_feats"))
-                                     if extra_kwargs.get("union_feats") is not None
-                                     else model._fallback_union_features(motif_visual_feats, pairs))
+                edge_visual_feats = (
+                    model._project_union_features(extra_kwargs.get("union_feats"))
+                    if extra_kwargs.get("union_feats") is not None
+                    else model._fallback_union_features(motif_visual_feats, pairs)
+                )
                 prod_final = prod_context * edge_visual_feats
             else:
                 edge_visual_feats = prod_context.new_zeros(prod_context.shape)
@@ -247,14 +288,16 @@ def motifs_forward_with_features(method, images, targets, device):
             if model.use_tanh:
                 prod_final = torch.tanh(prod_final)
             outputs.append(out)
-            hidden.append({
-                "pairs": pairs.detach(),
-                "head_rep": head_rep[pairs[:, 0]].detach(),
-                "tail_rep": tail_rep[pairs[:, 1]].detach(),
-                "prod_context": prod_context.detach(),
-                "edge_visual_feats": edge_visual_feats.detach(),
-                "prod_final": prod_final.detach(),
-            })
+            hidden.append(
+                {
+                    "pairs": pairs.detach(),
+                    "head_rep": head_rep[pairs[:, 0]].detach(),
+                    "tail_rep": tail_rep[pairs[:, 1]].detach(),
+                    "prod_context": prod_context.detach(),
+                    "edge_visual_feats": edge_visual_feats.detach(),
+                    "prod_final": prod_final.detach(),
+                }
+            )
     return outputs, hidden
 
 
@@ -264,9 +307,14 @@ def extract_motifs(args, predicate_names, device):
     from tools.analysis.export_relation_predictions import _build_opensgg_config
     from utils.main_utils import get_dataset
 
-    _, config = _build_opensgg_config(args.ckpt_path, args.test_dataset_size,
-                                      args.val_batch_size, args.num_workers,
-                                      device, method="Motifs")
+    _, config = _build_opensgg_config(
+        args.ckpt_path,
+        args.test_dataset_size,
+        args.val_batch_size,
+        args.num_workers,
+        device,
+        method="Motifs",
+    )
     _, _, test_loader = get_dataset("VisualGenome", config)
     method_cls = method_maps["motifs"]
     method = method_cls(steps_per_epoch=1, save_dir=str(args.output_dir), **config)
@@ -285,17 +333,27 @@ def extract_motifs(args, predicate_names, device):
             images, targets = method._split_batch(batch)
             images = move_images_to_device(images, device)
             targets = method._move_targets_to_device(targets)
-            outputs, hidden = motifs_forward_with_features(method, images, targets, device)
+            outputs, hidden = motifs_forward_with_features(
+                method, images, targets, device
+            )
             for i, target in enumerate(targets):
                 rels = target.get("rel_annotations")
-                if rels is None or rels.numel() == 0 or i >= len(hidden) or not hidden[i]:
+                if (
+                    rels is None
+                    or rels.numel() == 0
+                    or i >= len(hidden)
+                    or not hidden[i]
+                ):
                     continue
                 if rels.dim() == 1:
                     rels = rels.reshape(-1, 3)
                 labels = target["labels"].detach().cpu().long()
                 image_id = scalar(target.get("image_id", i), i)
                 pairs = hidden[i]["pairs"].detach().cpu()
-                pair_to_idx = {(int(pairs[j, 0]), int(pairs[j, 1])): j for j in range(pairs.shape[0])}
+                pair_to_idx = {
+                    (int(pairs[j, 0]), int(pairs[j, 1])): j
+                    for j in range(pairs.shape[0])
+                }
                 for rel in rels.detach().cpu():
                     gt_id = int(rel[2].item())
                     gt_name = predicate_names[gt_id]
@@ -309,21 +367,23 @@ def extract_motifs(args, predicate_names, device):
                     coverage_matched += 1
                     feat = hidden[i]["prod_final"][p_idx].detach().cpu().float()
                     feats.append(feat)
-                    meta.append({
-                        "row_id": len(meta),
-                        "batch_idx": batch_idx,
-                        "image_id": image_id,
-                        "subject_idx": s_idx,
-                        "object_idx": o_idx,
-                        "subject_class_id": int(labels[s_idx].item()),
-                        "object_class_id": int(labels[o_idx].item()),
-                        "gt_predicate_id": gt_id,
-                        "gt_predicate_name": gt_name,
-                        "query_idx": p_idx,
-                        "matched_pair_found": True,
-                        "feature_source": "prod_final",
-                        "model": "Motifs",
-                    })
+                    meta.append(
+                        {
+                            "row_id": len(meta),
+                            "batch_idx": batch_idx,
+                            "image_id": image_id,
+                            "subject_idx": s_idx,
+                            "object_idx": o_idx,
+                            "subject_class_id": int(labels[s_idx].item()),
+                            "object_class_id": int(labels[o_idx].item()),
+                            "gt_predicate_id": gt_id,
+                            "gt_predicate_name": gt_name,
+                            "query_idx": p_idx,
+                            "matched_pair_found": True,
+                            "feature_source": "prod_final",
+                            "model": "Motifs",
+                        }
+                    )
             processed += 1
             if processed % 10 == 0:
                 print(f"batch {batch_idx}: features={len(feats)}", flush=True)
@@ -343,7 +403,9 @@ def save_outputs(feats, meta, coverage_total, coverage_matched, output_dir):
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     summary = {
         "num_features": int(features.shape[0]),
-        "feature_dim": int(features.shape[1]) if features.dim() == 2 and features.shape[0] else 0,
+        "feature_dim": int(features.shape[1])
+        if features.dim() == 2 and features.shape[0]
+        else 0,
         "coverage_total": coverage_total,
         "coverage_matched": coverage_matched,
         "coverage": coverage_matched / coverage_total if coverage_total else 0.0,
@@ -381,4 +443,5 @@ def main():
 
 if __name__ == "__main__":
     import argparse
+
     main()

@@ -112,7 +112,9 @@ def main() -> int:
         dir_check(args.rasgg_root),
         file_check(args.rasgg_root / "README.md"),
         file_check(args.rasgg_root / "Model_Zoo.md"),
-        file_check(args.rasgg_root / "configs" / "e2e_relation_X_101_32_8_FPN_1x_rasgg.yaml"),
+        file_check(
+            args.rasgg_root / "configs" / "e2e_relation_X_101_32_8_FPN_1x_rasgg.yaml"
+        ),
         file_check(args.rasgg_root / "scripts" / "predcls_train_retag.sh"),
         file_check(args.rasgg_root / "scripts" / "sgcls_train_retag.sh"),
         file_check(args.rasgg_root / "scripts" / "sgdet_train_retag.sh"),
@@ -126,7 +128,9 @@ def main() -> int:
         vg_checks.append(file_check(vg_root / name))
 
     retag_checkpoint_checks = {
-        protocol: candidates(args.checkpoint_root / protocol, ("model", "retag", "rasgg"))
+        protocol: candidates(
+            args.checkpoint_root / protocol, ("model", "retag", "rasgg")
+        )
         for protocol in CHECKPOINT_PROTOCOLS
     }
     penet_checkpoint_checks = {
@@ -136,7 +140,9 @@ def main() -> int:
         )
         for protocol in CHECKPOINT_PROTOCOLS
     }
-    memory_candidates = candidates(args.memory_root, ("feature", "memory", "fb", "bank"))
+    memory_candidates = candidates(
+        args.memory_root, ("feature", "memory", "fb", "bank")
+    )
 
     missing_source = [item["path"] for item in source_checks if not item["exists"]]
     missing_vg = [item["path"] for item in vg_checks if not item["exists"]]

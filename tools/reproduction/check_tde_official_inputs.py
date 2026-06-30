@@ -37,7 +37,8 @@ def inspect_checkpoint_dir(path: Path) -> dict[str, Any]:
     candidates = [
         p
         for p in files
-        if p.suffix.lower() in {".pth", ".pt", ".pkl", ".ckpt"} or "model" in p.name.lower()
+        if p.suffix.lower() in {".pth", ".pt", ".pkl", ".ckpt"}
+        or "model" in p.name.lower()
     ]
     return {
         "path": str(path),
@@ -87,7 +88,11 @@ def main() -> int:
     )
 
     sgb_checks = [
-        {"path": str(args.sgb_root), "exists": args.sgb_root.is_dir(), "type": "directory"},
+        {
+            "path": str(args.sgb_root),
+            "exists": args.sgb_root.is_dir(),
+            "type": "directory",
+        },
         {"path": str(config), "exists": config.is_file(), "type": "file"},
         {"path": str(predictor), "exists": predictor.is_file(), "type": "file"},
         {"path": str(vg_root), "exists": vg_root.is_dir(), "type": "directory"},

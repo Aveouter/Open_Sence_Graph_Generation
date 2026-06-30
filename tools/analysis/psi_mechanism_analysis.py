@@ -11,39 +11,61 @@ import json
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 
 _ON_PARENT = 31
 _ON_FINE = {24, 26, 28, 35, 40, 41, 46}
 _FINE_NAME_TO_ID = {
-    "laying on": 24, "lying on": 26, "mounted on": 28,
-    "parked on": 35, "sitting on": 40, "standing on": 41, "walking on": 46,
+    "laying on": 24,
+    "lying on": 26,
+    "mounted on": 28,
+    "parked on": 35,
+    "sitting on": 40,
+    "standing on": 41,
+    "walking on": 46,
 }
 
 
 def build_config(test_size, batch_size, num_workers, device):
     from utils.parser import create_parser, default_parser
     from utils.main_utils import load_config, update_config
+
     args = create_parser().parse_args([])
     cfg = args.__dict__
-    cfg.update({
-        "method": "reltr_primitive", "dataname": "VisualGenome", "test": True,
-        "test_dataset_size": test_size if test_size and test_size > 0 else None,
-        "val_batch_size": batch_size, "num_workers": num_workers,
-        "device": device, "no_display_method_info": True,
-        "ex_name": "psi_analysis", "overwrite": True,
-    })
+    cfg.update(
+        {
+            "method": "reltr_primitive",
+            "dataname": "VisualGenome",
+            "test": True,
+            "test_dataset_size": test_size if test_size and test_size > 0 else None,
+            "val_batch_size": batch_size,
+            "num_workers": num_workers,
+            "device": device,
+            "no_display_method_info": True,
+            "ex_name": "psi_analysis",
+            "overwrite": True,
+        }
+    )
     loaded = load_config("configs/VisualGenome/RelTR_Primitive.py")
-    cfg = update_config(cfg, loaded, exclude_keys=["method", "val_batch_size", "drop_path", "warmup_epoch"])
+    cfg = update_config(
+        cfg,
+        loaded,
+        exclude_keys=["method", "val_batch_size", "drop_path", "warmup_epoch"],
+    )
     for k, v in default_parser().items():
         if cfg.get(k) is None:
             cfg[k] = v
-    cfg.update({
-        "method": "reltr_primitive", "dataname": "VisualGenome", "test": True,
-        "test_dataset_size": test_size if test_size and test_size > 0 else None,
-        "val_batch_size": batch_size, "num_workers": num_workers,
-        "device": device, "no_display_method_info": True,
-    })
+    cfg.update(
+        {
+            "method": "reltr_primitive",
+            "dataname": "VisualGenome",
+            "test": True,
+            "test_dataset_size": test_size if test_size and test_size > 0 else None,
+            "val_batch_size": batch_size,
+            "num_workers": num_workers,
+            "device": device,
+            "no_display_method_info": True,
+        }
+    )
     return cfg
 
 
@@ -52,6 +74,7 @@ def load_checkpoint(method, ckpt_path):
     state = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     state = {k[6:] if k.startswith("model.") else k: v for k, v in state.items()}
     from src.exp import BaseExperiment
+
     BaseExperiment._adapt_state_dict(state, method.model)
     if isinstance(ckpt, dict) and "primitive_head" in ckpt:
         method.primitive_head.load_state_dict(ckpt["primitive_head"], strict=False)
@@ -94,16 +117,19 @@ def main():
     from src.methods import method_maps
     from utils.main_utils import get_dataset
 
-    cfg = build_config(args.test_dataset_size, args.batch_size, args.num_workers, device)
+    cfg = build_config(
+        args.test_dataset_size, args.batch_size, args.num_workers, device
+    )
     _, _, test_loader = get_dataset("VisualGenome", cfg)
-    method = method_maps["reltr_primitive"](steps_per_epoch=1, save_dir=args.output_dir, **cfg)
+    method = method_maps["reltr_primitive"](
+        steps_per_epoch=1, save_dir=args.output_dir, **cfg
+    )
     load_checkpoint(method, args.ckpt_path)
     method.to(torch.device(device))
     method.eval()
 
     rows = []  # PSI, Delta, collapse flag
     ablation_rows = []  # token ablation records
-    replacement_rows = []  # token replacement records
 
     processed = 0
     with torch.no_grad():
@@ -123,7 +149,6 @@ def main():
 
             comp = method.primitive_head.comp
             base_logits = outputs["base_rel_logits"]
-            prim_logits = outputs["primitive_rel_logits"]
 
             # Hungarian matching
             method.criterion(outputs, targets)
@@ -141,22 +166,32 @@ def main():
                     if gt_id not in _ON_FINE:
                         continue
                     q = int(src.item())
-                    ev = evidence_score(aux["evidence"][i * outputs["rel_logits"].shape[1] + q])
+                    ev = evidence_score(
+                        aux["evidence"][i * outputs["rel_logits"].shape[1] + q]
+                    )
                     psi, e_shared, e_private = compute_psi(ev, comp, gt_id)
                     p_base = base_logits[i, q].softmax(-1)
                     p_prim_full = outputs["rel_logits"][i, q].softmax(-1)
-                    delta = float(p_prim_full[_ON_PARENT].cpu() - p_prim_full[gt_id].cpu())
+                    delta = float(
+                        p_prim_full[_ON_PARENT].cpu() - p_prim_full[gt_id].cpu()
+                    )
                     pred_id = int(p_prim_full.argmax(-1).item())
                     collapsed = int(pred_id == _ON_PARENT)
-                    rows.append({
-                        "gt_id": gt_id, "q": q,
-                        "psi": psi, "e_shared": e_shared, "e_private": e_private,
-                        "delta": delta, "collapsed": collapsed,
-                        "base_on_prob": float(p_base[_ON_PARENT].cpu()),
-                        "prim_on_prob": float(p_prim_full[_ON_PARENT].cpu()),
-                        "base_fine_prob": float(p_base[gt_id].cpu()),
-                        "prim_fine_prob": float(p_prim_full[gt_id].cpu()),
-                    })
+                    rows.append(
+                        {
+                            "gt_id": gt_id,
+                            "q": q,
+                            "psi": psi,
+                            "e_shared": e_shared,
+                            "e_private": e_private,
+                            "delta": delta,
+                            "collapsed": collapsed,
+                            "base_on_prob": float(p_base[_ON_PARENT].cpu()),
+                            "prim_on_prob": float(p_prim_full[_ON_PARENT].cpu()),
+                            "base_fine_prob": float(p_base[gt_id].cpu()),
+                            "prim_fine_prob": float(p_prim_full[gt_id].cpu()),
+                        }
+                    )
 
                     # Token ablation: zero out private-dominant primitive tokens
                     c = torch.sigmoid(comp)
@@ -164,16 +199,22 @@ def main():
                     private_mask = (private_weight > 0.5 * private_weight.max()).float()
                     ablated_ev = ev * (1 - private_mask)
                     abl_e_shared, abl_e_private = (
-                        (ablated_ev * c[_ON_PARENT]).sum() / (c[_ON_PARENT].sum() + 1e-8),
-                        (ablated_ev * private_weight * (1 - private_mask)).sum() / (private_weight.sum() + 1e-8),
+                        (ablated_ev * c[_ON_PARENT]).sum()
+                        / (c[_ON_PARENT].sum() + 1e-8),
+                        (ablated_ev * private_weight * (1 - private_mask)).sum()
+                        / (private_weight.sum() + 1e-8),
                     )
-                    ablation_rows.append({
-                        "gt_id": gt_id, "q": q,
-                        "psi_before": psi,
-                        "e_shared_before": e_shared, "e_private_before": e_private,
-                        "e_shared_after": float(abl_e_shared.cpu()),
-                        "e_private_after": float(abl_e_private.cpu()),
-                    })
+                    ablation_rows.append(
+                        {
+                            "gt_id": gt_id,
+                            "q": q,
+                            "psi_before": psi,
+                            "e_shared_before": e_shared,
+                            "e_private_before": e_private,
+                            "e_shared_after": float(abl_e_shared.cpu()),
+                            "e_private_after": float(abl_e_private.cpu()),
+                        }
+                    )
 
             processed += 1
             if processed % 200 == 0:
@@ -181,6 +222,7 @@ def main():
 
     # Compute summary statistics
     import numpy as np
+
     psi_vals = np.array([r["psi"] for r in rows])
     delta_vals = np.array([r["delta"] for r in rows])
     collapsed = np.array([r["collapsed"] for r in rows], dtype=bool)
@@ -221,13 +263,21 @@ def main():
         "psi_mean_collapse": float(psi_collapse),
         "psi_mean_correct": float(psi_correct),
         "auc_psi_predicting_collapse": float(auc),
-        "delta_mean_collapse": float(delta_vals[collapsed].mean()) if collapsed.any() else float("nan"),
-        "delta_mean_correct": float(delta_vals[~collapsed].mean()) if (~collapsed).any() else float("nan"),
+        "delta_mean_collapse": float(delta_vals[collapsed].mean())
+        if collapsed.any()
+        else float("nan"),
+        "delta_mean_correct": float(delta_vals[~collapsed].mean())
+        if (~collapsed).any()
+        else float("nan"),
         "ablation": {
             "n": len(ablation_rows),
             "psi_before_mean": float(np.mean([r["psi_before"] for r in ablation_rows])),
-            "e_private_before_mean": float(np.mean([r["e_private_before"] for r in ablation_rows])),
-            "e_private_after_mean": float(np.mean([r["e_private_after"] for r in ablation_rows])),
+            "e_private_before_mean": float(
+                np.mean([r["e_private_before"] for r in ablation_rows])
+            ),
+            "e_private_after_mean": float(
+                np.mean([r["e_private_after"] for r in ablation_rows])
+            ),
         },
     }
 

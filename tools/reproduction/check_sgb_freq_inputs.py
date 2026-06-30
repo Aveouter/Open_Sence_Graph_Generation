@@ -44,12 +44,20 @@ def main() -> int:
     args = parser.parse_args()
 
     vg_root = args.vg_root or args.sgb_root / "datasets" / "vg"
-    config = args.config or args.sgb_root / "configs" / "e2e_relation_X_101_32_8_FPN_1x.yaml"
+    config = (
+        args.config or args.sgb_root / "configs" / "e2e_relation_X_101_32_8_FPN_1x.yaml"
+    )
     paths_catalog = args.sgb_root / "maskrcnn_benchmark" / "config" / "paths_catalog.py"
 
     checks = []
     for path in (args.sgb_root, paths_catalog, config, vg_root):
-        checks.append({"path": str(path), "exists": path.exists(), "type": "directory" if path.is_dir() else "file"})
+        checks.append(
+            {
+                "path": str(path),
+                "exists": path.exists(),
+                "type": "directory" if path.is_dir() else "file",
+            }
+        )
     for name in REQUIRED_FILES:
         path = vg_root / name
         checks.append({"path": str(path), "exists": path.exists(), "type": "file"})

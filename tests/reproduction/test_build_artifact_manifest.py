@@ -18,7 +18,9 @@ spec.loader.exec_module(manifest_mod)
 
 class ArtifactManifestTest(unittest.TestCase):
     def test_artifact_kind_classifies_common_blockers(self) -> None:
-        self.assertEqual(manifest_mod.artifact_kind("missing_sgb_vg_inputs"), "vg_inputs")
+        self.assertEqual(
+            manifest_mod.artifact_kind("missing_sgb_vg_inputs"), "vg_inputs"
+        )
         self.assertEqual(
             manifest_mod.artifact_kind("missing_pretrained_detector_checkpoint"),
             "detector_checkpoint",
@@ -27,10 +29,14 @@ class ArtifactManifestTest(unittest.TestCase):
             manifest_mod.artifact_kind("missing_official_memory_bank_features"),
             "memory_bank",
         )
-        self.assertEqual(manifest_mod.artifact_kind("missing_official_tde_checkpoints"), "checkpoint")
+        self.assertEqual(
+            manifest_mod.artifact_kind("missing_official_tde_checkpoints"), "checkpoint"
+        )
 
     def test_public_blocker_removes_local_absolute_path(self) -> None:
-        blocker = str(Path("/").joinpath("redacted", "datasets", "vg", "VG-SGG-with-attri.h5"))
+        blocker = str(
+            Path("/").joinpath("redacted", "datasets", "vg", "VG-SGG-with-attri.h5")
+        )
 
         self.assertEqual(manifest_mod.public_blocker(blocker), "VG-SGG-with-attri.h5")
 
@@ -38,7 +44,9 @@ class ArtifactManifestTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             summary = root / "docs" / "reproduction" / "evidence_gate_summary.json"
-            detail = root / "docs" / "reproduction" / "freq" / "sgb_freq_input_check.json"
+            detail = (
+                root / "docs" / "reproduction" / "freq" / "sgb_freq_input_check.json"
+            )
             detail.parent.mkdir(parents=True)
             summary.parent.mkdir(parents=True, exist_ok=True)
             detail.write_text(

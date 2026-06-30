@@ -17,6 +17,7 @@ Unified-support rule (G-SUPPORT):
 subj/obj labels are read from train.json / val.json COCO in ann_id order, which is
 identical to the dataset's `target["labels"]` ordering (iscrowd == 0, verified).
 """
+
 import argparse
 import json
 import sys
@@ -48,11 +49,15 @@ def build_train_counts(train_manifest, train_coco):
     tr_anns = img_to_anns_map(train_coco)
     pair_freq = defaultdict(Counter)
     for p in train_manifest["pairs"]:
-        img_id = p["image_id"]; si = p["sub_idx"]; oi = p["obj_idx"]; exp = p["exposed_label"]
+        img_id = p["image_id"]
+        si = p["sub_idx"]
+        oi = p["obj_idx"]
+        exp = p["exposed_label"]
         anns = tr_anns.get(img_id, [])
         if si >= len(anns) or oi >= len(anns):
             continue
-        sl = anns[si]["category_id"]; ol = anns[oi]["category_id"]
+        sl = anns[si]["category_id"]
+        ol = anns[oi]["category_id"]
         pair_freq[(sl, ol)][exp] += 1
     return pair_freq
 
@@ -72,6 +77,7 @@ def jittered_ranking(counts, exposed, rng):
 
 def export_prior_for_seed(seed, train_manifest_path, val_manifest_path, out_dir):
     from pycocotools.coco import COCO
+
     train_manifest = load_manifest(train_manifest_path)
     val_manifest = load_manifest(val_manifest_path)
 
@@ -89,15 +95,20 @@ def export_prior_for_seed(seed, train_manifest_path, val_manifest_path, out_dir)
     n_empty_pair = 0  # pairs whose (subj,obj) unseen in train
     with open(pf_path, "w") as pf_fh, open(ec_path, "w") as ec_fh:
         for p in val_manifest["pairs"]:
-            img_id = p["image_id"]; si = p["sub_idx"]; oi = p["obj_idx"]
-            E = p["exposed_label"]; H = p["hidden_labels"]
+            img_id = p["image_id"]
+            si = p["sub_idx"]
+            oi = p["obj_idx"]
+            E = p["exposed_label"]
+            H = p["hidden_labels"]
             anns = val_anns.get(img_id, [])
             if si >= len(anns) or oi >= len(anns):
                 # Should not happen (iscrowd=0, verified), but keep the pair with
                 # unknown labels rather than dropping it.
-                sl = -1; ol = -1
+                sl = -1
+                ol = -1
             else:
-                sl = anns[si]["category_id"]; ol = anns[oi]["category_id"]
+                sl = anns[si]["category_id"]
+                ol = anns[oi]["category_id"]
 
             counter = pair_freq.get((sl, ol), Counter())
             total = sum(counter.values())
@@ -105,7 +116,7 @@ def export_prior_for_seed(seed, train_manifest_path, val_manifest_path, out_dir)
             prob = [c / total if total > 0 else 0.0 for c in counts]
 
             # Per-pair deterministic RNG for tie-breaking (seeded by pair key).
-            pair_seed = (hash((img_id, si, oi)) & 0xFFFFFFFF)
+            pair_seed = hash((img_id, si, oi)) & 0xFFFFFFFF
             rng = np.random.RandomState(pair_seed)
             pf_ranked = jittered_ranking(counts, E, rng)
             if total == 0:
@@ -123,16 +134,18 @@ def export_prior_for_seed(seed, train_manifest_path, val_manifest_path, out_dir)
                 "is_mapped_fine": bool(p.get("is_mapped_fine", False)),
                 "subj_label": int(sl),
                 "obj_label": int(ol),
-                "scores": counts,           # raw co-occurrence counts (50-way)
-                "prob": prob,               # L1-normalized probability (50-way)
+                "scores": counts,  # raw co-occurrence counts (50-way)
+                "prob": prob,  # L1-normalized probability (50-way)
             }
             pf_fh.write(json.dumps({**common, "ranked": pf_ranked}) + "\n")
             ec_fh.write(json.dumps({**common, "ranked": ec_ranked}) + "\n")
             n_written += 1
             n_hidden += len(H)
 
-    print(f"seed={seed}: wrote {n_written} pairs ({n_hidden} hidden positives) "
-          f"to {pf_path.name} + {ec_path.name}; empty-(subj,obj) pairs={n_empty_pair}")
+    print(
+        f"seed={seed}: wrote {n_written} pairs ({n_hidden} hidden positives) "
+        f"to {pf_path.name} + {ec_path.name}; empty-(subj,obj) pairs={n_empty_pair}"
+    )
 
 
 def main():
@@ -145,8 +158,12 @@ def main():
     manifest_dir = _PROJECT_ROOT / "outputs" / "gen_sgg" / "manifests"
     base_out = _PROJECT_ROOT / "outputs" / "gen_sgg" / "exp010_prior_strata"
     for seed in seeds:
-        train_path = manifest_dir / f"exp009_train_hidden_head_or_coarse_one_seed{seed}.json"
-        val_path = manifest_dir / f"exp009_val_hidden_head_or_coarse_one_seed{seed}.json"
+        train_path = (
+            manifest_dir / f"exp009_train_hidden_head_or_coarse_one_seed{seed}.json"
+        )
+        val_path = (
+            manifest_dir / f"exp009_val_hidden_head_or_coarse_one_seed{seed}.json"
+        )
         if not train_path.exists() or not val_path.exists():
             print(f"SKIP seed {seed}: manifest missing")
             continue

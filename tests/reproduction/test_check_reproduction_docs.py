@@ -60,8 +60,12 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
                 require_tracked=True,
             )
 
-        self.assertTrue(any("not reproduction-ready" in finding for finding in findings))
-        self.assertTrue(any("missing suite result for freq" in finding for finding in findings))
+        self.assertTrue(
+            any("not reproduction-ready" in finding for finding in findings)
+        )
+        self.assertTrue(
+            any("missing suite result for freq" in finding for finding in findings)
+        )
 
     def test_blocked_suite_summary_requires_blockers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -92,7 +96,9 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
                 require_tracked=True,
             )
 
-        self.assertTrue(any("BLOCKED result must list blockers" in finding for finding in findings))
+        self.assertTrue(
+            any("BLOCKED result must list blockers" in finding for finding in findings)
+        )
 
     def test_baseline_requires_non_reproduced_status_label(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -113,7 +119,10 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
             )
 
         self.assertTrue(
-            any("missing explicit non-reproduced/audit status label" in finding for finding in findings)
+            any(
+                "missing explicit non-reproduced/audit status label" in finding
+                for finding in findings
+            )
         )
 
 

@@ -124,7 +124,10 @@ def main() -> int:
     vg_root = args.vg_root or args.penet_root / "datasets" / "vg"
     detector = (
         args.pretrained_detector
-        or args.penet_root / "checkpoints" / "pretrained_faster_rcnn" / "model_final.pth"
+        or args.penet_root
+        / "checkpoints"
+        / "pretrained_faster_rcnn"
+        / "model_final.pth"
     )
     relation_head = (
         args.penet_root

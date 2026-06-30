@@ -35,7 +35,9 @@ def load_sgb_pred_dist(path: Path) -> torch.Tensor:
         )
     pred_dist = torch.as_tensor(pred_dist).float()
     if pred_dist.dim() != 3:
-        raise ValueError(f"pred_dist must be rank-3, got shape {tuple(pred_dist.shape)}")
+        raise ValueError(
+            f"pred_dist must be rank-3, got shape {tuple(pred_dist.shape)}"
+        )
     return pred_dist
 
 
@@ -53,8 +55,10 @@ def build_opensgg_prior(
         data_root=str(data_root),
         predicate_bg_index=predicate_bg_index,
     )
-    return bias.obj_baseline.weight.detach().cpu().view(
-        num_objects, num_objects, num_predicates
+    return (
+        bias.obj_baseline.weight.detach()
+        .cpu()
+        .view(num_objects, num_objects, num_predicates)
     )
 
 
@@ -101,7 +105,9 @@ def main() -> int:
     )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--eps", type=float, default=1e-3)
-    parser.add_argument("--predicate-bg-index", default="first", choices=["first", "last", "none"])
+    parser.add_argument(
+        "--predicate-bg-index", default="first", choices=["first", "last", "none"]
+    )
     parser.add_argument("--tolerance", type=float, default=1e-6)
     parser.add_argument("--topk", type=int, default=20)
     args = parser.parse_args()
@@ -134,7 +140,9 @@ def main() -> int:
         "eps": args.eps,
         "tolerance": args.tolerance,
         "max_abs_difference": float(abs_diff.max().item()) if abs_diff.numel() else 0.0,
-        "mean_abs_difference": float(abs_diff.mean().item()) if abs_diff.numel() else 0.0,
+        "mean_abs_difference": float(abs_diff.mean().item())
+        if abs_diff.numel()
+        else 0.0,
         "num_entries": int(abs_diff.numel()),
         "num_entries_above_tolerance": int((abs_diff > args.tolerance).sum().item()),
         "top_differences": top_differences(diff, args.topk),

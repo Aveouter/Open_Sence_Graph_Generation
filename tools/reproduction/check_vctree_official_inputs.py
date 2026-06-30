@@ -83,11 +83,27 @@ def main() -> int:
     config = args.sgb_root / "configs" / "e2e_relation_R_101_FPN_1x.yaml"
 
     sgb_checks = [
-        {"path": str(args.sgb_root), "exists": args.sgb_root.is_dir(), "type": "directory"},
+        {
+            "path": str(args.sgb_root),
+            "exists": args.sgb_root.is_dir(),
+            "type": "directory",
+        },
         {"path": str(config), "exists": config.is_file(), "type": "file"},
-        {"path": str(vctree_files / "roi_relation_predictors.py"), "exists": (vctree_files / "roi_relation_predictors.py").is_file(), "type": "file"},
-        {"path": str(vctree_files / "model_vctree.py"), "exists": (vctree_files / "model_vctree.py").is_file(), "type": "file"},
-        {"path": str(vctree_files / "utils_vctree.py"), "exists": (vctree_files / "utils_vctree.py").is_file(), "type": "file"},
+        {
+            "path": str(vctree_files / "roi_relation_predictors.py"),
+            "exists": (vctree_files / "roi_relation_predictors.py").is_file(),
+            "type": "file",
+        },
+        {
+            "path": str(vctree_files / "model_vctree.py"),
+            "exists": (vctree_files / "model_vctree.py").is_file(),
+            "type": "file",
+        },
+        {
+            "path": str(vctree_files / "utils_vctree.py"),
+            "exists": (vctree_files / "utils_vctree.py").is_file(),
+            "type": "file",
+        },
         {"path": str(vg_root), "exists": vg_root.is_dir(), "type": "directory"},
     ]
     for name in REQUIRED_SGB_VG_FILES:

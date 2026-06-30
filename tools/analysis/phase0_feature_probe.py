@@ -16,7 +16,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 PARENT = "on"
-FINE = ["sitting on", "standing on", "lying on", "laying on", "walking on", "parked on", "mounted on"]
+FINE = [
+    "sitting on",
+    "standing on",
+    "lying on",
+    "laying on",
+    "walking on",
+    "parked on",
+    "mounted on",
+]
 
 
 def load_meta(path):
@@ -52,6 +60,7 @@ class Probe(nn.Module):
             nn.Dropout(0.1),
             nn.Linear(min(256, max(32, dim // 4)), out),
         )
+
     def forward(self, x):
         return self.net(x)
 
@@ -61,7 +70,7 @@ def split_indices(n, seed=42):
     perm = torch.randperm(n, generator=g)
     n_train = int(0.7 * n)
     n_val = int(0.15 * n)
-    return perm[:n_train], perm[n_train:n_train+n_val], perm[n_train+n_val:]
+    return perm[:n_train], perm[n_train : n_train + n_val], perm[n_train + n_val :]
 
 
 def standardize_train(x_train, x_all):
@@ -84,7 +93,9 @@ def train_probe(x, y, out_dim, seed=42, epochs=50, device="cpu"):
         logits = model(x_std[train_idx.to(device)])
         yy = y[train_idx.to(device)]
         loss = F.cross_entropy(logits, yy)
-        opt.zero_grad(); loss.backward(); opt.step()
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
         model.eval()
         with torch.no_grad():
             val_logits = model(x_std[val_idx.to(device)])
@@ -92,7 +103,9 @@ def train_probe(x, y, out_dim, seed=42, epochs=50, device="cpu"):
             val_acc = (val_pred == y[val_idx.to(device)]).float().mean().item()
         if val_acc > best_val:
             best_val = val_acc
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            }
     model.load_state_dict(best_state)
     model.eval()
     with torch.no_grad():
@@ -132,7 +145,8 @@ def main():
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
-    out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
     data = torch.load(args.features, map_location="cpu")
     x = data["features"].float()
     meta = load_meta(args.metadata)
@@ -156,7 +170,9 @@ def main():
     if len(fine_idx) >= 50 and len(fine_label_names) > 1:
         y = torch.tensor([name_to_idx[names[i]] for i in fine_idx], dtype=torch.long)
         xx = x[fine_idx]
-        fine_model, fine_acc, _, _, fine_mean, fine_std = train_probe(xx, y, len(fine_label_names), seed=123, device=device)
+        fine_model, fine_acc, _, _, fine_mean, fine_std = train_probe(
+            xx, y, len(fine_label_names), seed=123, device=device
+        )
         random_acc = 1.0 / len(fine_label_names)
     else:
         fine_acc = None
@@ -167,25 +183,37 @@ def main():
 
     with open(out / "fine_vs_parent_probe.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["fine", "n", "auc", "acc"])
-        writer.writeheader(); writer.writerows(binary_rows)
+        writer.writeheader()
+        writer.writerows(binary_rows)
 
-    torch.save({
-        "binary_probes": probe_weights,
-        "fine_sibling_probe": {
-            "state_dict": {k: v.detach().cpu() for k, v in fine_model.state_dict().items()} if fine_model is not None else None,
-            "mean": fine_mean.detach().cpu() if fine_mean is not None else None,
-            "std": fine_std.detach().cpu() if fine_std is not None else None,
-            "label_names": fine_label_names,
+    torch.save(
+        {
+            "binary_probes": probe_weights,
+            "fine_sibling_probe": {
+                "state_dict": {
+                    k: v.detach().cpu() for k, v in fine_model.state_dict().items()
+                }
+                if fine_model is not None
+                else None,
+                "mean": fine_mean.detach().cpu() if fine_mean is not None else None,
+                "std": fine_std.detach().cpu() if fine_std is not None else None,
+                "label_names": fine_label_names,
+            },
+            "feature_dim": int(x.shape[1]),
         },
-        "feature_dim": int(x.shape[1]),
-    }, out / "probe_weights.pt")
+        out / "probe_weights.pt",
+    )
 
     summary = {
         "model": args.model,
         "num_features": int(x.shape[0]),
         "feature_dim": int(x.shape[1]),
         "binary_probes": binary_rows,
-        "mean_auc": float(np.nanmean([r["auc"] for r in binary_rows if r["auc"] is not None])) if any(r["auc"] is not None for r in binary_rows) else None,
+        "mean_auc": float(
+            np.nanmean([r["auc"] for r in binary_rows if r["auc"] is not None])
+        )
+        if any(r["auc"] is not None for r in binary_rows)
+        else None,
         "fine_sibling_acc": fine_acc,
         "fine_sibling_random_acc": random_acc,
         "passes_probe_gate": False,

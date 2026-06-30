@@ -37,7 +37,9 @@ def iter_jsonl(path):
 
 def main():
     parser = argparse.ArgumentParser(description="Check ON-family matched coverage")
-    parser.add_argument("--predictions", required=True, help="relation_predictions.jsonl")
+    parser.add_argument(
+        "--predictions", required=True, help="relation_predictions.jsonl"
+    )
     parser.add_argument("--output_dir", required=True, help="Output directory")
     parser.add_argument("--model", default=None, help="Model label override")
     args = parser.parse_args()
@@ -56,7 +58,6 @@ def main():
         if gt_name not in ON_FAMILY:
             continue
         is_matched = bool(row.get("matched_pair_found"))
-        model = args.model or row.get("model", "unknown")
         total += 1
         matched += int(is_matched)
         d = counts.setdefault(gt_name, {"gt": 0, "matched": 0})
@@ -82,18 +83,24 @@ def main():
             "matched": c["matched"],
             "coverage": cov,
         }
-        rows.append({
-            "predicate": pred,
-            "gt": c["gt"],
-            "matched": c["matched"],
-            "coverage": cov,
-        })
+        rows.append(
+            {
+                "predicate": pred,
+                "gt": c["gt"],
+                "matched": c["matched"],
+                "coverage": cov,
+            }
+        )
 
     with open(out_dir / "coverage_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    with open(out_dir / "coverage_by_predicate.csv", "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["predicate", "gt", "matched", "coverage"])
+    with open(
+        out_dir / "coverage_by_predicate.csv", "w", encoding="utf-8", newline=""
+    ) as f:
+        writer = csv.DictWriter(
+            f, fieldnames=["predicate", "gt", "matched", "coverage"]
+        )
         writer.writeheader()
         writer.writerows(rows)
 

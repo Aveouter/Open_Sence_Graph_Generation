@@ -14,7 +14,6 @@ the final report.
 
 import json
 import math
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -182,20 +181,24 @@ def per_image_metrics(records, parent_map):
             m[f"all_precision@{kk}"] = hits / (kk * len(pairs))
             rec = m[f"all_recall@{kk}"]
             prec = m[f"all_precision@{kk}"]
-            m[f"all_f1@{kk}"] = (2 * rec * prec / (rec + prec)) if (rec + prec) > 0 else 0.0
+            m[f"all_f1@{kk}"] = (
+                (2 * rec * prec / (rec + prec)) if (rec + prec) > 0 else 0.0
+            )
 
         # single-GT recall@1 (accuracy), recall@3/5
         sg = [p for p in pairs if len(p["observed_labels"]) == 1]
         if sg:
             for kk in RECALL_KS:
                 hits = sum(
-                    len(set(p["top5_labels"][:kk]) & set(p["observed_labels"])) for p in sg
+                    len(set(p["top5_labels"][:kk]) & set(p["observed_labels"]))
+                    for p in sg
                 )
                 m[f"sg_recall@{kk}"] = hits / len(sg)
             # precision@3/5 for single-GT
             for kk in [3, 5]:
                 hits = sum(
-                    len(set(p["top5_labels"][:kk]) & set(p["observed_labels"])) for p in sg
+                    len(set(p["top5_labels"][:kk]) & set(p["observed_labels"]))
+                    for p in sg
                 )
                 m[f"sg_precision@{kk}"] = hits / (kk * len(sg))
         else:
@@ -208,17 +211,26 @@ def per_image_metrics(records, parent_map):
         mg = [p for p in pairs if len(p["observed_labels"]) >= 2]
         if mg:
             for kk in RECALL_KS:
-                hits = sum(len(set(p["top5_labels"][:kk]) & set(p["observed_labels"])) for p in mg)
+                hits = sum(
+                    len(set(p["top5_labels"][:kk]) & set(p["observed_labels"]))
+                    for p in mg
+                )
                 obs_tot = sum(len(p["observed_labels"]) for p in mg)
                 m[f"mg_recall@{kk}"] = hits / obs_tot if obs_tot else 0.0
             for kk in [3, 5]:
-                hits = sum(len(set(p["top5_labels"][:kk]) & set(p["observed_labels"])) for p in mg)
+                hits = sum(
+                    len(set(p["top5_labels"][:kk]) & set(p["observed_labels"]))
+                    for p in mg
+                )
                 m[f"mg_precision@{kk}"] = hits / (kk * len(mg))
                 rec = m[f"mg_recall@{kk}"]
                 prec = m[f"mg_precision@{kk}"]
-                m[f"mg_f1@{kk}"] = (2 * rec * prec / (rec + prec)) if (rec + prec) > 0 else 0.0
+                m[f"mg_f1@{kk}"] = (
+                    (2 * rec * prec / (rec + prec)) if (rec + prec) > 0 else 0.0
+                )
                 m[f"mg_fullset@{kk}"] = sum(
-                    float(set(p["observed_labels"]) <= set(p["top5_labels"][:kk])) for p in mg
+                    float(set(p["observed_labels"]) <= set(p["top5_labels"][:kk]))
+                    for p in mg
                 ) / len(mg)
         else:
             for kk in RECALL_KS:
@@ -235,10 +247,14 @@ def per_image_metrics(records, parent_map):
         if mapped_pairs:
             for kk in RECALL_KS:
                 m[f"fine_recall@{kk}"] = sum(
-                    float(child in set(p["top5_labels"][:kk])) for (p, child, par) in mapped_pairs
+                    float(child in set(p["top5_labels"][:kk]))
+                    for (p, child, par) in mapped_pairs
                 ) / len(mapped_pairs)
                 m[f"parent_only_error@{kk}"] = sum(
-                    float(par in set(p["top5_labels"][:kk]) and child not in set(p["top5_labels"][:kk]))
+                    float(
+                        par in set(p["top5_labels"][:kk])
+                        and child not in set(p["top5_labels"][:kk])
+                    )
                     for (p, child, par) in mapped_pairs
                 ) / len(mapped_pairs)
             m["f2c@1"] = sum(
@@ -299,7 +315,9 @@ def main():
                 continue
             summary = json.load(open(spath))
             records = load_records(rpath) if rpath.exists() else []
-            issues = integrity_check(mode_label, prefix, seed, summary, records, parent_map)
+            issues = integrity_check(
+                mode_label, prefix, seed, summary, records, parent_map
+            )
             integrity[(mode_label, seed)] = issues
             img_m = per_image_metrics(records, parent_map) if records else {}
             data[(mode_label, seed)] = {
@@ -324,7 +342,9 @@ def main():
         report.append(f"  [{status}] {ml} seed={seed}")
         for iss in issues:
             report.append(f"        - {iss}")
-    report.append(f"  Overall integrity: {'ALL PASS' if all_ok else 'FAILURES PRESENT'}")
+    report.append(
+        f"  Overall integrity: {'ALL PASS' if all_ok else 'FAILURES PRESENT'}"
+    )
 
     # ---- Per-seed tables (from summary, the pooled global metrics) ----
     report.append("")
@@ -340,7 +360,6 @@ def main():
 
     # 7a. All pairs: Recall/Precision/F1 @1/3/5
     report.append("\n--- All pairs (n=25,727) ---")
-    header = f"  {'Mode':<14}{'seed':>5}" + "".join(f"{m}@{k:>7}" for k in RECALL_KS for m in ["R", "P", "F1"])
     # simpler per-k blocks
     for metric_prefix, label, keys in [
         ("observed_recall", "Recall", RECALL_KS),
@@ -348,23 +367,47 @@ def main():
         ("observed_f1", "F1", RECALL_KS),
     ]:
         report.append(f"\n  All-pairs {label}:")
-        report.append(f"    {'Mode':<14}{'seed':>6}" + "".join(f"@{k}:>9".replace(":>9","") for k in keys))
+        report.append(
+            f"    {'Mode':<14}{'seed':>6}"
+            + "".join(f"@{k}:>9".replace(":>9", "") for k in keys)
+        )
         for ml, prefix, cli in MODES:
             for seed in SEEDS:
                 if (ml, seed) not in data:
                     continue
                 vals = [get_s(ml, seed, "all", f"{metric_prefix}@{k}") for k in keys]
-                report.append(f"    {ml:<14}{seed:>6}" + "".join(f"{v:>9.4f}" for v in vals))
+                report.append(
+                    f"    {ml:<14}{seed:>6}" + "".join(f"{v:>9.4f}" for v in vals)
+                )
             # 3-seed mean +/- std
-            seed_vals = {k: [get_s(ml, s, "all", f"{metric_prefix}@{k}") for s in SEEDS if (ml, s) in data] for k in keys}
+            seed_vals = {
+                k: [
+                    get_s(ml, s, "all", f"{metric_prefix}@{k}")
+                    for s in SEEDS
+                    if (ml, s) in data
+                ]
+                for k in keys
+            }
             means = {k: np.mean(seed_vals[k]) for k in keys if seed_vals[k]}
-            stds = {k: np.std(seed_vals[k], ddof=1) if len(seed_vals[k]) > 1 else 0.0 for k in keys if seed_vals[k]}
-            report.append(f"    {ml+' mean':<14}{'':>6}" + "".join(f"{means[k]:>9.4f}" for k in keys if k in means))
-            report.append(f"    {ml+' std':<14}{'':>6}" + "".join(f"{stds[k]:>9.4f}" for k in keys if k in stds))
+            stds = {
+                k: np.std(seed_vals[k], ddof=1) if len(seed_vals[k]) > 1 else 0.0
+                for k in keys
+                if seed_vals[k]
+            }
+            report.append(
+                f"    {ml + ' mean':<14}{'':>6}"
+                + "".join(f"{means[k]:>9.4f}" for k in keys if k in means)
+            )
+            report.append(
+                f"    {ml + ' std':<14}{'':>6}"
+                + "".join(f"{stds[k]:>9.4f}" for k in keys if k in stds)
+            )
 
     # 7b. Single-GT
     report.append("\n--- Single-GT pairs (n=24,799) ---")
-    report.append(f"    {'Mode':<14}{'seed':>6}{'R@1':>9}{'R@3':>9}{'R@5':>9}{'P@3':>9}{'P@5':>9}")
+    report.append(
+        f"    {'Mode':<14}{'seed':>6}{'R@1':>9}{'R@3':>9}{'R@5':>9}{'P@3':>9}{'P@5':>9}"
+    )
     for ml, prefix, cli in MODES:
         for seed in SEEDS:
             if (ml, seed) not in data:
@@ -374,13 +417,21 @@ def main():
             r5 = get_s(ml, seed, "single_gt", "observed_recall@5")
             p3 = get_s(ml, seed, "single_gt", "observed_precision@3")
             p5 = get_s(ml, seed, "single_gt", "observed_precision@5")
-            report.append(f"    {ml:<14}{seed:>6}{r1:>9.4f}{r3:>9.4f}{r5:>9.4f}{p3:>9.4f}{p5:>9.4f}")
-        r1s = [get_s(ml, s, "single_gt", "observed_recall@1") for s in SEEDS if (ml, s) in data]
-        report.append(f"    {ml+' mean':<14}{'':>6}{np.mean(r1s):>9.4f}")
+            report.append(
+                f"    {ml:<14}{seed:>6}{r1:>9.4f}{r3:>9.4f}{r5:>9.4f}{p3:>9.4f}{p5:>9.4f}"
+            )
+        r1s = [
+            get_s(ml, s, "single_gt", "observed_recall@1")
+            for s in SEEDS
+            if (ml, s) in data
+        ]
+        report.append(f"    {ml + ' mean':<14}{'':>6}{np.mean(r1s):>9.4f}")
 
     # 7c. Multi-GT
     report.append("\n--- Multi-GT pairs (n=928) ---")
-    report.append(f"    {'Mode':<14}{'seed':>6}{'SetR@1':>9}{'SetR@3':>9}{'SetR@5':>9}{'P@3':>9}{'F1@3':>9}{'Cov@3':>9}{'Cov@5':>9}")
+    report.append(
+        f"    {'Mode':<14}{'seed':>6}{'SetR@1':>9}{'SetR@3':>9}{'SetR@5':>9}{'P@3':>9}{'F1@3':>9}{'Cov@3':>9}{'Cov@5':>9}"
+    )
     for ml, prefix, cli in MODES:
         for seed in SEEDS:
             if (ml, seed) not in data:
@@ -392,13 +443,21 @@ def main():
             f13 = get_s(ml, seed, "multi_gt", "observed_f1@3")
             c3 = get_s(ml, seed, "multi_gt", "full_set_coverage@3")
             c5 = get_s(ml, seed, "multi_gt", "full_set_coverage@5")
-            report.append(f"    {ml:<14}{seed:>6}{r1:>9.4f}{r3:>9.4f}{r5:>9.4f}{p3:>9.4f}{f13:>9.4f}{c3:>9.4f}{c5:>9.4f}")
-        r3s = [get_s(ml, s, "multi_gt", "observed_recall@3") for s in SEEDS if (ml, s) in data]
-        report.append(f"    {ml+' mean':<14}{'':>6}{'':>9}{np.mean(r3s):>9.4f}")
+            report.append(
+                f"    {ml:<14}{seed:>6}{r1:>9.4f}{r3:>9.4f}{r5:>9.4f}{p3:>9.4f}{f13:>9.4f}{c3:>9.4f}{c5:>9.4f}"
+            )
+        r3s = [
+            get_s(ml, s, "multi_gt", "observed_recall@3")
+            for s in SEEDS
+            if (ml, s) in data
+        ]
+        report.append(f"    {ml + ' mean':<14}{'':>6}{'':>9}{np.mean(r3s):>9.4f}")
 
     # 7d. Mapped-fine
     report.append("\n--- Mapped-fine pairs (n=1,045) ---")
-    report.append(f"    {'Mode':<14}{'seed':>6}{'FineR@1':>9}{'FineR@3':>9}{'FineR@5':>9}{'F2C@1':>9}{'POE@1':>9}{'POE@3':>9}{'POE@5':>9}")
+    report.append(
+        f"    {'Mode':<14}{'seed':>6}{'FineR@1':>9}{'FineR@3':>9}{'FineR@5':>9}{'F2C@1':>9}{'POE@1':>9}{'POE@3':>9}{'POE@5':>9}"
+    )
     for ml, prefix, cli in MODES:
         for seed in SEEDS:
             if (ml, seed) not in data:
@@ -410,15 +469,25 @@ def main():
             poe1 = get_s(ml, seed, "mapped_fine", "parent_only_error@1")
             poe3 = get_s(ml, seed, "mapped_fine", "parent_only_error@3")
             poe5 = get_s(ml, seed, "mapped_fine", "parent_only_error@5")
-            report.append(f"    {ml:<14}{seed:>6}{fr1:>9.4f}{fr3:>9.4f}{fr5:>9.4f}{f2c:>9.4f}{poe1:>9.4f}{poe3:>9.4f}{poe5:>9.4f}")
-        fr1s = [get_s(ml, s, "mapped_fine", "fine_recall@1") for s in SEEDS if (ml, s) in data]
+            report.append(
+                f"    {ml:<14}{seed:>6}{fr1:>9.4f}{fr3:>9.4f}{fr5:>9.4f}{f2c:>9.4f}{poe1:>9.4f}{poe3:>9.4f}{poe5:>9.4f}"
+            )
+        fr1s = [
+            get_s(ml, s, "mapped_fine", "fine_recall@1")
+            for s in SEEDS
+            if (ml, s) in data
+        ]
         f2cs = [get_s(ml, s, "mapped_fine", "f2c@1") for s in SEEDS if (ml, s) in data]
-        report.append(f"    {ml+' mean':<14}{'':>6}{np.mean(fr1s):>9.4f}{'':>9}{'':>9}{np.mean(f2cs):>9.4f}")
+        report.append(
+            f"    {ml + ' mean':<14}{'':>6}{np.mean(fr1s):>9.4f}{'':>9}{'':>9}{np.mean(f2cs):>9.4f}"
+        )
 
     # ---- Paired differences (per-seed, global pooled metrics) ----
     report.append("")
     report.append("=" * 78)
-    report.append("PAIRED DIFFERENCES (Progressive - baseline), per seed, global pooled metrics")
+    report.append(
+        "PAIRED DIFFERENCES (Progressive - baseline), per seed, global pooled metrics"
+    )
     report.append("=" * 78)
 
     gate_metrics = [
@@ -439,12 +508,16 @@ def main():
     baselines = ["SingleSoftmax", "Parallel", "Shuffled"]
     for base in baselines:
         report.append(f"\n  Progressive - {base}:")
-        report.append(f"    {'metric':<24}{'s42':>10}{'s123':>10}{'s2027':>10}{'mean':>10}{'dir':>8}")
+        report.append(
+            f"    {'metric':<24}{'s42':>10}{'s123':>10}{'s2027':>10}{'mean':>10}{'dir':>8}"
+        )
         for sec, key, label in gate_metrics:
             diffs = []
             for seed in SEEDS:
                 if ("Progressive", seed) in data and (base, seed) in data:
-                    d = get_s("Progressive", seed, sec, key) - get_s(base, seed, sec, key)
+                    d = get_s("Progressive", seed, sec, key) - get_s(
+                        base, seed, sec, key
+                    )
                     diffs.append(d)
             if len(diffs) == 3:
                 mean = np.mean(diffs)
@@ -455,17 +528,25 @@ def main():
                     f"    {label:<24}{diffs[0]:>10.4f}{diffs[1]:>10.4f}{diffs[2]:>10.4f}{mean:>10.4f}{dirn:>8}"
                 )
                 out["paired"].setdefault(base, {})[label] = {
-                    "per_seed": diffs, "mean": float(mean), "direction": dirn
+                    "per_seed": diffs,
+                    "mean": float(mean),
+                    "direction": dirn,
                 }
 
     # ---- Image-level paired bootstrap ----
     report.append("")
     report.append("=" * 78)
-    report.append("IMAGE-LEVEL PAIRED BOOTSTRAP 95% CI (per-image micro metrics, n_boot=10000)")
+    report.append(
+        "IMAGE-LEVEL PAIRED BOOTSTRAP 95% CI (per-image micro metrics, n_boot=10000)"
+    )
     report.append("=" * 78)
-    report.append("  Note: bootstrap point estimate is mean of per-image metrics; may differ")
+    report.append(
+        "  Note: bootstrap point estimate is mean of per-image metrics; may differ"
+    )
     report.append("  slightly from pooled global. CI excludes 0 => direction stable.")
-    report.append(f"    {'comparison':<28}{'metric':<22}{'point':>9}{'CI_low':>9}{'CI_high':>9}{'n_img':>8}")
+    report.append(
+        f"    {'comparison':<28}{'metric':<22}{'point':>9}{'CI_low':>9}{'CI_high':>9}{'n_img':>8}"
+    )
 
     boot_metric_map = [
         ("fine_recall@1", "mapped fine recall@1"),
@@ -487,10 +568,15 @@ def main():
                     b = data[(base, seed)]["img_metrics"]
                     point, lo, hi, n = bootstrap_paired_diff(a, b, metric, seed=seed)
                     report.append(
-                        f"    {'Prog-'+base+' s'+str(seed):<28}{label:<22}{point:>9.4f}{lo:>9.4f}{hi:>9.4f}{n:>8}"
+                        f"    {'Prog-' + base + ' s' + str(seed):<28}{label:<22}{point:>9.4f}{lo:>9.4f}{hi:>9.4f}{n:>8}"
                     )
-                    out["bootstrap"].setdefault(f"Prog-{base}", {}).setdefault(label, {})[seed] = {
-                        "point": point, "ci_low": lo, "ci_high": hi, "n_images": n
+                    out["bootstrap"].setdefault(f"Prog-{base}", {}).setdefault(
+                        label, {}
+                    )[seed] = {
+                        "point": point,
+                        "ci_low": lo,
+                        "ci_high": hi,
+                        "n_images": n,
                     }
 
     # ---- Seed-direction consistency for gate metrics ----
@@ -502,10 +588,15 @@ def main():
         diffs = []
         for seed in SEEDS:
             if ("Progressive", seed) in data and ("SingleSoftmax", seed) in data:
-                diffs.append(get_s("Progressive", seed, sec, key) - get_s("SingleSoftmax", seed, sec, key))
+                diffs.append(
+                    get_s("Progressive", seed, sec, key)
+                    - get_s("SingleSoftmax", seed, sec, key)
+                )
         if len(diffs) == 3:
             pos = sum(1 for x in diffs if x > 0)
-            report.append(f"  {label:<24} seeds: {[f'{x:+.4f}' for x in diffs]}  positive in {pos}/3")
+            report.append(
+                f"  {label:<24} seeds: {[f'{x:+.4f}' for x in diffs]}  positive in {pos}/3"
+            )
 
     report_text = "\n".join(report)
     print(report_text)

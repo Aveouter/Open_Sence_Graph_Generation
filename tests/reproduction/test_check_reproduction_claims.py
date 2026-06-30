@@ -28,7 +28,9 @@ class ReproductionClaimGuardrailTest(unittest.TestCase):
     def test_weak_evidence_claim_is_flagged(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "bad.md"
-            path.write_text("Baseline reproduced.\nrandom-init tiny-slice eval, all 0.0\n")
+            path.write_text(
+                "Baseline reproduced.\nrandom-init tiny-slice eval, all 0.0\n"
+            )
 
             findings = claims.scan_file(path)
 

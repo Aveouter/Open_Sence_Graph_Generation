@@ -17,13 +17,19 @@ def load_json(path):
 
 def row_for(model, root):
     root = Path(root)
-    cov = load_json(root / "features" / "coverage_report.json") or load_json(root / "coverage" / "coverage_summary.json")
+    cov = load_json(root / "features" / "coverage_report.json") or load_json(
+        root / "coverage" / "coverage_summary.json"
+    )
     val = load_json(root / "discovery" / "family_validity.json")
     return {
         "model": model,
         "coverage": cov.get("coverage", 0.0) if cov else None,
-        "num_features": cov.get("num_features", cov.get("on_family_matched", 0)) if cov else 0,
-        "family_validity": val.get("best_config", {}).get("family_validity") if val else None,
+        "num_features": cov.get("num_features", cov.get("on_family_matched", 0))
+        if cov
+        else 0,
+        "family_validity": val.get("best_config", {}).get("family_validity")
+        if val
+        else None,
         "r2": val.get("best_config", {}).get("r2") if val else None,
         "shared_f": val.get("best_config", {}).get("shared_f") if val else None,
         "private_f": val.get("best_config", {}).get("private_f") if val else None,
@@ -57,12 +63,15 @@ def main():
     else:
         decision = "NO-GO"
 
-    out_csv = Path(args.output_csv); out_csv.parent.mkdir(parents=True, exist_ok=True)
+    out_csv = Path(args.output_csv)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader(); writer.writerows(rows)
+        writer.writeheader()
+        writer.writerows(rows)
 
-    out_json = Path(args.output_json); out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json = Path(args.output_json)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({"decision": decision, "rows": rows}, f, indent=2)
 
@@ -70,7 +79,9 @@ def main():
     md.append("# Phase 0 Primitive Discovery Validation Report\n")
     md.append(f"**Decision:** {decision}\n")
     md.append("## Summary\n")
-    md.append("| Model | Coverage | V(F) | R² | Shared_F | Private_F | V_margin | Gate |\n")
+    md.append(
+        "| Model | Coverage | V(F) | R² | Shared_F | Private_F | V_margin | Gate |\n"
+    )
     md.append("|---|---:|---:|---:|---:|---:|---:|---|\n")
     for r in rows:
         md.append(
@@ -80,17 +91,30 @@ def main():
         )
     md.append("\n## Interpretation\n\n")
     if decision == "GO":
-        md.append("RelTR passes the primary Phase 0 gate and Motifs is directionally supportive. Proceed to Phase 1 RelTR-Primitive vs B6.\n")
+        md.append(
+            "RelTR passes the primary Phase 0 gate and Motifs is directionally supportive. Proceed to Phase 1 RelTR-Primitive vs B6.\n"
+        )
     elif decision == "WEAK GO":
-        md.append("RelTR passes the primary gate, but Motifs does not provide full supplementary support. Proceed only with narrowed RelTR-first claims or run extra diagnostics.\n")
+        md.append(
+            "RelTR passes the primary gate, but Motifs does not provide full supplementary support. Proceed only with narrowed RelTR-first claims or run extra diagnostics.\n"
+        )
     else:
-        md.append("RelTR fails the primary Phase 0 gate. Do not implement full Primitive-SGG; reconsider the method premise or use diagnosis-only path.\n")
+        md.append(
+            "RelTR fails the primary Phase 0 gate. Do not implement full Primitive-SGG; reconsider the method premise or use diagnosis-only path.\n"
+        )
     md.append("\n## Risks\n\n")
-    md.append("- Phase 0 uses a lightweight diagnostic primitive discovery module, not the full primitive-query bottleneck.\n")
-    md.append("- Passing Phase 0 supports the existence of shared/private structure; it does not prove the full method will improve SGG metrics.\n")
-    md.append("- Random family baselines are approximate and should be repeated in final experiments.\n")
+    md.append(
+        "- Phase 0 uses a lightweight diagnostic primitive discovery module, not the full primitive-query bottleneck.\n"
+    )
+    md.append(
+        "- Passing Phase 0 supports the existence of shared/private structure; it does not prove the full method will improve SGG metrics.\n"
+    )
+    md.append(
+        "- Random family baselines are approximate and should be repeated in final experiments.\n"
+    )
 
-    out_md = Path(args.output_md); out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_md = Path(args.output_md)
+    out_md.parent.mkdir(parents=True, exist_ok=True)
     with open(out_md, "w", encoding="utf-8") as f:
         f.writelines(md)
     print(f"Wrote {out_md} decision={decision}")

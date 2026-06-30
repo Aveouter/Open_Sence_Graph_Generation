@@ -114,7 +114,9 @@ def main() -> int:
     source_checks = [
         dir_check(args.shagcl_root),
         file_check(args.shagcl_root / "README.md"),
-        file_check(args.shagcl_root / "configs" / "SHA_GCL_e2e_relation_X_101_32_8_FPN_1x.yaml"),
+        file_check(
+            args.shagcl_root / "configs" / "SHA_GCL_e2e_relation_X_101_32_8_FPN_1x.yaml"
+        ),
         file_check(args.shagcl_root / "tools" / "relation_train_net.py"),
         file_check(args.shagcl_root / "tools" / "relation_test_net.py"),
         file_check(relation_head / "roi_relation_predictors.py"),
