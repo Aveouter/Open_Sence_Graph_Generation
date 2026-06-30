@@ -8,9 +8,14 @@ predicate recall; it is the full SGG recall evaluation.
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import torch
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 
 def build_config(test_size, batch_size, num_workers, device):
