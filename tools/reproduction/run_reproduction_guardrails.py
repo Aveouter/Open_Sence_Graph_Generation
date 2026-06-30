@@ -82,6 +82,10 @@ def main() -> int:
             [sys.executable, "-m", "py_compile", *(str(path) for path in reproduction_tools)],
         ),
         (
+            "Run reproduction unit tests",
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests/reproduction"],
+        ),
+        (
             "Check reproduction report completeness",
             [sys.executable, "tools/reproduction/check_reproduction_docs.py"],
         ),

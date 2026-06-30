@@ -65,6 +65,10 @@ REQUIRED_TOOLS = (
     "run_reproduction_guardrails.py",
 )
 
+REQUIRED_TESTS = (
+    "tests/reproduction/test_check_reproduction_claims.py",
+)
+
 REQUIRED_PHASE_DOCS = (
     "00_status.md",
     "01_official_sources.md",
@@ -137,6 +141,8 @@ def check_global_docs(root: Path, tracked_paths: set[Path], require_tracked: boo
     tools_root = root / "tools" / "reproduction"
     for name in REQUIRED_TOOLS:
         add_file_check(findings, tools_root / name, tracked_paths, require_tracked=require_tracked)
+    for name in REQUIRED_TESTS:
+        add_file_check(findings, root / name, tracked_paths, require_tracked=require_tracked)
     return findings
 
 

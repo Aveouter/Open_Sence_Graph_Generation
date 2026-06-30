@@ -82,8 +82,8 @@ python tools/reproduction/run_reproduction_guardrails.py
 ```
 
 This aggregate guardrail compiles reproduction tools, checks tracked report
-completeness, and scans claim-bearing text. It does not run model evaluation or
-rewrite evidence JSON files.
+completeness, runs reproduction guardrail unit tests, and scans claim-bearing
+text. It does not run model evaluation or rewrite evidence JSON files.
 
 Individual claim guardrail:
 
