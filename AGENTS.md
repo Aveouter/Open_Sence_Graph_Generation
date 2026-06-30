@@ -71,11 +71,15 @@ meets the full standard above.
 Before opening a PR, run:
 
 ```bash
+python tools/reproduction/check_reproduction_docs.py
+
 python tools/reproduction/check_reproduction_claims.py \
   --changed-from origin/main \
   AGENTS.md reproduction <pr-body-or-release-note-files>
 ```
 
-The script scans text files only. Include changed Markdown/text docs, copied PR
-body text, release notes, and any other claim-bearing files. It does not inspect
-GitHub metadata automatically. Passing it does not prove reproduction.
+The documentation check verifies that the target baseline reports are present
+and tracked. The claim script scans text files only. Include changed
+Markdown/text docs, copied PR body text, release notes, and any other
+claim-bearing files. It does not inspect GitHub metadata automatically. Passing
+these checks does not prove reproduction.

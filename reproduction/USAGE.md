@@ -129,6 +129,16 @@ python tools/reproduction/check_reproduction_claims.py \
   AGENTS.md reproduction
 ```
 
+Documentation completeness guardrail for the target baseline suite:
+
+```bash
+python tools/reproduction/check_reproduction_docs.py
+```
+
+This check verifies that FREQ, TDE, VCTree, PENet, SHA-GCL, and RA-SGG have
+tracked phase reports, evidence-gate audits, official-input check JSON files,
+baseline matrix rows, and method gate sections. It does not prove reproduction.
+
 Python syntax check for reproduction tools:
 
 ```bash
