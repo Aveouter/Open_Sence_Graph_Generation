@@ -51,6 +51,12 @@ CHECKS: dict[str, dict[str, str]] = {
 }
 
 EXPECTED_CODES = {0, 2}
+SUMMARY_CLAIM = "not reproduction-ready"
+SUMMARY_CLAIM_NOTE = (
+    "Official-input gates are necessary but not sufficient; config, "
+    "inference, and evaluator parity must still be verified before any "
+    "reproduction claim."
+)
 
 
 def git_root(start: Path) -> Path:
@@ -155,12 +161,8 @@ def main() -> int:
 
     summary: dict[str, Any] = {
         "status": suite_status,
-        "claim": "not reproduction-ready",
-        "claim_note": (
-            "Official-input gates are necessary but not sufficient; config, "
-            "inference, and evaluator parity must still be verified before any "
-            "reproduction claim."
-        ),
+        "claim": SUMMARY_CLAIM,
+        "claim_note": SUMMARY_CLAIM_NOTE,
         "results": results,
     }
 
