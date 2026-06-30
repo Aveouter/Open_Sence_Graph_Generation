@@ -64,20 +64,18 @@ def scan_file(path: Path) -> list[str]:
 
     for lineno, line in enumerate(lines, start=1):
         low = line.lower()
-        previous = lines[lineno - 2].lower() if lineno > 1 else ""
-        local_context = f"{previous}\n{low}"
         if low.lstrip().startswith("|") and (
             "|---" in low or "method" in low and "paper aligned" in low
         ):
             continue
-        if not matches_any(low, CLAIM_PATTERNS) or matches_any(
-            local_context, QUALIFIER_PATTERNS
-        ):
+        if not matches_any(low, CLAIM_PATTERNS):
             continue
 
         window_start = max(0, lineno - 4)
         window_end = min(len(lines), lineno + 3)
         context = "\n".join(lines[window_start:window_end]).lower()
+        if matches_any(context, QUALIFIER_PATTERNS):
+            continue
         if matches_any(context, WEAK_PATTERNS):
             findings.append(
                 f"{path}:{lineno}: reproduction claim appears near weak evidence: {line}"
@@ -89,6 +87,7 @@ def scan_file(path: Path) -> list[str]:
 
 def iter_paths(inputs: list[str]) -> list[Path]:
     paths: list[Path] = []
+    missing: list[str] = []
     for raw in inputs:
         p = Path(raw)
         if p.is_dir():
@@ -99,6 +98,11 @@ def iter_paths(inputs: list[str]) -> list[Path]:
             )
         elif p.is_file():
             paths.append(p)
+        else:
+            missing.append(raw)
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(f"input path does not exist or is not a file/directory: {joined}")
     return paths
 
 
@@ -153,7 +157,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    paths = iter_paths(args.paths)
+    try:
+        paths = iter_paths(args.paths)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.changed_from:
         try:
             paths.extend(changed_text_paths(args.changed_from))
