@@ -1,0 +1,158 @@
+{
+  "blockers": [
+    "missing_rasgg_vg_inputs",
+    "missing_official_retag_checkpoints",
+    "missing_pretrained_penet_checkpoints",
+    "missing_official_memory_bank_features"
+  ],
+  "checkpoint_root": "outputs/pretrained/ra_sgg_official",
+  "memory_candidates": [],
+  "memory_root": "outputs/pretrained/ra_sgg_official/featurebank",
+  "missing_penet_checkpoint_protocols": [
+    "predcls",
+    "sgcls",
+    "sgdet"
+  ],
+  "missing_retag_checkpoint_protocols": [
+    "predcls",
+    "sgcls",
+    "sgdet"
+  ],
+  "missing_source_paths": [],
+  "missing_vg_paths": [
+    "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg",
+    "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg/VG-SGG-with-attri.h5",
+    "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg/VG-SGG-dicts-with-attri.json",
+    "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg/image_data.json"
+  ],
+  "next_action": "Provide official VG inputs, pretrained PE-Net, ReTAG checkpoint, and memory-bank features",
+  "official_commit": "e8be01b9fde5c694243606e73931a4c8a8b1bf41",
+  "official_protocol_summary": {
+    "config": "configs/e2e_relation_X_101_32_8_FPN_1x_rasgg.yaml",
+    "config_predictor_example": "RA-PENetCorrectProtoBetaEnhanceBG",
+    "memory_bank_pattern": "featurebank/<mode>_bg_processed_fb_train_<MEMORY_SIZE>.npy",
+    "official_resource_note": "README links Google Drive folders for pretrained PE-Net models, memory-bank features, and ReTAG trained models.",
+    "predcls_overrides": [
+      "TYPE retag",
+      "MODEL.ROI_RELATION_HEAD.USE_GT_BOX True",
+      "MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL True",
+      "RASGG.NUM_RETRIEVALS 20",
+      "RASGG.MEMORY_SIZE 8",
+      "RASGG.THRESHOLD 0.3",
+      "RASGG.MIXUP True",
+      "RASGG.MIXUP_ALPHA 20",
+      "RASGG.MIXUP_BETA 5",
+      "MODEL.ROI_RELATION_HEAD.PREDICT_USE_BIAS False",
+      "DTYPE float32"
+    ],
+    "predcls_train_script": "scripts/predcls_train_retag.sh",
+    "pretrained_penet": "checkpoints/PE-NET_PredCls/model_final.pth",
+    "train_predictor": "ReTAGPENet"
+  },
+  "official_repo": "https://github.com/KanghoonYoon/torch-rasgg",
+  "penet_checkpoint_checks": {
+    "predcls": [],
+    "sgcls": [],
+    "sgdet": []
+  },
+  "rasgg_root": "/workspace/external/ra_sgg_official/torch-rasgg",
+  "retag_checkpoint_checks": {
+    "predcls": [],
+    "sgcls": [],
+    "sgdet": []
+  },
+  "source_checks": [
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg",
+      "type": "directory"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/README.md",
+      "sha256": "b3a4c9c9922668e8fb224ab7386024a93598570d2540fa3337a19d94a7dc5eb6",
+      "size_bytes": 1918,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/Model_Zoo.md",
+      "sha256": "599cdd36ea56580a158b675d4c00ad8698b86ad1d5ad21d7379864bfcef2be4a",
+      "size_bytes": 241,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/configs/e2e_relation_X_101_32_8_FPN_1x_rasgg.yaml",
+      "sha256": "0150af5a7a339c628026866ee7e99439ff19a1953909887dfbd361fec207d354",
+      "size_bytes": 5016,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/scripts/predcls_train_retag.sh",
+      "sha256": "e5ef3be77145e9bf621eb19a765819d379799e351e6601aa3d52db2ef57f4565",
+      "size_bytes": 1837,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/scripts/sgcls_train_retag.sh",
+      "sha256": "bed9d2b07a85533f90df16bd281d0a37b012fb20beac3ded955d1d3c7459a2b1",
+      "size_bytes": 1830,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/scripts/sgdet_train_retag.sh",
+      "sha256": "1a8e0a52dd218f653105c4ba48f8f7117daaa13bbcf7a54252c831ba033558b8",
+      "size_bytes": 2992,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/scripts/test.sh",
+      "sha256": "95074b9edeb810e81f275affc0abf2f060d9f2b4d735f907f8182e55f42397db",
+      "size_bytes": 643,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/tools/relation_memory_extractor.py",
+      "sha256": "ba4b63bdfa83e38721e6990fae8a9189f29c5699d8c08d69f4d55287888c9696",
+      "size_bytes": 14893,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py",
+      "sha256": "9455fba53b728b0308b53c06f1af5e21c70b064833a2a04202b159b3c992f62f",
+      "size_bytes": 53060,
+      "type": "file"
+    }
+  ],
+  "status": "BLOCKED",
+  "vg_checks": [
+    {
+      "exists": false,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg",
+      "type": "directory"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg/VG-SGG-with-attri.h5",
+      "type": "file"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg/VG-SGG-dicts-with-attri.json",
+      "type": "file"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg/image_data.json",
+      "type": "file"
+    }
+  ],
+  "vg_root": "/workspace/external/ra_sgg_official/torch-rasgg/datasets/vg"
+}

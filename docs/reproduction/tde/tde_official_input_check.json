@@ -1,0 +1,76 @@
+{
+  "blockers": [
+    "missing_sgb_vg_inputs",
+    "missing_official_tde_checkpoints"
+  ],
+  "checkpoint_checks": {
+    "predcls": {
+      "candidate_count": 0,
+      "candidates": [],
+      "exists": false,
+      "path": "outputs/pretrained/tde_official/predcls"
+    },
+    "sgcls": {
+      "candidate_count": 0,
+      "candidates": [],
+      "exists": false,
+      "path": "outputs/pretrained/tde_official/sgcls"
+    },
+    "sgdet": {
+      "candidate_count": 0,
+      "candidates": [],
+      "exists": false,
+      "path": "outputs/pretrained/tde_official/sgdet"
+    }
+  },
+  "checkpoint_root": "outputs/pretrained/tde_official",
+  "missing_checkpoint_protocols": [
+    "predcls",
+    "sgcls",
+    "sgdet"
+  ],
+  "missing_sgb_paths": [
+    "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/VG-SGG-with-attri.h5"
+  ],
+  "next_action": "Provide missing SGB-format VG inputs and official TDE checkpoints",
+  "sgb_checks": [
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch",
+      "type": "directory"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/configs/e2e_relation_X_101_32_8_FPN_1x.yaml",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg",
+      "type": "directory"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/VG-SGG-with-attri.h5",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/VG-SGG-dicts-with-attri.json",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/image_data.json",
+      "type": "file"
+    }
+  ],
+  "sgb_root": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch",
+  "status": "BLOCKED",
+  "vg_root": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg"
+}

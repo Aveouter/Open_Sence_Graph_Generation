@@ -1,0 +1,63 @@
+{
+  "blockers": [
+    "missing_sgb_vg_inputs",
+    "missing_trusted_vctree_checkpoint"
+  ],
+  "checkpoint_candidates": [],
+  "checkpoint_root": "outputs/pretrained/vctree_official",
+  "missing_sgb_paths": [
+    "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/VG-SGG-with-attri.h5"
+  ],
+  "next_action": "Provide SGB-format VG inputs and a trusted VCTree checkpoint",
+  "official_readme_checkpoint_note": "SGB README says most SGG model checkpoints are not uploaded; VCTree generally requires training unless a trusted checkpoint is supplied.",
+  "sgb_checks": [
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch",
+      "type": "directory"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/configs/e2e_relation_R_101_FPN_1x.yaml",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/model_vctree.py",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/maskrcnn_benchmark/modeling/roi_heads/relation_head/utils_vctree.py",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg",
+      "type": "directory"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/VG-SGG-with-attri.h5",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/VG-SGG-dicts-with-attri.json",
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg/image_data.json",
+      "type": "file"
+    }
+  ],
+  "sgb_root": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch",
+  "status": "BLOCKED",
+  "vg_root": "/workspace/external/tde_official/Scene-Graph-Benchmark.pytorch/datasets/vg"
+}

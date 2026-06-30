@@ -1,0 +1,126 @@
+{
+  "blockers": [
+    "missing_shagcl_vg_inputs",
+    "missing_pretrained_detector_checkpoint",
+    "missing_official_shagcl_checkpoint"
+  ],
+  "checkpoint_candidates": [],
+  "checkpoint_root": "outputs/pretrained/shagcl_official",
+  "missing_source_paths": [],
+  "missing_vg_paths": [
+    "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg",
+    "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/VG-SGG-with-attri.h5",
+    "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/VG-SGG-dicts-with-attri.json",
+    "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/image_data.json"
+  ],
+  "next_action": "Provide missing VG inputs, pretrained detector, and trusted SHA-GCL checkpoint",
+  "official_commit": "8acfb818a0b2a88f9dd4a8ed64591ef856e66bf5",
+  "official_protocol_summary": {
+    "basic_encoder": "Hybrid-Attention",
+    "config": "configs/SHA_GCL_e2e_relation_X_101_32_8_FPN_1x.yaml",
+    "dataset_choice": "VG",
+    "group_split_mode": "divide4",
+    "knowledge_transfer_mode": "KL_logit_TopDown",
+    "predcls_overrides": [
+      "MODEL.ROI_RELATION_HEAD.USE_GT_BOX True",
+      "MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL True",
+      "DTYPE float16"
+    ],
+    "predictor": "TransLike_GCL",
+    "public_checkpoint_note": "README lists a VG PredCls model OneDrive link; other trained models require contacting the authors."
+  },
+  "official_repo": "https://github.com/dongxingning/SHA-GCL-for-SGG",
+  "pretrained_detector_check": {
+    "exists": false,
+    "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/detector_model/pretrained_faster_rcnn/model_final.pth",
+    "type": "file"
+  },
+  "shagcl_root": "/workspace/external/shagcl_official/SHA-GCL-for-SGG",
+  "source_checks": [
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG",
+      "type": "directory"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/README.md",
+      "sha256": "4a37f93dc1c1c1d9be75570936fc17d8f499a6451000872baf66d45499d8b2b4",
+      "size_bytes": 10950,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/configs/SHA_GCL_e2e_relation_X_101_32_8_FPN_1x.yaml",
+      "sha256": "27fd938389c10e4f7a4422030cc461dc841ae84b42135f4a57fbffdf5ab7abea",
+      "size_bytes": 6766,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/tools/relation_train_net.py",
+      "sha256": "ddf84098fa34a51c83ffee713db0de2c51a43593ca3c09f1892fd1fa9d78a711",
+      "size_bytes": 18141,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/tools/relation_test_net.py",
+      "sha256": "4f7eee926fa80a70f9b430ba9337ebe5c0bbe09d5395d08f5146a54dd199748b",
+      "size_bytes": 4257,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/maskrcnn_benchmark/modeling/roi_heads/relation_head/roi_relation_predictors.py",
+      "sha256": "dae06213f0216b9456ac6977c6808e43814e95546693ffc8751e522f7e2de772",
+      "size_bytes": 86289,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/SHA_GCL_extra/group_chosen_function.py",
+      "sha256": "65e2478b5f6541b05e14c14e0b80b7433804480fdd93f8ea7a5d251406171899",
+      "size_bytes": 6627,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/SHA_GCL_extra/utils_funcion.py",
+      "sha256": "4339a383e4409ef6b8c337314d90e9c951e812ea9e0e9b4cc73ac6d71a70a47c",
+      "size_bytes": 3224,
+      "type": "file"
+    },
+    {
+      "exists": true,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/SHA_GCL_extra/kl_divergence.py",
+      "sha256": "0bb4b4dbb82b8073d51db1ee4c01ef43bc1025e2f0739aaeb10c72f34bce47e4",
+      "size_bytes": 1005,
+      "type": "file"
+    }
+  ],
+  "status": "BLOCKED",
+  "vg_checks": [
+    {
+      "exists": false,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg",
+      "type": "directory"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/VG-SGG-with-attri.h5",
+      "type": "file"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/VG-SGG-dicts-with-attri.json",
+      "type": "file"
+    },
+    {
+      "exists": false,
+      "path": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg/image_data.json",
+      "type": "file"
+    }
+  ],
+  "vg_root": "/workspace/external/shagcl_official/SHA-GCL-for-SGG/datasets/vg"
+}
