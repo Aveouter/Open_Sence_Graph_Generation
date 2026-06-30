@@ -17,6 +17,7 @@ Exit code 0 on all passes, 1 on any failure.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import traceback
@@ -46,6 +47,7 @@ CONFIG_NAME_ALIASES: Dict[str, str] = {
     "gps_net": "gpsnet",
     "pe_net": "penet",
     "sha_gcl": "shagcl",
+    "ra_sgg": "ra_sgg",
     "gpsnet": "gpsnet",  # alias → self (for direct lookup)
     "penet": "penet",
     "shagcl": "shagcl",
@@ -455,6 +457,7 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str]:
         "--gpus",
         "0",
         "--overwrite",
+        "--no_display_method_info",
         "--ex_name",
         f"CI_Smoke_{method_name}",
     ]
@@ -466,6 +469,7 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str]:
             capture_output=True,
             text=True,
             cwd=ROOT,
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
             timeout=300,  # 5 min max per method
         )
         if result.returncode != 0:

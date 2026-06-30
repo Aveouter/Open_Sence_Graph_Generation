@@ -65,7 +65,7 @@ def create_parser():
                         choices=[
                             'RelTR', 'HSTRNet', 'EGTR', 'FlowSG', 'USG',
                             'Motifs', 'VCTree', 'TDE', 'IMP', 'Transformer',
-                            'GPSNet', 'PENet', 'SQUAT', 'SHAGCL', 'REACT',
+                            'GPSNet', 'PENet', 'RA_SGG', 'ra_sgg', 'SQUAT', 'SHAGCL', 'REACT',
                             'CVC',
                         ],
                         help='Name of SGG method to train (default: "HSTRNet")')

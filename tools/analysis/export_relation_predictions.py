@@ -456,6 +456,16 @@ def _build_opensgg_config(
     from utils.parser import create_parser, default_parser
 
     method_lower = method.lower()
+    config_aliases = {
+        "freq": "FREQ",
+        "motifs": "Motifs",
+        "vctree": "VCTree",
+        "tde": "TDE",
+        "gpsnet": "GPS_Net",
+        "penet": "PE_NET",
+        "ra_sgg": "RA_SGG",
+        "shagcl": "SHA_GCL",
+    }
 
     args = create_parser().parse_args([])
     config = args.__dict__
@@ -474,7 +484,8 @@ def _build_opensgg_config(
         "overwrite": True,
     })
 
-    cfg_path = _PROJECT_ROOT / "configs" / "VisualGenome" / f"{method}.py"
+    config_name = config_aliases.get(method_lower, method)
+    cfg_path = _PROJECT_ROOT / "configs" / "VisualGenome" / f"{config_name}.py"
     loaded_cfg = load_config(str(cfg_path))
     config = update_config(
         config,
@@ -698,6 +709,11 @@ def main():
         help="Path to model checkpoint (required for real export)",
     )
     parser.add_argument(
+        "--allow_random_init",
+        action="store_true",
+        help="Allow inference export without a checkpoint and mark it as random-init fallback",
+    )
+    parser.add_argument(
         "--task",
         type=str,
         default="PredCLS",
@@ -794,15 +810,19 @@ def main():
         rows = generate_synthetic_predictions(predicate_names, object_names)
         rows += generate_synthetic_unmatched(predicate_names, object_names)
         print(f"      Generated {len(rows)} synthetic rows")
-    elif args.ckpt_path:
+    elif args.ckpt_path or args.method.lower() == "freq" or args.allow_random_init:
         print("[2/5] Running inference with checkpoint...")
-        print(f"      ckpt_path: {args.ckpt_path}")
+        ckpt_label = args.ckpt_path or (
+            "NONE (FREQ prior)" if args.method.lower() == "freq" else "NONE (random-init fallback)"
+        )
+        print(f"      ckpt_path: {ckpt_label}")
         rows = _export_from_checkpoint(
             args.ckpt_path, predicate_names, object_names,
             task, model, args.test_dataset_size,
             args.val_batch_size, args.num_workers, args.device,
             args.max_batches, args.top_k,
             method_name=args.method,
+            allow_random_init=args.allow_random_init,
         )
     else:
         print("[2/5] ERROR: --ckpt_path is required for real export (or use --dry-run)")
@@ -817,7 +837,11 @@ def main():
         predicate_names,
         require_non_empty=not args.dry_run,
     )
-    summary["mode"] = "dry_run" if args.dry_run else "checkpoint"
+    summary["mode"] = "dry_run" if args.dry_run else (
+        "prior_no_checkpoint" if args.method.lower() == "freq" and not args.ckpt_path
+        else "random_init_fallback" if args.allow_random_init and not args.ckpt_path
+        else "checkpoint"
+    )
     if args.ckpt_path:
         summary["checkpoint_path"] = args.ckpt_path
     print(f"      Total rows:    {summary['total_gt_relations']}")
@@ -876,6 +900,7 @@ def _export_from_checkpoint(
     ckpt_path, predicate_names, object_names, task, model, test_size,
     val_batch_size, num_workers, device, max_batches, top_k,
     method_name="Motifs",
+    allow_random_init=False,
 ):
     """Real export using a model checkpoint. Requires full project environment."""
     try:
@@ -921,9 +946,16 @@ def _export_from_checkpoint(
         **config,
     )
 
-    print("      Loading checkpoint weights...")
-    state_dict = BaseExperiment._load_checkpoint_state_dict(ckpt_path)
-    BaseExperiment._adapt_state_dict(state_dict, method.model)
+    if ckpt_path:
+        print("      Loading checkpoint weights...")
+        state_dict = BaseExperiment._load_checkpoint_state_dict(ckpt_path)
+        BaseExperiment._adapt_state_dict(state_dict, method.model)
+    elif method_lower == "freq":
+        print("      Skipping checkpoint load for deterministic FREQ prior.")
+    elif allow_random_init:
+        print("      Skipping checkpoint load for explicit random-init fallback.")
+    else:
+        raise ValueError(f"ckpt_path is required for method {method_name}")
 
     torch_device = torch.device(device)
     method.to(torch_device)

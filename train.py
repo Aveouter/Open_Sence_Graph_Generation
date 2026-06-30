@@ -34,6 +34,7 @@ if __name__ == '__main__':
     _CONFIG_FILE_ALIASES = {
         'gpsnet': 'GPS_Net',
         'penet': 'PE_NET',
+        'ra_sgg': 'RA_SGG',
         'shagcl': 'SHA_GCL',
         # accept CLI names with underscores too
         'gps_net': 'GPS_Net',
@@ -53,6 +54,10 @@ if __name__ == '__main__':
     if args.overwrite:
         config = update_config(config, load_config(cfg_path),
                                exclude_keys=['method'])
+        default_values = default_parser()
+        for attribute in default_values.keys():
+            if config[attribute] is None:
+                config[attribute] = default_values[attribute]
     else:
         loaded_cfg = load_config(cfg_path)
         config = update_config(config, loaded_cfg,
