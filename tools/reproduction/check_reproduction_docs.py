@@ -67,6 +67,7 @@ REQUIRED_TOOLS = (
 
 REQUIRED_TESTS = (
     "tests/reproduction/test_check_reproduction_claims.py",
+    "tests/reproduction/test_check_reproduction_docs.py",
     "tests/reproduction/test_run_evidence_gate_checks.py",
 )
 
