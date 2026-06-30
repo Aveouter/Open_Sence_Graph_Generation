@@ -28,6 +28,22 @@ ON_FAMILY = {
 }
 
 
+def final_decoder_features(features):
+    """Return [batch, query, feature] relation features.
+
+    RelTR tensors normally include a leading decoder-layer dimension. Some
+    wrappers may already pass final-layer features, so keep 3D inputs unchanged.
+    """
+    if features.dim() == 4:
+        return features[-1]
+    if features.dim() == 3:
+        return features
+    raise ValueError(
+        "relation features must have shape [layers,batch,query,feature] "
+        f"or [batch,query,feature], got {tuple(features.shape)}"
+    )
+
+
 def load_predicate_names():
     from tools.analysis.export_relation_predictions import load_predicate_names
 
@@ -104,10 +120,10 @@ def reltr_forward_with_features(model, samples):
         "rel_logits": outputs_class_rel[-1],
     }
     feat = {
-        "hs_sub": hs_sub[-1],
-        "hs_obj": hs_obj[-1],
-        "so_masks": so_masks[-1],
-        "rel_pre_feature": rel_pre[-1],
+        "hs_sub": final_decoder_features(hs_sub),
+        "hs_obj": final_decoder_features(hs_obj),
+        "so_masks": final_decoder_features(so_masks),
+        "rel_pre_feature": final_decoder_features(rel_pre),
         "memory": memory,
     }
     return out, feat
