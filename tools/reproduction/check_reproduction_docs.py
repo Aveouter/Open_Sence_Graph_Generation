@@ -55,6 +55,13 @@ REQUIRED_GLOBAL_DOCS = (
     "alignment_reaudit.md",
     "baseline_matrix.md",
     "evidence_gates.md",
+    "evidence_gate_summary.json",
+)
+
+REQUIRED_TOOLS = (
+    "check_reproduction_claims.py",
+    "check_reproduction_docs.py",
+    "run_evidence_gate_checks.py",
 )
 
 REQUIRED_PHASE_DOCS = (
@@ -99,6 +106,14 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def read_json(path: Path, findings: list[str]) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        findings.append(f"{path}: invalid JSON: {exc}")
+        return {}
+
+
 def add_file_check(
     findings: list[str],
     path: Path,
@@ -118,6 +133,58 @@ def check_global_docs(root: Path, tracked_paths: set[Path], require_tracked: boo
     docs_root = root / "docs" / "reproduction"
     for name in REQUIRED_GLOBAL_DOCS:
         add_file_check(findings, docs_root / name, tracked_paths, require_tracked=require_tracked)
+    tools_root = root / "tools" / "reproduction"
+    for name in REQUIRED_TOOLS:
+        add_file_check(findings, tools_root / name, tracked_paths, require_tracked=require_tracked)
+    return findings
+
+
+def check_suite_summary(
+    root: Path,
+    selected: list[str],
+    tracked_paths: set[Path],
+    require_tracked: bool,
+) -> list[str]:
+    findings: list[str] = []
+    summary_path = root / "docs" / "reproduction" / "evidence_gate_summary.json"
+    add_file_check(findings, summary_path, tracked_paths, require_tracked=require_tracked)
+    if not summary_path.is_file():
+        return findings
+
+    summary = read_json(summary_path, findings)
+    if not summary:
+        return findings
+
+    if summary.get("claim") != "not reproduction-ready":
+        findings.append(
+            f"{summary_path}: claim must remain 'not reproduction-ready' until all gates pass"
+        )
+    if summary.get("status") not in {"BLOCKED", "PASS"}:
+        findings.append(f"{summary_path}: unexpected suite status {summary.get('status')!r}")
+
+    results = summary.get("results")
+    if not isinstance(results, list):
+        findings.append(f"{summary_path}: results must be a list")
+        return findings
+
+    by_key = {item.get("key"): item for item in results if isinstance(item, dict)}
+    for key in selected:
+        item = by_key.get(key)
+        if not item:
+            findings.append(f"{summary_path}: missing suite result for {key}")
+            continue
+        expected_output = f"docs/reproduction/{key}/{BASELINES[key]['input_check']}"
+        if item.get("output") != expected_output:
+            findings.append(
+                f"{summary_path}: {key} output should be {expected_output}, got {item.get('output')!r}"
+            )
+        if item.get("status") == "PASS":
+            continue
+        if item.get("status") != "BLOCKED":
+            findings.append(f"{summary_path}: {key} unexpected status {item.get('status')!r}")
+        if not item.get("blockers"):
+            findings.append(f"{summary_path}: {key} BLOCKED result must list blockers")
+
     return findings
 
 
@@ -230,6 +297,7 @@ def main() -> int:
     }
 
     findings = check_global_docs(root, tracked_paths, require_tracked)
+    findings.extend(check_suite_summary(root, selected, tracked_paths, require_tracked))
     report["global_findings"] = findings
 
     for key in selected:

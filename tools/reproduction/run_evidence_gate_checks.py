@@ -155,10 +155,11 @@ def main() -> int:
 
     summary: dict[str, Any] = {
         "status": suite_status,
-        "claim": (
-            "not reproduction-ready"
-            if suite_status != "PASS"
-            else "official-input gates passed; still verify config, inference, and evaluator parity"
+        "claim": "not reproduction-ready",
+        "claim_note": (
+            "Official-input gates are necessary but not sufficient; config, "
+            "inference, and evaluator parity must still be verified before any "
+            "reproduction claim."
         ),
         "results": results,
     }

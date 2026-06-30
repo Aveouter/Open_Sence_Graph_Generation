@@ -1,5 +1,6 @@
 {
   "claim": "not reproduction-ready",
+  "claim_note": "Official-input gates are necessary but not sufficient; config, inference, and evaluator parity must still be verified before any reproduction claim.",
   "results": [
     {
       "blockers": [
