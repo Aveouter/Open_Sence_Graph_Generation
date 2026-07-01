@@ -27,9 +27,9 @@ Registry/config updates:
 - `src/methods/__init__.py`
 - `src/models/__init__.py`
 - `utils/parser.py`
-- `train.py`
-- `tools/ci_smoke_test.py`
-- `tools/analysis/export_relation_predictions.py`
+
+No evaluator, export schema, label, or ground-truth semantics were changed by
+the clean RA-SGG integration PR.
 
 Checkpoint/memory inventory:
 

@@ -1,6 +1,6 @@
 # RA-SGG Code Integration
 
-Files added:
+Files added by this integration PR:
 
 - `src/models/ra_sgg.py`
 - `src/methods/ra_sgg_method.py`
@@ -22,3 +22,5 @@ Integration notes:
   `ra_sgg_memory_bank_path` and a positive `ra_sgg_retrieval_logit_coef` are
   supplied.
 - No evaluator semantics, labels, or ground truth were changed.
+- This is an implementation-audit adapter, not evidence of official
+  RA-SGG/ReTAG reproduction.

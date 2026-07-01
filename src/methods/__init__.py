@@ -10,6 +10,7 @@ from .imp_method import IMP_Method
 from .transformer_method import TransformerSGG_Method
 from .gpsnet_method import GPSNet_Method
 from .penet_method import PENet_Method
+from .ra_sgg_method import RA_SGG_Method
 from .react_method import REACT_Method
 from .squat_method import Squat_Method
 from .shagcl_method import SHAGCL_Method
@@ -30,6 +31,7 @@ method_maps = {
     "transformer": TransformerSGG_Method,
     "gpsnet": GPSNet_Method,
     "penet": PENet_Method,
+    "ra_sgg": RA_SGG_Method,
     "react": REACT_Method,
     "squat": Squat_Method,
     "shagcl": SHAGCL_Method,
@@ -48,6 +50,7 @@ __all__ = [
     "transformer_method",
     "gpsnet_method",
     "penet_method",
+    "ra_sgg_method",
     "react_method",
     "squat_method",
     "shagcl_method",

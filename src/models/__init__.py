@@ -12,6 +12,7 @@ from .imp import IMPContext, build_imp
 from .transformer_sgg import TransformerSGGModel, build_transformer_sgg
 from .gpsnet import GPSNetContext, build_gpsnet
 from .penet import PENetContext, build_penet
+from .ra_sgg import RASGGModel, build_ra_sgg
 from .react_sgg import REACTModel, build_react
 from .squat import SquatModel, build_squat
 from .shagcl import SHAGCLModel, build_shagcl
@@ -40,6 +41,8 @@ __all__ = [
     "build_gpsnet",
     "PENetContext",
     "build_penet",
+    "RASGGModel",
+    "build_ra_sgg",
     "REACTModel",
     "build_react",
     "SquatModel",

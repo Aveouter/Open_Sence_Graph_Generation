@@ -21,7 +21,7 @@ mixup.
 
 ## 3. OpenSGG 集成状态
 
-OpenSGG now includes a minimal adapter:
+OpenSGG includes a minimal adapter after the RA-SGG integration PR:
 
 - `src/models/ra_sgg.py`
 - `src/methods/ra_sgg_method.py`
