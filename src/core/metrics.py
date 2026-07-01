@@ -446,7 +446,7 @@ def _evaluate_predcls_batch(
     truth information to the matched triplet proposals when evaluating RelTR
     on PredCLS/SGCLS."
     """
-    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+    from utils.box_ops import box_iou, rescale_bboxes
 
     for i, target in enumerate(targets):
         _validate_target(target)
@@ -568,7 +568,7 @@ def _evaluate_sgcls_batch(
     queries, then evaluates the model's class + predicate predictions.
     Falls back to IoU-based matching when Hungarian indices are not available.
     """
-    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+    from utils.box_ops import box_iou, rescale_bboxes
 
     for i, target in enumerate(targets):
         _validate_target(target)
@@ -893,7 +893,6 @@ def _evaluate_predcls_batch_egtr(
         pred_logits = torch.as_tensor(outputs["pred_logits"][i]).float()      # [Q, C]
         pred_rel = torch.as_tensor(outputs["pred_rel"][i]).float()             # [Q, Q, P] (may be fp16 from cache)
 
-        Q = pred_boxes_norm.shape[0]
         R = gt_relations.shape[0]
 
         # ---- Match queries to GT boxes ----
@@ -1449,7 +1448,6 @@ def compute_head_body_tail_mr(
     freq = freq_data["predicate_frequencies"]
     # Sort predicates by frequency (descending)
     sorted_preds = sorted(freq.items(), key=lambda x: int(x[0]))
-    sorted_pred_ids = [int(p[0]) for p in sorted_preds]
     sorted_counts = [p[1] for p in sorted_preds]
 
     # Sort by count (descending) to determine groups
@@ -1459,7 +1457,6 @@ def compute_head_body_tail_mr(
     n_tail = max(1, int(n * tail_ratio))
     head_ids = set(rank_sorted[i][0] for i in range(n_head))
     tail_ids = set(rank_sorted[n - n_tail + i][0] for i in range(n_tail))
-    body_ids = set(range(n)) - head_ids - tail_ids
 
     results = {}
     for task, evaluator_list in mr_evaluators.items():
