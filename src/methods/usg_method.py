@@ -5,7 +5,8 @@ Integrates USG-Par (Wu et al., CVPR 2025) into the OpenSGG training framework.
 USG-Par is a universal scene graph parser that uses learnable object queries,
 a Relation Proposal Constructor (RPC), and a transformer-based relation decoder.
 
-Output format is compatible with RelTR evaluation pipeline (SGDet/SGCLS/PredCLS).
+Output format is RelTR-shaped, but routed through the USG SGDet metric adapter
+because official USG uses sigmoid BCE predicate scores with no background channel.
 """
 
 import torch
@@ -26,7 +27,6 @@ class USG_Method(Base_method):
             - "rel_annotations": LongTensor[num_rel, 3] — (sub_idx, obj_idx, rel_label)
 
     Evaluation: SGDet mode (full end-to-end: boxes + labels + predicates).
-    Also supports SGCLS and PredCLS via the RelTR-compatible output format.
     """
 
     def __init__(self, **args):
