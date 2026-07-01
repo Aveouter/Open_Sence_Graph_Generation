@@ -28,7 +28,11 @@ Last result:
   returned `BLOCKED` with missing PENET VG inputs, pretrained detector, and
   official PENet checkpoints.
 - No local PENet checkpoint found in `outputs/pretrained`.
-- Synthetic forward smoke passed with loss `4.4942`.
+- Synthetic forward smoke passed with finite synthetic loss across local
+  reruns. The value is stochastic because the smoke uses random tensors.
+- Clean integration regression coverage now verifies PENet registration,
+  builder config mapping, Motifs-compatible forward schema, and no-pair output
+  handling.
 - Random-init fallback standard PredCls metric slice accepted outputs; all
   reported R/mR values were 0.0.
 - Random-init fallback relation JSONL validation passed on 2 GT relations.
