@@ -166,6 +166,9 @@ python train.py --method RelTR --dataname VisualGenome --gpus 0
 Evaluated against a traced pretrained checkpoint in the OpenSGG evaluation path.
 This section is not a blanket reproduction claim for every official EGTR
 protocol; use the reproduction workflow below for paper-alignment decisions.
+Checkpoint-backed OpenSGG numbers are integration evidence unless the matching
+baseline report explicitly records official-code, checkpoint, config,
+preprocessing, inference, evaluator, and metric parity.
 
 **Label space:** OpenSGG uses 1-indexed labels with background (`entity_nums=151`, `rel_nums=51`). EGTR logits use explicit no-background dimensions (`egtr_num_labels=150`, `egtr_num_rel_labels=50`). The checkpoint loads non-zero `rel_dist` and `triplet_dist` frequency-bias parameters.
 
@@ -234,6 +237,8 @@ configs/
 - [Adding A New Model](guides/adding_new_model.md) — step-by-step contributor guide for integrating a new method into the main training and evaluation pipeline.
 - [Reproduction Workflow Usage](reproduction/USAGE.md) — evidence-first workflow for deciding whether a baseline is reproduced, audited, smoke-tested, or deferred.
 - [Baseline Reproduction Tracker](docs/reproduction/README.md) — current blocked/deferred status for FREQ, TDE, VCTree, PENet, SHA-GCL, and RA-SGG.
+- [Contributing](CONTRIBUTING.md) — PR expectations, validation commands, and repository hygiene rules.
+- [Security Policy](SECURITY.md) — private reporting path for dependency, checkpoint-loading, credential, and CI-token issues.
 
 ---
 
@@ -246,6 +251,10 @@ GitHub Actions runs on every PR and push to `main`:
 
 Trigger paths include code, configs, tools, reproduction guardrails, reproduction
 reports, `AGENTS.md`, and workflow files.
+
+PRs that touch reproduction claims must preserve the status language in
+`AGENTS.md` and `reproduction/README.md`; random-init, tiny-slice, all-zero, or
+partial-checkpoint outputs are not baseline reproduction evidence.
 
 ---
 
