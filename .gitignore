@@ -2,8 +2,10 @@
 data/OpenImages/
 data/VisualGenome/
 
-# Local docs and plans (never push to GitHub)
-docs/
+# Local docs and plans (never push to GitHub by default)
+docs/*
+!docs/reproduction/
+!docs/reproduction/**
 
 # Local agent/editor configuration
 .claude/

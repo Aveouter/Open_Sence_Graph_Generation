@@ -9,7 +9,7 @@ Unifies 17 SGG methods under a single training and evaluation harness.
 [![PyTorch](https://img.shields.io/badge/PyTorch-≥1.10-ee4c2c.svg)](https://pytorch.org/)
 [![Lightning](https://img.shields.io/badge/Lightning-2.x-792ee5.svg)](https://lightning.ai/)
 [![CUDA](https://img.shields.io/badge/CUDA-≥11.3-76b900.svg)](https://developer.nvidia.com/cuda-toolkit)
-[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg)](https://github.com/Aveouter/Sence_Graph_Generation_of_Open_Surgery/actions)
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg)](https://github.com/Aveouter/Open_Sence_Graph_Generation/actions)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 </div>
@@ -54,7 +54,7 @@ OpenSGG provides a unified training and evaluation framework for Scene Graph Gen
 ## Installation
 
 ```bash
-git clone https://github.com/Aveouter/Sence_Graph_Generation_of_Open_Surgery.git
+git clone https://github.com/Aveouter/Open_Sence_Graph_Generation.git
 cd OpenSGG
 
 # Create conda environment
@@ -161,9 +161,11 @@ python train.py --method RelTR --dataname VisualGenome --gpus 0
 
 ---
 
-## EGTR VisualGenome Reproduction
+## EGTR VisualGenome Checkpoint-Backed Evaluation
 
-Validated against the pretrained checkpoint.
+Evaluated against a traced pretrained checkpoint in the OpenSGG evaluation path.
+This section is not a blanket reproduction claim for every official EGTR
+protocol; use the reproduction workflow below for paper-alignment decisions.
 
 **Label space:** OpenSGG uses 1-indexed labels with background (`entity_nums=151`, `rel_nums=51`). EGTR logits use explicit no-background dimensions (`egtr_num_labels=150`, `egtr_num_rel_labels=50`). The checkpoint loads non-zero `rel_dist` and `triplet_dist` frequency-bias parameters.
 
@@ -228,8 +230,10 @@ configs/
 
 ## Reports And Guides
 
-- [Published Method Reproduction Results](guides/published_method_reproduction.md) — concise PR-ready summary of reproduced results for published paper methods.
+- [Published Method Checkpoint Evaluations](guides/published_method_reproduction.md) — concise PR-ready summary of traced checkpoint-backed OpenSGG evaluation results for published paper methods.
 - [Adding A New Model](guides/adding_new_model.md) — step-by-step contributor guide for integrating a new method into the main training and evaluation pipeline.
+- [Reproduction Workflow Usage](reproduction/USAGE.md) — evidence-first workflow for deciding whether a baseline is reproduced, audited, smoke-tested, or deferred.
+- [Baseline Reproduction Tracker](docs/reproduction/README.md) — current blocked/deferred status for FREQ, TDE, VCTree, PENet, SHA-GCL, and RA-SGG.
 
 ---
 
@@ -240,7 +244,8 @@ GitHub Actions runs on every PR and push to `main`:
 - **Smoke tests** — forward pass + loss convergence on all 17 methods with synthetic data
 - **LLM code review** — automated review via Claude/DeepSeek API on changed files
 
-Trigger paths: `src/`, `configs/`, `utils/`, `train.py`, `tools/`, `.github/workflows/`.
+Trigger paths include code, configs, tools, reproduction guardrails, reproduction
+reports, `AGENTS.md`, and workflow files.
 
 ---
 
@@ -313,7 +318,7 @@ If you use OpenSGG, please cite the framework:
   title     = {OpenSGG: Open Scene Graph Generation Framework},
   author    = {Xinyu Liu and Xiaoguang Lin and contributors},
   year      = {2025},
-  note      = {https://github.com/Aveouter/Sence_Graph_Generation_of_Open_Surgery},
+  note      = {https://github.com/Aveouter/Open_Sence_Graph_Generation},
 }
 ```
 
