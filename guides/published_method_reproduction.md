@@ -1,7 +1,9 @@
-# Published Method Reproduction Results
+# Published Method Checkpoint Evaluations
 
-This document records reproduced results for published paper methods only. It
-does not include exploratory or self-designed experiments.
+This document records traced checkpoint-backed OpenSGG evaluation results for
+published paper methods only. It does not include exploratory or self-designed
+experiments, and it is not a substitute for the stricter reproduction workflow
+in `AGENTS.md` and `reproduction/`.
 
 ## Scope
 
@@ -10,6 +12,9 @@ does not include exploratory or self-designed experiments.
 - Metrics follow the OpenSGG evaluation names in `src/core/metrics.py`.
 - Source artifacts under `outputs/` are local/generated and may not be tracked
   in git, so this file keeps the PR-facing summary in a stable location.
+- A section may be called paper-aligned reproduction only when method,
+  checkpoint, config, inference flow, and evaluator semantics have all been
+  checked against the official paper or repository.
 
 ## EGTR
 
@@ -63,7 +68,8 @@ outputs/runs/egtr/2026-06-12_Debug_003/eval/sgdet/metrics.json
 - The evaluated checkpoint loads non-zero frequency-bias parameters
   (`rel_dist`, `triplet_dist`).
 - SGCLS is not listed here because EGTR currently needs a dedicated SGCLS
-  adapter before the metric can be reported as a supported reproduction.
+  adapter before the metric can be reported as a supported checkpoint-backed
+  evaluation.
 
 ## Additions Policy
 
