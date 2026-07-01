@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Reproduction workflow
+    url: https://github.com/Aveouter/Open_Sence_Graph_Generation/blob/main/reproduction/README.md
+    about: Read the evidence-first reproduction standard before opening baseline claims.
