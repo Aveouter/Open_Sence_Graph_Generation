@@ -66,7 +66,7 @@ def create_parser():
                             'RelTR', 'HSTRNet', 'EGTR', 'FlowSG', 'USG',
                             'Motifs', 'VCTree', 'TDE', 'IMP', 'Transformer',
                             'GPSNet', 'PENet', 'SQUAT', 'SHAGCL', 'REACT',
-                            'CVC',
+                            'CVC', 'RA_SGG',
                         ],
                         help='Name of SGG method to train (default: "HSTRNet")')
     parser.add_argument('--config_file', '-c', default=None, type=str,

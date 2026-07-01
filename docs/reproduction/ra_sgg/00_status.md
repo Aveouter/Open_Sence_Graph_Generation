@@ -29,8 +29,10 @@ Last result:
 - Official repo cloned for source audit:
   `/workspace/external/ra_sgg_official/torch-rasgg@e8be01b9fde5c694243606e73931a4c8a8b1bf41`.
 - No local RA-SGG checkpoint or memory bank found.
-- Minimal OpenSGG-compatible RA-SGG adapter added.
-- Synthetic forward smoke passed with loss `4.7866`.
+- This PR adds the missing OpenSGG-compatible RA-SGG adapter files referenced
+  by the earlier audit docs.
+- Clean-branch synthetic forward smoke passed with finite synthetic losses
+  observed as `4.1928` and `4.3971` across local reruns.
 - Random-init/no-memory fallback standard PredCls metric slice accepted outputs;
   all reported R/mR values were 0.0.
 - Random-init/no-memory fallback relation JSONL validation passed on 2 GT
