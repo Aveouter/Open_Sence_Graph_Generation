@@ -159,6 +159,10 @@ class _WarmupReduceLROnPlateau:
         if self._plateau is None:
             self._plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 self.optimizer, **self._plateau_kwargs)
+            # Restore stashed state from warmup-phase checkpoint (if any)
+            resume_state = self._plateau_kwargs.pop('_resume_state', None)
+            if resume_state:
+                self._plateau.load_state_dict(resume_state)
             # Reset LR to base (warmup may have changed it)
             for pg, blr in zip(self.optimizer.param_groups, self.base_lrs):
                 pg['lr'] = blr
@@ -186,6 +190,10 @@ class _WarmupReduceLROnPlateau:
         self._last_epoch = state_dict.pop('_last_epoch', -1)
         if self._plateau and state_dict:
             self._plateau.load_state_dict(state_dict)
+        elif not self._plateau and state_dict:
+            # Warmup phase: plateau not created yet.  Stash the state dict
+            # so it can be restored when the plateau is first built after warmup.
+            self._plateau_kwargs['_resume_state'] = state_dict
 
 
 def get_optim_scheduler(args, epoch, model, steps_per_epoch):
