@@ -225,10 +225,25 @@ class BaseExperiment(object):
         return BaseDataModule(train_loader, vali_loader, test_loader)
 
     def train(self):
+        ckpt_path = self.args.ckpt_path
+        # If the checkpoint is an external (non-Lightning) file, load it manually
+        # before training. Lightning only knows how to resume from its own .ckpt
+        # format; external .pth files (maskrcnn_benchmark, plain PyTorch, etc.)
+        # need to be loaded via _adapt_state_dict first.
+        if ckpt_path is not None and (ckpt_path.endswith('.pth') or ckpt_path.endswith('.pt')):
+            state_dict = self._load_checkpoint_state_dict(ckpt_path)
+            # External checkpoint remapping — also loads backbone weights
+            # into _visual_extractor if present (RA-SGG)
+            if hasattr(self.method.model, 'remap_external_state_dict'):
+                ve = getattr(self.method, '_visual_extractor', None)
+                state_dict = self.method.model.remap_external_state_dict(state_dict, visual_extractor=ve)
+            self._adapt_state_dict(state_dict, self.method.model)
+            ckpt_path = None  # Lightning does not need to load it again
+
         self.trainer.fit(
             self.method,
             self.data,
-            ckpt_path=self.args.ckpt_path if self.args.ckpt_path else None
+            ckpt_path=ckpt_path
         )
 
     def test(self):

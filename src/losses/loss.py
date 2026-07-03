@@ -164,6 +164,7 @@ LOSS_FACTORY = {
     "react_loss": None,   # REACT criterion built in react_method._build_criterion
     "cvc_loss": None,     # CVC
     "usg_loss": None,     # USG criterion built in _build_criterion
+    "rasgg_loss": None,   # RA-SGG criterion built in ra_sgg_method._build_criterion
 }
 
 
