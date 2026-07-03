@@ -1,21 +1,28 @@
 # =====================================
 # RA-SGG — SGDet (Scene Graph Detection)
 # =====================================
-# Aligned with official: scripts/sgdet_train_retag.sh
+# Aligned with official:
+#   scripts/sgdet_pretrain_penet.sh → Step 1
+#   scripts/sgdet_train_retag.sh    → Step 2
 #   USE_GT_BOX=False, USE_GT_OBJECT_LABEL=False
 #   NUM_RETRIEVALS=10, MAX_ITER=20000, BASE_LR=1e-4, IMS_PER_BATCH=12
 #
-# Note: SGDet mode requires object proposals from the detector.
-# The model uses self.mode='sgdet' so refine_obj_labels predicts
-# object classes (no GT labels available).
+# Training workflow (aligns with official two-phase protocol):
 #
-# Two-phase workflow:
-#   1. Pretrain PE-Net in sgdet mode:
-#      python train.py --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgdet.py --gpus 0
-#   2. Build memory bank.
-#   3. Train RA-SGG:
-#      python train.py --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgdet.py \
-#        --ra_sgg_memory_bank_path data/VisualGenome/ra_sgg/sgdet_fb_train.npy --gpus 0
+#   Step 1 — Pretrain PE-Net SGDet (== official sgdet_pretrain_penet.sh):
+#     Uses PredCls checkpoint to init detector weights; no memory bank.
+#     python train.py --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgdet.py \
+#       --ckpt_path checkpoints/PE-NET_PredCls/model_final-001.pth \
+#       --ex_name PE-NET_SGDet --gpus 0
+#
+#   Step 2 — Train RA-SGG SGDet (== official sgdet_train_retag.sh):
+#     python train.py --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgdet.py \
+#       --ckpt_path outputs/runs/PE-NET_SGDet/checkpoints/best-*.ckpt \
+#       --ra_sgg_memory_bank_path data/ra_sgg/sgdet_fb_train.npy --gpus 0
+#
+#   Evaluate:
+#     python train.py --test --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgdet.py \
+#       --ckpt_path outputs/runs/.../best-*.ckpt --gpus 0
 
 method = "RA_SGG"
 loss = "rasgg_loss"

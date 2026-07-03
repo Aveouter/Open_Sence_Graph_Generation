@@ -50,13 +50,15 @@ class RA_SGG_Method(Motifs_Method):
     # ---------- forward (overrides Motifs_Method.forward) ----------
 
     def forward(self, images, targets=None, **kwargs):
-        """Forward pass for RA-SGG — unified training/eval path.
+        """Forward pass — uses self.training to distinguish train vs eval.
 
-        PredCls/SGCls: use GT boxes/labels (SGCls predicts labels via out_obj).
-        SGDet eval: run RPN+box_head detector to get proposals.
-        SGDet train: use GT boxes (official adds GT to RPN proposals).
+        Training (self.training=True):
+          PredCls/SGCls/SGDet: all use GT boxes/labels.
+        Eval (self.training=False):
+          PredCls/SGCls: GT boxes/labels.
+          SGDet: RPN+box_head detector → proposal boxes/labels.
         """
-        is_training = targets is not None
+        is_training = self.training
         eval_mode = getattr(self.hparams, 'eval_mode', 'predcls')
 
         # ---- SGDet eval: detect objects from scratch ----
