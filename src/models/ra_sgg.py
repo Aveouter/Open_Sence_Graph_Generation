@@ -907,7 +907,6 @@ class PENetBase(nn.Module):
                 'predicate_proto_pre': roi_features.new_zeros(0, self.mlp_dim),
             }
 
-        pairs.size(0)
         s_idx = pairs[:, 0]
         o_idx = pairs[:, 1]
 
@@ -1392,7 +1391,6 @@ class RASGGModel(PENetBase):
                 'add_data': {},
             }
 
-        pairs.size(0)
         s_idx = pairs[:, 0]
         o_idx = pairs[:, 1]
 
