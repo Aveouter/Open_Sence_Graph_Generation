@@ -1,18 +1,18 @@
 # =====================================
-# RA-SGG — PredCls (Predicate Classification)
+# RA-SGG — SGCls (Scene Graph Classification)
 # =====================================
-# Aligned with official: scripts/predcls_train_retag.sh
-#   USE_GT_BOX=True, USE_GT_OBJECT_LABEL=True
-#   NUM_RETRIEVALS=20, MAX_ITER=60000, BASE_LR=1e-3
+# Aligned with official: scripts/sgcls_train_retag.sh
+#   USE_GT_BOX=True, USE_GT_OBJECT_LABEL=False
+#   NUM_RETRIEVALS=10, MAX_ITER=60000, BASE_LR=1e-3
 #
 # Official PE-Net checkpoint + memory bank are available → skip PE-Net pretrain.
 # RA-SGG training:
-#   python train.py --method RA_SGG --config_file configs/VisualGenome/RA_SGG.py \
-#     --ckpt_path checkpoints/PE-NET_PredCls/model_final.pth \
-#     --ra_sgg_memory_bank_path data/ra_sgg/predcls_fb_train.npy --gpus 0
+#   python train.py --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgcls.py \
+#     --ckpt_path checkpoints/PE-NET_SGCls/model_final.pth \
+#     --ra_sgg_memory_bank_path data/ra_sgg/sgcls_fb_train.npy --gpus 0
 #
 # Evaluation (after training):
-#   python train.py --test --method RA_SGG --config_file configs/VisualGenome/RA_SGG.py \
+#   python train.py --test --method RA_SGG --config_file configs/VisualGenome/RA_SGG_sgcls.py \
 #     --ckpt_path outputs/runs/.../best-*.ckpt --gpus 0
 
 method = "RA_SGG"
@@ -29,14 +29,14 @@ ra_sgg_use_union = True
 ra_sgg_glove_dir = "data/glove"
 
 # ===== Task Mode =====
-eval_mode = "predcls"
+eval_mode = "sgcls"
 
-# ===== Retrieval (PredCls: K=20) =====
+# ===== Retrieval (SGCls: K=10) =====
 ra_sgg_memory_size = 8
-ra_sgg_num_retrievals = 20
+ra_sgg_num_retrievals = 10
 ra_sgg_threshold = 0.3
 ra_sgg_num_correct_bg = 1
-ra_sgg_memory_bank_path = "checkpoints/PE-NET_PredCls/predcls_bg_processed_fb_train_8.npy"
+ra_sgg_memory_bank_path = ""
 
 # ===== Mixup =====
 ra_sgg_mixup = True
@@ -55,7 +55,7 @@ lr_backbone = 1e-5
 weight_decay = 1e-4
 clip_max_norm = 5.0
 
-# ===== Scheduler (step-based, matches official STEPS=(28000,48000)) =====
+# ===== Scheduler (step-based: STEPS=(28000,48000)) =====
 sched = "warmup_multistep"
 warmup_lr = 1e-5
 warmup_epoch = 0
@@ -82,7 +82,7 @@ use_backbone = True
 roi_output_size = 7
 
 # ===== Evaluation =====
-metrics = ["predcls_R@50", "predcls_R@100", "predcls_mR@50", "predcls_mR@100"]
+metrics = ["sgcls_R@50", "sgcls_R@100", "sgcls_mR@50", "sgcls_mR@100"]
 
 # ===== Misc =====
 device = "cuda"

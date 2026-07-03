@@ -46,9 +46,12 @@ CONFIG_NAME_ALIASES: Dict[str, str] = {
     "gps_net": "gpsnet",
     "pe_net": "penet",
     "sha_gcl": "shagcl",
-    "gpsnet": "gpsnet",  # alias → self (for direct lookup)
+    "gpsnet": "gpsnet",
     "penet": "penet",
     "shagcl": "shagcl",
+    # RA-SGG task variants — same method, different eval_mode configs
+    "ra_sgg_sgcls": "ra_sgg",
+    "ra_sgg_sgdet": "ra_sgg",
 }
 
 

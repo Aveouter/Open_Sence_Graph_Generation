@@ -1,5 +1,6 @@
 import json
 import warnings
+import torch
 from torch import optim
 
 from timm.optim.adafactor import Adafactor
@@ -113,6 +114,88 @@ def split_backbone_param_groups(parameters, model, lr, lr_backbone, weight_decay
     return split_groups
 
 
+class _WarmupReduceLROnPlateau:
+    """Warmup + ReduceLROnPlateau with max decay step cap.
+
+    Matches official WarmupReduceLROnPlateau from maskrcnn_benchmark:
+      1. Linear warmup from warmup_factor*lr → lr over warmup_epoch epochs
+      2. After warmup: ReduceLROnPlateau(factor, patience, threshold, cooldown)
+      3. Capped at max_decay_step reductions total
+
+    Usage with PyTorch Lightning:
+      - Set ``by_epoch=True`` so Lightning calls ``scheduler.step(val_metric, epoch)``
+      - The first return from ``step()`` is the current LR for logging.
+    """
+
+    def __init__(self, optimizer, warmup_factor=0.1, warmup_epoch=0,
+                 factor=0.1, patience=2, threshold=0.001, cooldown=0,
+                 max_decay_step=3):
+        self.optimizer = optimizer
+        self.base_lrs = [pg['lr'] for pg in optimizer.param_groups]
+        self.warmup_factor = warmup_factor
+        self.warmup_epoch = warmup_epoch
+        self.max_decay_step = max_decay_step
+        self._decay_count = 0
+        self._last_epoch = -1
+        self._plateau = None  # built after warmup
+        self._plateau_kwargs = dict(
+            mode='min', factor=factor, patience=patience,
+            threshold=threshold, threshold_mode='rel',
+            cooldown=cooldown, min_lr=1e-8, verbose=True,
+        )
+
+    def step(self, metrics=None, epoch=None):
+        cur_epoch = epoch if epoch is not None else self._last_epoch + 1
+        self._last_epoch = cur_epoch
+
+        if cur_epoch < self.warmup_epoch:
+            # Linear warmup
+            alpha = (cur_epoch + 1) / max(self.warmup_epoch, 1)
+            for pg, blr in zip(self.optimizer.param_groups, self.base_lrs):
+                pg['lr'] = blr * (self.warmup_factor + (1 - self.warmup_factor) * alpha)
+            return self.optimizer.param_groups[0]['lr']
+
+        # After warmup: initialise plateau scheduler once
+        if self._plateau is None:
+            self._plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, **self._plateau_kwargs)
+            # Restore stashed state from warmup-phase checkpoint (if any)
+            resume_state = self._plateau_kwargs.pop('_resume_state', None)
+            if resume_state:
+                self._plateau.load_state_dict(resume_state)
+            # Reset LR to base (warmup may have changed it)
+            for pg, blr in zip(self.optimizer.param_groups, self.base_lrs):
+                pg['lr'] = blr
+
+        if self._decay_count >= self.max_decay_step:
+            return self.optimizer.param_groups[0]['lr']
+
+        prev_lr = self.optimizer.param_groups[0]['lr']
+        if metrics is not None:
+            self._plateau.step(metrics)
+        else:
+            self._plateau.step(float('inf'))
+        new_lr = self.optimizer.param_groups[0]['lr']
+        if new_lr < prev_lr:
+            self._decay_count += 1
+        return new_lr
+
+    def state_dict(self):
+        s = self._plateau.state_dict() if self._plateau else {}
+        s.update(_decay_count=self._decay_count, _last_epoch=self._last_epoch)
+        return s
+
+    def load_state_dict(self, state_dict):
+        self._decay_count = state_dict.pop('_decay_count', 0)
+        self._last_epoch = state_dict.pop('_last_epoch', -1)
+        if self._plateau and state_dict:
+            self._plateau.load_state_dict(state_dict)
+        elif not self._plateau and state_dict:
+            # Warmup phase: plateau not created yet.  Stash the state dict
+            # so it can be restored when the plateau is first built after warmup.
+            self._plateau_kwargs['_resume_state'] = state_dict
+
+
 def get_optim_scheduler(args, epoch, model, steps_per_epoch):
     opt_lower = (args.opt or 'adam').lower()
     weight_decay = args.weight_decay if args.weight_decay is not None else 1e-4
@@ -149,9 +232,13 @@ def get_optim_scheduler(args, epoch, model, steps_per_epoch):
     opt_lower = opt_split[-1]
     if opt_lower == 'sgd' or opt_lower == 'nesterov':
         opt_args.pop('eps', None)
-        optimizer = optim.SGD(parameters, momentum=args.momentum, nesterov=True, **opt_args)
+        opt_args.pop('momentum', None)   # override from config file
+        opt_args.pop('dampening', None)
+        optimizer = optim.SGD(parameters, momentum=args.momentum, nesterov=(opt_lower == 'nesterov'), **opt_args)
     elif opt_lower == 'momentum':
         opt_args.pop('eps', None)
+        opt_args.pop('momentum', None)
+        opt_args.pop('dampening', None)
         optimizer = optim.SGD(parameters, momentum=args.momentum, nesterov=False, **opt_args)
     elif opt_lower == 'adam':
         optimizer = optim.Adam(parameters, **opt_args)
@@ -189,7 +276,19 @@ def get_optim_scheduler(args, epoch, model, steps_per_epoch):
     sched_lower = args.sched.lower()
     total_steps = epoch * steps_per_epoch
     by_epoch = True
-    if sched_lower == 'onecycle':
+    if sched_lower == 'warmup_reduce_on_plateau' or sched_lower == 'warmupreducelronplateau':
+        lr_scheduler = _WarmupReduceLROnPlateau(
+            optimizer,
+            warmup_factor=getattr(args, 'warmup_factor', 0.1),
+            warmup_epoch=getattr(args, 'warmup_epoch', 0),
+            factor=getattr(args, 'plateau_factor', 0.1),
+            patience=getattr(args, 'plateau_patience', 2),
+            threshold=getattr(args, 'plateau_threshold', 0.001),
+            cooldown=getattr(args, 'plateau_cooldown', 0),
+            max_decay_step=getattr(args, 'plateau_max_decay_step', 3),
+        )
+        by_epoch = True
+    elif sched_lower == 'onecycle':
         max_lr = (
             [group['lr'] for group in optimizer.param_groups]
             if len(optimizer.param_groups) > 1
@@ -232,6 +331,20 @@ def get_optim_scheduler(args, epoch, model, steps_per_epoch):
             decay_rate=args.decay_rate,
             warmup_lr_init=args.warmup_lr,
             warmup_t=args.warmup_epoch)
+    elif sched_lower == 'warmup_multistep' or sched_lower == 'warmupmultisteplr':
+        # Official WarmupMultiStepLR: linear warmup → MultiStepLR
+        # decay_t should be passed as a list of step milestones
+        steps_list = getattr(args, 'decay_epoch', [28000, 48000])
+        if isinstance(steps_list, (int, float)):
+            steps_list = [int(steps_list)]
+        lr_scheduler = MultiStepLRScheduler(
+            optimizer,
+            decay_t=steps_list,   # milestone iterations
+            decay_rate=args.decay_rate,
+            warmup_lr_init=args.warmup_lr,
+            warmup_t=args.warmup_epoch,
+            t_in_epochs=False)    # milestones are step counts, not epochs
+        by_epoch = False  # step-based scheduler
     else:
         assert False and "Invalid scheduler"
 
