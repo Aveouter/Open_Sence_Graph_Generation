@@ -374,16 +374,15 @@ class _RASGGCriterion(nn.Module):
 
             # ---- Compute loss ----
             valid_mask = gt_preds >= 0
-            if valid_mask.any():
+            n_pairs = int(valid_mask.sum().item())
+            if n_pairs > 0:
                 if self.use_mixup and mixup_labels_list is not None and i < len(mixup_labels_list):
                     # CE with soft mixup labels (one-hot vectors with Beta mixing)
                     soft_labels = mixup_labels_list[i].to(rel_logits.device)
                     if soft_labels.dim() == 3:
                         soft_labels = soft_labels.squeeze(0)
-                    # Only compute on annotated pairs
                     soft_labels_valid = soft_labels[valid_mask]
                     if soft_labels_valid.size(-1) != C:
-                        # Adjust to match logits dimension
                         if soft_labels_valid.size(-1) < C:
                             padded = torch.zeros(soft_labels_valid.size(0), C,
                                                  device=soft_labels_valid.device)
@@ -393,14 +392,14 @@ class _RASGGCriterion(nn.Module):
                             soft_labels_valid = soft_labels_valid[:, :C]
                     # CE with soft labels: -sum(target * log_softmax(input))
                     log_probs = F.log_softmax(rel_logits[valid_mask], dim=-1)
-                    pred_loss = -(soft_labels_valid * log_probs).sum(dim=-1).mean()
+                    pred_loss = -(soft_labels_valid * log_probs).sum(dim=-1).sum()
                 else:
                     pred_loss = F.cross_entropy(
                         rel_logits[valid_mask], gt_preds[valid_mask],
-                        reduction='mean')
+                        reduction='sum')
 
                 total_pred_loss = pred_loss if total_pred_loss is None else total_pred_loss + pred_loss
-                total_pairs += 1
+                total_pairs += n_pairs
 
         if total_pred_loss is None:
             device_t = rel_logits_list[0].device if (
