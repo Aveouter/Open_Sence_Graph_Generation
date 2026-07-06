@@ -37,10 +37,13 @@ def collect_env():
             env_info['NVCC'] = nvcc
 
         devices = defaultdict(list)
-        for k in range(torch.cuda.device_count()):
-            devices[torch.cuda.get_device_name(k)].append(str(k))
-        for name, devids in devices.items():
-            env_info['GPU ' + ','.join(devids)] = name
+        try:
+            for k in range(torch.cuda.device_count()):
+                devices[torch.cuda.get_device_name(k)].append(str(k))
+            for name, devids in devices.items():
+                env_info['GPU ' + ','.join(devids)] = name
+        except RuntimeError as exc:
+            env_info['CUDA device query error'] = str(exc)
 
     try:
         gcc = subprocess.check_output(['gcc', '--version'], stderr=subprocess.STDOUT)
