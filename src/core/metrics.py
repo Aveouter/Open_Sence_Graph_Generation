@@ -156,8 +156,10 @@ def metric(
             rel_nums=rel_nums,
         )
 
-    # Motifs family: PredCLS evaluation using direct pair_indices -> GT relation mapping
-    if matched_family in {"motifs", "cvc"} and "predcls" in supported_tasks:
+    # Motifs / CVC family: predicate evaluation for all three protocols.
+    # The evaluation logic (pair_indices → GT rel_annotations mapping) is
+    # the same regardless of whether object labels are GT or predicted.
+    if matched_family in {"motifs", "cvc"} and {"predcls", "sgcls", "sgdet"} & set(supported_tasks):
         _evaluate_predcls_batch_pair_indices(
             outputs=pred,
             targets=true,
@@ -234,7 +236,7 @@ _MODEL_TASKS = {
     "hstrnet": {"predcls"},
     "egtr_compact": {"predcls", "sgdet"},
     "egtr": {"predcls"},
-    "motifs": {"predcls"},
+    "motifs": {"predcls", "sgcls", "sgdet"},
     "cvc": {"predcls"},
 }
 
@@ -403,7 +405,7 @@ def _evaluate_predcls_batch(
     truth information to the matched triplet proposals when evaluating RelTR
     on PredCLS/SGCLS."
     """
-    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+    from utils.box_ops import box_iou, rescale_bboxes
 
     for i, target in enumerate(targets):
         _validate_target(target)
@@ -490,12 +492,9 @@ def _evaluate_predcls_batch(
 
         pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -525,7 +524,7 @@ def _evaluate_sgcls_batch(
     queries, then evaluates the model's class + predicate predictions.
     Falls back to IoU-based matching when Hungarian indices are not available.
     """
-    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+    from utils.box_ops import box_iou, rescale_bboxes
 
     for i, target in enumerate(targets):
         _validate_target(target)
@@ -778,12 +777,9 @@ def _evaluate_predcls_batch_hstrnet(
         pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
 
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -850,7 +846,6 @@ def _evaluate_predcls_batch_egtr(
         pred_logits = torch.as_tensor(outputs["pred_logits"][i]).float()      # [Q, C]
         pred_rel = torch.as_tensor(outputs["pred_rel"][i]).float()             # [Q, Q, P] (may be fp16 from cache)
 
-        Q = pred_boxes_norm.shape[0]
         R = gt_relations.shape[0]
 
         # ---- Match queries to GT boxes ----
@@ -927,12 +922,9 @@ def _evaluate_predcls_batch_egtr(
         }
 
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -1186,12 +1178,9 @@ def _evaluate_predcls_batch_pair_indices(
 
         pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -1386,7 +1375,6 @@ def compute_head_body_tail_mr(
     freq = freq_data["predicate_frequencies"]
     # Sort predicates by frequency (descending)
     sorted_preds = sorted(freq.items(), key=lambda x: int(x[0]))
-    sorted_pred_ids = [int(p[0]) for p in sorted_preds]
     sorted_counts = [p[1] for p in sorted_preds]
 
     # Sort by count (descending) to determine groups
@@ -1396,7 +1384,6 @@ def compute_head_body_tail_mr(
     n_tail = max(1, int(n * tail_ratio))
     head_ids = set(rank_sorted[i][0] for i in range(n_head))
     tail_ids = set(rank_sorted[n - n_tail + i][0] for i in range(n_tail))
-    body_ids = set(range(n)) - head_ids - tail_ids
 
     results = {}
     for task, evaluator_list in mr_evaluators.items():
