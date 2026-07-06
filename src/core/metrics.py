@@ -98,6 +98,18 @@ def metric(
         }
 
     # Dispatch to model-specific evaluation
+    if matched_family == "usg" and "sgdet" in supported_tasks:
+        _evaluate_sgdet_batch(
+            outputs=pred,
+            targets=true,
+            evaluators=evaluators,
+            mr_evaluators=mr_evaluators,
+            rel_nums=rel_nums,
+            triplet_match_indices=triplet_match_indices,
+            rel_score_transform="sigmoid",
+            object_score_transform="sigmoid",
+            object_label_offset=1,
+        )
     if matched_family in {"reltr", "flowsg"} and "sgdet" in supported_tasks:
         _evaluate_sgdet_batch(
             outputs=pred,
@@ -220,6 +232,7 @@ def _parse_metric_names(metric_names: List[str]) -> List[Dict[str, Any]]:
 # Output keys required by each model family.
 # Extend this dict to add support for new architectures.
 _MODEL_SCHEMAS = {
+    "usg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "reltr": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "flowsg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
@@ -231,6 +244,7 @@ _MODEL_SCHEMAS = {
 
 # Which tasks each model family supports
 _MODEL_TASKS = {
+    "usg": {"sgdet"},
     "reltr": {"sgdet", "predcls", "sgcls"},
     "flowsg": {"sgdet", "predcls", "sgcls"},
     "hstrnet": {"predcls"},
@@ -254,6 +268,28 @@ def _resolve_task_support(
 
     pred_keys = set(pred.keys())
     matched = False
+
+    declared_family = pred.get("model_family")
+    while isinstance(declared_family, (list, tuple)) and declared_family:
+        declared_family = declared_family[0]
+    if declared_family in _MODEL_SCHEMAS:
+        required_keys = _MODEL_SCHEMAS[declared_family]
+        if required_keys.issubset(pred_keys):
+            matched_family = declared_family
+            family_tasks = _MODEL_TASKS.get(matched_family, set())
+            supported = [t for t in requested_tasks if t in family_tasks]
+            unsupported = [t for t in requested_tasks if t not in family_tasks]
+            if unsupported:
+                warnings.append(
+                    f"[metric] {matched_family} model only supports {sorted(family_tasks)}. "
+                    f"Skipped: {', '.join(unsupported)}."
+                )
+            return supported, warnings, matched_family
+        missing = sorted(required_keys - pred_keys)
+        warnings.append(
+            f"[metric] model_family='{declared_family}' is declared but required "
+            f"keys are missing: {missing}. Falling back to schema inference."
+        )
 
     for family, required_keys in _MODEL_SCHEMAS.items():
         if required_keys.issubset(pred_keys):
@@ -290,6 +326,9 @@ def _evaluate_sgdet_batch(
     mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
     rel_nums: int,
     triplet_match_indices: List = None,
+    rel_score_transform: str = "softmax",
+    object_score_transform: str = "softmax",
+    object_label_offset: int = 0,
 ) -> None:
     """Convert RelTR outputs to evaluator format with Hungarian score boosting.
 
@@ -328,12 +367,21 @@ def _evaluate_sgdet_batch(
         obj_logits = torch.as_tensor(outputs["obj_logits"][i]).float()
         rel_logits = torch.as_tensor(outputs["rel_logits"][i]).float()
 
-        pred_sub_scores, pred_sub_labels = torch.max(
-            sub_logits.softmax(-1)[:, :-1], dim=1)
-        pred_obj_scores, pred_obj_labels = torch.max(
-            obj_logits.softmax(-1)[:, :-1], dim=1)
+        if object_score_transform == "sigmoid":
+            sub_scores_all = torch.sigmoid(sub_logits[:, :-1])
+            obj_scores_all = torch.sigmoid(obj_logits[:, :-1])
+        else:
+            sub_scores_all = sub_logits.softmax(-1)[:, :-1]
+            obj_scores_all = obj_logits.softmax(-1)[:, :-1]
+        pred_sub_scores, pred_sub_labels = torch.max(sub_scores_all, dim=1)
+        pred_obj_scores, pred_obj_labels = torch.max(obj_scores_all, dim=1)
+        if object_label_offset:
+            pred_sub_labels = pred_sub_labels + object_label_offset
+            pred_obj_labels = pred_obj_labels + object_label_offset
 
-        rel_scores = _extract_relation_scores(rel_logits, rel_nums)
+        rel_scores = _extract_relation_scores(
+            rel_logits, rel_nums, score_transform=rel_score_transform
+        )
         pred_rel_labels = 1 + np.argmax(rel_scores, axis=1)
 
         # ---- Hungarian score boosting (mimics missing evaluate_rel_batch.py) ----
@@ -1153,6 +1201,9 @@ def _evaluate_predcls_batch_pair_indices(
                 softmax_scope=_per_image_metadata(
                     outputs.get("relation_softmax_scope", "foreground"), i, "foreground"
                 ),
+                score_transform=_per_image_metadata(
+                    outputs.get("relation_score_transform", "softmax"), i, "softmax"
+                ),
             )
             pair_to_idx = {
                 (int(pair_indices[p, 0]), int(pair_indices[p, 1])): p
@@ -1203,6 +1254,7 @@ def _extract_relation_scores(
     rel_nums: int,
     predicate_bg_index="last",
     softmax_scope: str = "foreground",
+    score_transform: str = "softmax",
 ) -> np.ndarray:
     """Convert relation logits into [num_triplets, rel_nums] score array.
 
@@ -1214,6 +1266,25 @@ def _extract_relation_scores(
     postprocessor, then evaluates ``rel_scores[:, 1:]``.
     """
     dim = rel_logits.shape[-1]
+    if score_transform in {"sigmoid", "sigmoid_foreground"}:
+        if dim == rel_nums + 2:
+            rel_scores = torch.sigmoid(rel_logits[:, 1:-1])
+        elif dim == rel_nums + 1:
+            if predicate_bg_index in ("first", 0):
+                rel_scores = torch.sigmoid(rel_logits[:, 1 : rel_nums + 1])
+            else:
+                rel_scores = torch.sigmoid(rel_logits[:, :rel_nums])
+        elif dim == rel_nums:
+            rel_scores = torch.sigmoid(rel_logits)
+        elif dim == rel_nums - 1:
+            # USG uses foreground-only predicates when rel_nums includes background.
+            rel_scores = torch.sigmoid(rel_logits)
+        else:
+            raise ValueError(
+                f"rel_logits dim mismatch: got {dim}, expected {rel_nums}, "
+                f"{rel_nums - 1}, {rel_nums + 1}, or {rel_nums + 2}"
+            )
+        return rel_scores.detach().cpu().numpy()
 
     if dim == rel_nums + 2:
         # RelTR default: classes = [0, 1..rel_nums, rel_nums+1]

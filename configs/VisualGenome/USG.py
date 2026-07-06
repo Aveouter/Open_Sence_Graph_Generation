@@ -42,11 +42,11 @@ top_k = 100  # RPC top-k pairs (official: 100)
 dropout = 0.0  # official defaults to 0.0
 
 # ===== loss coefficients (official: alpha=1.0, gamma=0.8) =====
-class_loss_coef = 2.0  # L_obj (official α=1.0, VG: 2.0 for CE)
+class_loss_coef = 1.0  # L_obj alpha
 bbox_loss_coef = 5.0  # L1 box
 giou_loss_coef = 2.0  # GIoU box
 rel_loss_coef = 0.8  # L_rel (official γ=0.8)
-pair_loss_coef = 0.5  # L_pair within L_rel
+pair_loss_coef = 1.0  # official L_rel = L_predicate + L_pair
 eos_coef = 0.1  # background class weight
 
 # ===== dataset =====
@@ -54,6 +54,7 @@ dataset = "VisualGenome"
 dataname = "VisualGenome"
 entity_nums = 151
 rel_nums = 51
+usg_num_predicates = 50  # official USG predicate head has no background channel
 
 # ===== OpenCLIP ConvNeXt encoder (official: builders.py) =====
 # ConvNeXt-L @ 320px, LAION 2B pretrained

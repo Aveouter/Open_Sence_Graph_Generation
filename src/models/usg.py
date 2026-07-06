@@ -16,6 +16,10 @@ Output format: RelTR-compatible 5-key schema
 
 from __future__ import annotations
 
+import json
+import math
+import os
+import warnings
 from typing import Optional, Dict, List, Tuple
 
 import torch
@@ -334,24 +338,67 @@ class SharedMaskDecoder(nn.Module):
 
 
 # ==============================================================================
-# Step 3: Detection Head (adapted for VG bbox: class + box regression)
+# Step 3: Detection Head (official cosine classifier + VG bbox regression)
 # ==============================================================================
 
 
 class USGDetectionHead(nn.Module):
     """Predict object class logits + bounding boxes from refined queries.
 
-    For VG (fixed 151 classes): linear classifier + MLP bbox regressor.
-    Official code uses open-vocab cosine classifier; we adapt to VG's fixed vocab.
+    Official USG uses CLIP-style cosine classification against class-name text
+    embeddings and appends a learnable "no object" embedding as the last class.
+    Visual Genome does not provide masks in this OpenSGG path, so we keep a bbox
+    regressor as the dataset adaptation replacing official mask supervision.
     """
 
-    def __init__(self, dim: int = 256, num_classes: int = 151):
+    def __init__(
+        self,
+        dim: int = 256,
+        num_classes: int = 151,
+        mask_embed_layers: int = 3,
+        logit_scale_init: float = math.log(1 / 0.07),
+    ):
         super().__init__()
-        self.class_head = nn.Linear(dim, num_classes)
+        self.dim = dim
+        self.num_object_classes = max(num_classes - 1, 1)
+        self.mask_embed = MLP(dim, dim, dim, num_layers=mask_embed_layers)
+        self.query_proj = nn.Linear(dim, dim)
+        self.no_object_embed = nn.Parameter(torch.randn(dim))
+        self.logit_scale = nn.Parameter(torch.tensor(logit_scale_init))
+        self.fallback_class_embed = nn.Parameter(
+            torch.randn(self.num_object_classes, dim) * 0.02
+        )
         self.bbox_head = MLP(dim, dim, 4, num_layers=3)
 
-    def forward(self, queries: Tensor) -> Tuple[Tensor, Tensor]:
-        return self.class_head(queries), self.bbox_head(queries).sigmoid()
+    def classify(
+        self,
+        queries: Tensor,
+        class_text_embeddings: Optional[Tensor] = None,
+    ) -> Tensor:
+        q = F.normalize(self.query_proj(queries), dim=-1)
+        if class_text_embeddings is None or class_text_embeddings.numel() == 0:
+            class_emb = self.fallback_class_embed
+        else:
+            class_emb = class_text_embeddings.to(device=q.device, dtype=q.dtype)
+            if class_emb.shape[0] != self.num_object_classes:
+                raise ValueError(
+                    "USG class_text_embeddings must contain exactly "
+                    f"{self.num_object_classes} object classes, got {class_emb.shape[0]}"
+                )
+        emb = torch.cat([class_emb, self.no_object_embed[None]], dim=0)
+        emb = F.normalize(emb, dim=-1)
+        return self.logit_scale.exp() * (q @ emb.t())
+
+    def predict_masks(self, queries: Tensor, pixel_embed: Tensor) -> Tensor:
+        mask_embed = self.mask_embed(queries)
+        return torch.einsum("bnd,bdhw->bnhw", mask_embed, pixel_embed).sigmoid()
+
+    def forward(
+        self,
+        queries: Tensor,
+        class_text_embeddings: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Tensor]:
+        return self.classify(queries, class_text_embeddings), self.bbox_head(queries).sigmoid()
 
 
 # ==============================================================================
@@ -399,15 +446,16 @@ class _TwoWayRACLayer(nn.Module):
 
     def forward(self, x_sub: Tensor, x_obj: Tensor) -> Tuple[Tensor, Tensor]:
         s_ca, _ = self.sub_cross(x_sub, x_obj, x_obj)
-        x_sub = self.sub_n1(x_sub + s_ca)
-        s_sa, _ = self.sub_self(x_sub, x_sub, x_sub)
-        x_sub = self.sub_n2(x_sub + s_sa)
-        x_sub = self.sub_n3(x_sub + self.sub_ffn(x_sub))
-
         o_ca, _ = self.obj_cross(x_obj, x_sub, x_sub)
+        x_sub = self.sub_n1(x_sub + s_ca)
         x_obj = self.obj_n1(x_obj + o_ca)
+
+        s_sa, _ = self.sub_self(x_sub, x_sub, x_sub)
         o_sa, _ = self.obj_self(x_obj, x_obj, x_obj)
+        x_sub = self.sub_n2(x_sub + s_sa)
         x_obj = self.obj_n2(x_obj + o_sa)
+
+        x_sub = self.sub_n3(x_sub + self.sub_ffn(x_sub))
         x_obj = self.obj_n3(x_obj + self.obj_ffn(x_obj))
         return x_sub, x_obj
 
@@ -464,10 +512,7 @@ class RelationProposalConstructor(nn.Module):
             x_sub, x_obj = layer(x_sub, x_obj)
 
         c = _pairwise_cosine(x_sub, x_obj)
-        # Mask self-pairs (diagonal) — subject-i→object-i relations are
-        # virtually absent in VG and waste top-k capacity.
-        c = c + torch.eye(N, device=c.device).unsqueeze(0) * (-1e9)
-        k = min(k, N * (N - 1))
+        k = min(k, N * N)
         scores, flat_idx = c.reshape(B, N * N).topk(k, dim=-1)
         sub_idx = flat_idx // N
         obj_idx = flat_idx % N
@@ -586,12 +631,29 @@ class USGModel(nn.Module):
         ffn_dim: int = 2048,
         top_k: int = 100,
         dropout: float = 0.0,
+        class_text_embeddings: Optional[Tensor] = None,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_queries = num_queries
         self.num_classes = num_classes
+        self.num_predicates = num_predicates
         self.top_k = top_k
+        if class_text_embeddings is None:
+            self.register_buffer(
+                "class_text_embeddings", torch.empty(0, hidden_dim), persistent=False
+            )
+            self.class_text_proj = nn.Identity()
+        else:
+            self.register_buffer(
+                "class_text_embeddings", class_text_embeddings.float(), persistent=True
+            )
+            text_dim = int(class_text_embeddings.shape[-1])
+            self.class_text_proj = (
+                nn.Identity()
+                if text_dim == hidden_dim
+                else nn.Linear(text_dim, hidden_dim)
+            )
 
         self.backbone = backbone
         self.pixel_decoder = pixel_decoder
@@ -645,7 +707,12 @@ class USGModel(nn.Module):
         # PSG: retain mask_logits for panoptic mask loss.
 
         # ---- Step 3: Detection Head ----
-        class_logits, pred_boxes = self.detection_head(queries)
+        class_emb = (
+            self.class_text_proj(self.class_text_embeddings)
+            if self.class_text_embeddings.numel() > 0
+            else None
+        )
+        class_logits, pred_boxes = self.detection_head(queries, class_emb)
 
         # ---- Step 4: RPC ----
         # During training, inflate K from GT so the matcher has headroom.
@@ -678,6 +745,7 @@ class USGModel(nn.Module):
         )
 
         return {
+            "model_family": "usg",
             "pred_logits": class_logits,
             "pred_boxes": pred_boxes,
             "sub_logits": rpc_out["sub_logits"],
@@ -694,6 +762,40 @@ class USGModel(nn.Module):
 # ==============================================================================
 # Hungarian Matcher (official: losses.py:HungarianMatcher, adapted for VG bbox)
 # ==============================================================================
+
+
+def _object_labels_to_usg_internal(labels: Tensor, num_classes: int) -> Tensor:
+    """Map OpenSGG VG labels (1..150) to USG logits (0..149, no-object last)."""
+    labels = labels.long()
+    object_classes = num_classes - 1
+    if labels.numel() == 0:
+        return labels
+    if labels.min().item() >= 1 and labels.max().item() <= object_classes:
+        return labels - 1
+    return labels.clamp(0, object_classes - 1)
+
+
+def _predicate_label_to_internal(label: int, num_predicates: int) -> Optional[int]:
+    """Map OpenSGG VG predicates (1..50) to official USG foreground ids (0..49)."""
+    if label == 0:
+        warnings.warn(
+            "USG predicate label 0 is ambiguous under OpenSGG/VG conventions and "
+            "will be treated as background/invalid, not foreground class 0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+    if 1 <= label <= num_predicates:
+        return label - 1
+    return None
+
+
+def _auto_pos_weight(target: Tensor, fixed: Optional[float] = None) -> Tensor:
+    if fixed is not None:
+        return target.new_tensor(float(fixed))
+    pos = target.sum().clamp_min(1.0)
+    neg = target.numel() - target.sum()
+    return (neg / pos).clamp_min(1.0)
 
 
 class HungarianMatcher(nn.Module):
@@ -729,7 +831,8 @@ class HungarianMatcher(nn.Module):
                 )
                 continue
 
-            prob = cls_logits[b].softmax(-1)
+            gt_labels = _object_labels_to_usg_internal(gt_labels, cls_logits.shape[-1])
+            prob = cls_logits[b].sigmoid()
             cost_class = -prob[:, gt_labels]  # (N, M)
             cost = self.w_class * cost_class
 
@@ -756,63 +859,76 @@ class HungarianMatcher(nn.Module):
 
 
 class USGCriterion(nn.Module):
-    """L = α·L_cls + β·L_l1 + γ·L_giou + δ·L_rel + ε·L_pair"""
+    """Official USG loss assembly with a VG bbox term.
+
+    Official single-modality USG uses
+      L = alpha * L_obj + gamma * (L_predicate_bce + L_pair_bce).
+    The PSG mask CE/Dice terms are replaced here with VG L1/GIoU box losses,
+    while object and relation classification keep the official sigmoid BCE
+    semantics.
+    """
 
     def __init__(
         self,
         num_classes: int = 151,
-        num_predicates: int = 51,
+        num_predicates: int = 50,
         num_queries: int = 100,
-        class_loss_coef: float = 2.0,
+        class_loss_coef: float = 1.0,
         bbox_loss_coef: float = 5.0,
         giou_loss_coef: float = 2.0,
         rel_loss_coef: float = 0.8,
-        pair_loss_coef: float = 0.5,
+        pair_loss_coef: float = 1.0,
         eos_coef: float = 0.1,
         matcher_w_class: float = 2.0,
         matcher_w_bbox: float = 5.0,
         matcher_w_giou: float = 2.0,
+        matched_class_weight: float = 2.0,
     ):
         super().__init__()
         self.num_classes = num_classes
+        self.num_predicates = num_predicates
         self.num_queries = num_queries
         self.c_coef = class_loss_coef
         self.b_coef = bbox_loss_coef
         self.g_coef = giou_loss_coef
         self.r_coef = rel_loss_coef
         self.p_coef = pair_loss_coef
-        ew = torch.ones(num_classes)
-        ew[0] = eos_coef
-        self.register_buffer("empty_weight", ew)
+        self.no_object_weight = eos_coef
+        self.matched_class_weight = matched_class_weight
         self.matcher = HungarianMatcher(matcher_w_class, matcher_w_bbox, matcher_w_giou)
-        self.rel_ce = nn.CrossEntropyLoss(ignore_index=-1, reduction="sum")
 
-    @staticmethod
-    def _perm_idx(indices):
-        return (
-            torch.cat([torch.full_like(s, i) for i, (s, _) in enumerate(indices)]),
-            torch.cat([s for (s, _) in indices]),
-        )
+    def _loss_cls(self, cl: Tensor, targets: List[Dict], indices) -> Tensor:
+        B, N, C1 = cl.shape
+        no_obj = C1 - 1
+        total = cl.new_zeros(())
+        for b in range(B):
+            pred_idx, gt_idx = indices[b]
+            target = torch.full((N,), no_obj, dtype=torch.long, device=cl.device)
+            q_weight = cl.new_full((N,), float(self.no_object_weight))
+            if pred_idx.numel() > 0:
+                gt_labels = targets[b]["labels"][gt_idx.cpu()].to(cl.device)
+                gt_labels = _object_labels_to_usg_internal(gt_labels, C1)
+                target[pred_idx] = gt_labels
+                q_weight[pred_idx] = float(self.matched_class_weight)
+            target_oh = F.one_hot(target, C1).float()
+            per_query = F.binary_cross_entropy_with_logits(
+                cl[b], target_oh, reduction="none"
+            ).mean(-1)
+            total = total + (per_query * q_weight).sum() / q_weight.sum().clamp_min(1.0)
+        return total / max(B, 1)
 
-    def _loss_cls(self, cl, targets, indices):
-        bi, si = self._perm_idx(indices)
-        tc = torch.zeros(cl.shape[:2], dtype=torch.long, device=cl.device)
-        tco = torch.cat(
-            [t["labels"][J.cpu()].to(cl.device) for t, (_, J) in zip(targets, indices)]
-        )
-        tc[bi, si] = tco
-        return F.cross_entropy(
-            cl.flatten(0, 1), tc.flatten(0), weight=self.empty_weight,
-        )
-        # All N queries participate in classification loss:
-        # matched queries → GT class (weight=1.0), unmatched → bg class (weight=eos_coef).
-
-    def _loss_box(self, pb, targets, indices):
-        bi, si = self._perm_idx(indices)
-        sb = pb[bi, si]
-        tb = torch.cat(
-            [t["boxes"][i.cpu()].to(pb.device) for t, (_, i) in zip(targets, indices)]
-        )
+    def _loss_box(self, pb: Tensor, targets: List[Dict], indices) -> Tuple[Tensor, Tensor]:
+        src_boxes, target_boxes = [], []
+        for b, (pred_idx, gt_idx) in enumerate(indices):
+            if pred_idx.numel() == 0:
+                continue
+            src_boxes.append(pb[b, pred_idx])
+            target_boxes.append(targets[b]["boxes"][gt_idx.cpu()].to(pb.device))
+        if not src_boxes:
+            zero = pb.new_zeros(())
+            return zero, zero
+        sb = torch.cat(src_boxes, dim=0)
+        tb = torch.cat(target_boxes, dim=0)
         l1 = F.l1_loss(sb, tb, reduction="sum")
         giou = (
             1
@@ -822,140 +938,90 @@ class USGCriterion(nn.Module):
         ).sum()
         return l1, giou
 
-    def _loss_rel(self, rl, rpc, targets, indices):
-        """Predicate classification loss.
-
-        Uses Hungarian matching indices to translate RPC query-pair indices
-        into GT object indices, then checks against GT relation annotations.
-        Fully vectorised ― no per-element Python loop.
-        """
-        import warnings
-
-        _, dev = len(targets), rl.device
-        total, n_pairs = torch.tensor(0.0, device=dev), 0
-        sub_idx = rpc["sub_idx"]  # (B, K): query indices [0..N-1]
+    def _build_relation_targets(self, rl: Tensor, rpc: Dict[str, Tensor], targets, indices):
+        B, K, P = rl.shape
+        _, N, _ = rpc["pair_confidence"].shape
+        device = rl.device
+        pair_gt = rl.new_zeros((B, N, N))
+        predicate_target = rl.new_zeros((B, K, P))
+        sub_idx = rpc["sub_idx"]
         obj_idx = rpc["obj_idx"]
 
-        for b, t in enumerate(targets):
-            rels = t.get("rel_annotations")
+        for b, target in enumerate(targets):
+            rels = target.get("rel_annotations")
             if rels is None or len(rels) == 0:
                 continue
 
-            # Build query→GT mapping from Hungarian matching
             pred_idx, gt_idx = indices[b]
-            q2g = torch.full((self.num_queries,), -1, dtype=torch.long, device=dev)
-            q2g[pred_idx] = gt_idx.to(dev)
+            q2g = torch.full((N,), -1, dtype=torch.long, device=device)
+            q2g[pred_idx.to(device)] = gt_idx.to(device)
+            gt2query = {
+                int(g): int(q)
+                for q, g in enumerate(q2g.detach().cpu().tolist())
+                if g >= 0
+            }
 
-            # Build (M, M) predicate lookup matrix from GT relations.
-            # Warn when the same (s, o) pair has multiple predicates
-            # (common in VG, e.g. "man wearing/has shirt") — our
-            # architecture predicts one predicate per pair, so only the
-            # last annotation is retained.
-            M = len(t["labels"])
-            pmat = torch.full((M, M), -1, dtype=torch.long, device=dev)
-            seen = {}
-            for s, o, p in rels:
-                key = (int(s), int(o))
-                if key in seen:
-                    warnings.warn(
-                        f"USG: duplicate (s={s}, o={o}) relation — "
-                        f"overwriting predicate {seen[key]} → {int(p)}. "
-                        f"Only the last predicate is retained per pair."
+            pair_preds: Dict[Tuple[int, int], set] = {}
+            rel_rows = rels.detach().cpu().tolist() if torch.is_tensor(rels) else rels
+            for s, o, p in rel_rows:
+                pred_label = _predicate_label_to_internal(int(p), P)
+                if pred_label is None:
+                    continue
+                qs = gt2query.get(int(s))
+                qo = gt2query.get(int(o))
+                if qs is None or qo is None:
+                    continue
+                pair_gt[b, qs, qo] = 1.0
+                pair_preds.setdefault((qs, qo), set()).add(pred_label)
+
+            for pair_pos in range(K):
+                preds = pair_preds.get(
+                    (
+                        int(sub_idx[b, pair_pos].item()),
+                        int(obj_idx[b, pair_pos].item()),
                     )
-                seen[key] = int(p)
-                pmat[s, o] = int(p)
+                )
+                if preds:
+                    for pred_label in preds:
+                        predicate_target[b, pair_pos, pred_label] = 1.0
 
-            # Vectorised lookup: map query indices → GT object indices → predicate
-            qs = sub_idx[b]  # (K,)
-            qo = obj_idx[b]  # (K,)
-            gs = q2g[qs]     # (K,)  — -1 for unmatched queries
-            go = q2g[qo]     # (K,)
+        return pair_gt, predicate_target
 
-            valid = (gs >= 0) & (go >= 0)
-            if not valid.any():
-                continue
-
-            # Gather predicates from the matrix for valid (gs, go) pairs
-            gs_v = gs[valid].long()
-            go_v = go[valid].long()
-            gt_preds = pmat[gs_v, go_v]  # (V,)  — -1 where no GT relation exists
-
-            keep = gt_preds >= 0
-            if not keep.any():
-                continue
-
-            # Map back: valid mask positions → K positions
-            valid_pos = valid.nonzero(as_tuple=False).squeeze(-1)  # (V,)
-            target_pos = valid_pos[keep]   # positions in [0..K-1]
-            gt_labels = gt_preds[keep]     # predicate labels
-
-            total += self.rel_ce(rl[b][target_pos], gt_labels)
-            n_pairs += keep.sum().item()
-
-        return total / max(n_pairs, 1)
-
-    def _loss_pair(self, rpc, targets, indices):
-        """Weighted BCE on pair confidence matrix.
-
-        The pair confidence matrix C (B, N, N) is indexed by query positions.
-        GT annotations use object indices (0..M-1).  We use the Hungarian
-        matching to build a per-sample object-index → query-index mapping,
-        then set C[b, q_s, q_o] = 1 for each (s, o) relation whose subject
-        and object are both matched to a query.
-        """
-        B, dev = len(targets), rpc["pair_confidence"].device
-        c = rpc["pair_confidence"]
-        _, N, _ = c.shape
-        tm = torch.zeros(B, N, N, device=dev)
-        for b, t in enumerate(targets):
-            rels = t.get("rel_annotations")
-            if rels is None or len(rels) == 0:
-                continue
-            # Hungarian: pred_idx → gt_idx (query index → object index)
-            pred_idx, gt_idx = indices[b]
-            if len(pred_idx) == 0:
-                continue
-            # invert: object index → first matched query index
-            # (a GT object may be matched to at most one query by Hungarian)
-            o2q = torch.full((len(t["labels"]),), -1, dtype=torch.long, device=dev)
-            o2q[gt_idx.to(dev)] = pred_idx.to(dev)
-            for r in rels:
-                s, o = int(r[0]), int(r[1])
-                if s < len(o2q) and o < len(o2q):
-                    qs, qo = o2q[s].item(), o2q[o].item()
-                    if qs >= 0 and qo >= 0:
-                        tm[b, qs, qo] = 1.0
-        pos = tm.sum().clamp_min(1.0)
-        neg = tm.numel() - pos
-        pw = max(neg / pos, 1.0)
-        return F.binary_cross_entropy_with_logits(
-            c, tm, pos_weight=c.new_tensor([pw]).float(), reduction="mean"
+    def _loss_relation_and_pair(self, rl: Tensor, rpc: Dict[str, Tensor], targets, indices):
+        pair_gt, predicate_target = self._build_relation_targets(rl, rpc, targets, indices)
+        l_rcls = F.binary_cross_entropy_with_logits(rl, predicate_target.float())
+        l_pair = F.binary_cross_entropy_with_logits(
+            rpc["pair_confidence"],
+            pair_gt.float(),
+            pos_weight=_auto_pos_weight(pair_gt),
         )
+        return l_rcls, l_pair
 
     def forward(self, outputs, targets):
         cl = outputs.get("class_logits", outputs["pred_logits"])
-        pb, rl, rpc = (
-            outputs["pred_boxes"],
-            outputs["rel_logits"],
-            outputs["rpc_output"],
-        )
+        pb = outputs["pred_boxes"]
+        rl = outputs["rel_logits"]
+        rpc = outputs["rpc_output"]
+
         indices = self.matcher(cl, pb, targets)
         nb = max(sum(len(t["labels"]) for t in targets), 1)
-        l_cls = self._loss_cls(cl, targets, indices) / nb
+
+        l_cls = self._loss_cls(cl, targets, indices)
         l_l1, l_giou = self._loss_box(pb, targets, indices)
         l_l1, l_giou = l_l1 / nb, l_giou / nb
-        l_rel = self._loss_rel(rl, rpc, targets, indices)
-        l_pair = self._loss_pair(rpc, targets, indices)
+        l_rcls, l_pair = self._loss_relation_and_pair(rl, rpc, targets, indices)
+        l_rel = l_rcls + self.p_coef * l_pair
+
         return {
             "loss_total": self.c_coef * l_cls
             + self.b_coef * l_l1
             + self.g_coef * l_giou
-            + self.r_coef * l_rel
-            + self.p_coef * l_pair,
+            + self.r_coef * l_rel,
             "loss_obj_cls": l_cls,
             "loss_l1": l_l1,
             "loss_giou": l_giou,
             "loss_rel": l_rel,
+            "loss_rel_cls": l_rcls,
             "loss_pair": l_pair,
         }
 
@@ -999,9 +1065,78 @@ class _ResNetBackbone(nn.Module):
 # ==============================================================================
 
 
+def _candidate_vg_roots(args) -> List[str]:
+    data_root = getattr(args, "data_root", "./data")
+    dataname = getattr(args, "dataname", "VisualGenome")
+    roots = [
+        os.path.join(data_root, dataname),
+        os.path.join(data_root, "VisualGenome"),
+        data_root,
+    ]
+    seen, out = set(), []
+    for root in roots:
+        norm = os.path.normpath(root)
+        if norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+    return out
+
+
+def _load_vg_object_class_names(args, num_object_classes: int) -> Optional[List[str]]:
+    explicit = getattr(args, "usg_class_names_path", None)
+    paths = [explicit] if explicit else []
+    paths.extend(os.path.join(root, "train.json") for root in _candidate_vg_roots(args))
+    for path in paths:
+        if not path or not os.path.isfile(path):
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            ann = json.load(f)
+        categories = ann.get("categories", [])
+        by_id = {int(c["id"]): c["name"] for c in categories if "id" in c and "name" in c}
+        names = [by_id.get(i) for i in range(1, num_object_classes + 1)]
+        if all(names):
+            print(f"[USG] Loaded {len(names)} VG object names from {path}")
+            return names
+    print("[USG] VG object names not found; detection head will learn class embeddings.")
+    return None
+
+
+@torch.no_grad()
+def _build_class_text_embeddings(
+    args,
+    clip_model: Optional[nn.Module],
+    clip_model_name: str,
+    num_object_classes: int,
+) -> Optional[Tensor]:
+    """Build official-style frozen class-name embeddings with OpenCLIP."""
+    if clip_model is None or not hasattr(clip_model, "encode_text"):
+        return None
+    names = _load_vg_object_class_names(args, num_object_classes)
+    if not names:
+        return None
+    try:
+        import open_clip
+
+        tokenizer = open_clip.get_tokenizer(clip_model_name)
+        device = next(clip_model.parameters()).device
+        clip_model.eval()
+        token_ids = tokenizer(names).to(device)
+        emb = clip_model.encode_text(token_ids).float().detach().cpu()
+        print(f"[USG] Built OpenCLIP class text embeddings: {tuple(emb.shape)}")
+        return emb
+    except Exception as exc:
+        print(f"[USG] Failed to build class text embeddings: {exc}")
+        return None
+
+
 def build_usg(args):
     num_classes = getattr(args, "entity_nums", 151)
-    num_predicates = getattr(args, "rel_nums", 51)
+    rel_nums = getattr(args, "rel_nums", 51)
+    num_predicates = getattr(
+        args,
+        "usg_num_predicates",
+        rel_nums - 1 if rel_nums is not None and rel_nums > 50 else rel_nums,
+    )
     hidden_dim = getattr(args, "hidden_dim", 256)
     num_queries = getattr(args, "num_queries", 100)
     mask_decoder_layers = getattr(args, "mask_decoder_layers", 9)
@@ -1046,6 +1181,13 @@ def build_usg(args):
     else:
         backbone = _ResNetBackbone(freeze=freeze_backbone)
 
+    class_text_embeddings = _build_class_text_embeddings(
+        args,
+        clip_model,
+        clip_model_name,
+        max(num_classes - 1, 1),
+    )
+
     # Build pixel decoder
     pixel_decoder = PixelDecoder(
         in_channels=backbone.out_channels,
@@ -1069,17 +1211,18 @@ def build_usg(args):
         ffn_dim=ffn_dim,
         top_k=top_k,
         dropout=dropout,
+        class_text_embeddings=class_text_embeddings,
     )
 
     criterion = USGCriterion(
         num_classes=num_classes,
         num_predicates=num_predicates,
         num_queries=num_queries,
-        class_loss_coef=getattr(args, "class_loss_coef", 2.0),
+        class_loss_coef=getattr(args, "class_loss_coef", 1.0),
         bbox_loss_coef=getattr(args, "bbox_loss_coef", 5.0),
         giou_loss_coef=getattr(args, "giou_loss_coef", 2.0),
         rel_loss_coef=getattr(args, "rel_loss_coef", 0.8),
-        pair_loss_coef=getattr(args, "pair_loss_coef", 0.5),
+        pair_loss_coef=getattr(args, "pair_loss_coef", 1.0),
         eos_coef=getattr(args, "eos_coef", 0.1),
     )
 
