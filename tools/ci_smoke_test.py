@@ -54,6 +54,29 @@ CONFIG_NAME_ALIASES: Dict[str, str] = {
     "ra_sgg_sgdet": "ra_sgg",
 }
 
+# Mapping from method_maps keys (lowercase) to train.py --method choices
+# (PascalCase / mixed-case).  The method_maps registry and config files
+# use lowercase keys, but train.py's argparse expects the display names.
+METHOD_PARSER_CHOICES: Dict[str, str] = {
+    "cvc": "CVC",
+    "egtr": "EGTR",
+    "flowsg": "FlowSG",
+    "gpsnet": "GPSNet",
+    "hstrnet": "HSTRNet",
+    "imp": "IMP",
+    "motifs": "Motifs",
+    "penet": "PENet",
+    "ra_sgg": "RA_SGG",
+    "react": "REACT",
+    "reltr": "RelTR",
+    "shagcl": "SHAGCL",
+    "squat": "SQUAT",
+    "tde": "TDE",
+    "transformer": "Transformer",
+    "usg": "USG",
+    "vctree": "VCTree",
+}
+
 
 def _resolve_config_key(method_name: str) -> str:
     """Map a method or config filename stem to the canonical method_maps key.
@@ -434,11 +457,14 @@ def detect_changed_methods(changed_files_str: str) -> List[str]:
 
 def run_minimal_train(method_name: str) -> Tuple[bool, str]:
     """Run train.py with minimal settings on CPU as a subprocess."""
+    # Map lowercase method_maps key to train.py argparse choice
+    parser_name = METHOD_PARSER_CHOICES.get(method_name, method_name)
+
     cmd = [
         sys.executable,
         str(ROOT / "train.py"),
         "--method",
-        method_name,
+        parser_name,
         "--dataname",
         "VisualGenome",
         "--dataset_size",
@@ -457,6 +483,10 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str]:
         "cpu",
         "--gpus",
         "0",
+        "--opt",
+        "adam",
+        "--sched",
+        "onecycle",
         "--overwrite",
         "--ex_name",
         f"CI_Smoke_{method_name}",
