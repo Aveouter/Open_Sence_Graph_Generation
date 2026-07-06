@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import warnings
 from typing import Optional, Dict, List, Tuple
 
 import torch
@@ -776,10 +777,16 @@ def _object_labels_to_usg_internal(labels: Tensor, num_classes: int) -> Tensor:
 
 def _predicate_label_to_internal(label: int, num_predicates: int) -> Optional[int]:
     """Map OpenSGG VG predicates (1..50) to official USG foreground ids (0..49)."""
+    if label == 0:
+        warnings.warn(
+            "USG predicate label 0 is ambiguous under OpenSGG/VG conventions and "
+            "will be treated as background/invalid, not foreground class 0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
     if 1 <= label <= num_predicates:
         return label - 1
-    if 0 <= label < num_predicates:
-        return label
     return None
 
 

@@ -283,6 +283,11 @@ def _resolve_task_support(
                     f"Skipped: {', '.join(unsupported)}."
                 )
             return supported, warnings, matched_family
+        missing = sorted(required_keys - pred_keys)
+        warnings.append(
+            f"[metric] model_family='{declared_family}' is declared but required "
+            f"keys are missing: {missing}. Falling back to schema inference."
+        )
 
     for family, required_keys in _MODEL_SCHEMAS.items():
         if required_keys.issubset(pred_keys):
@@ -1281,10 +1286,13 @@ def _extract_relation_scores(
                 rel_scores = torch.sigmoid(rel_logits[:, :rel_nums])
         elif dim == rel_nums:
             rel_scores = torch.sigmoid(rel_logits)
+        elif dim == rel_nums - 1:
+            # USG uses foreground-only predicates when rel_nums includes background.
+            rel_scores = torch.sigmoid(rel_logits)
         else:
             raise ValueError(
                 f"rel_logits dim mismatch: got {dim}, expected {rel_nums}, "
-                f"{rel_nums + 1}, or {rel_nums + 2}"
+                f"{rel_nums - 1}, {rel_nums + 1}, or {rel_nums + 2}"
             )
         return rel_scores.detach().cpu().numpy()
 
