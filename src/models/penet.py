@@ -167,8 +167,8 @@ def _load_word_vectors(root: str, wv_type: str, dim: int | str):
         return None
 
     # Parse text format
-    wv_dict: dict = {}
-    # Infer dim from first line if needed
+    wv_dict: dict = {}   # {word: integer_index}
+    word_list = []        # [vec1, vec2, ...] — matched by index
     int_dim = int(dim.replace("d", ""))
     for line in lines:
         parts = line.rstrip().split(b" ")
@@ -182,12 +182,13 @@ def _load_word_vectors(root: str, wv_type: str, dim: int | str):
         vec = torch.tensor([float(x) for x in parts[1:]], dtype=torch.float32)
         if vec.numel() != int_dim:
             continue
-        wv_dict[word] = vec
+        wv_dict[word] = len(word_list)
+        word_list.append(vec)
 
     if not wv_dict:
         return None
 
-    wv_arr = torch.stack(list(wv_dict.values()))
+    wv_arr = torch.stack(word_list)
     return wv_dict, wv_arr, wv_arr.size(0)
 
 
