@@ -156,8 +156,10 @@ def metric(
             rel_nums=rel_nums,
         )
 
-    # Motifs family: PredCLS evaluation using direct pair_indices -> GT relation mapping
-    if matched_family in {"motifs", "cvc"} and "predcls" in supported_tasks:
+    # Motifs / CVC family: predicate evaluation for all three protocols.
+    # The evaluation logic (pair_indices → GT rel_annotations mapping) is
+    # the same regardless of whether object labels are GT or predicted.
+    if matched_family in {"motifs", "cvc"} and {"predcls", "sgcls", "sgdet"} & set(supported_tasks):
         _evaluate_predcls_batch_pair_indices(
             outputs=pred,
             targets=true,
@@ -234,7 +236,7 @@ _MODEL_TASKS = {
     "hstrnet": {"predcls"},
     "egtr_compact": {"predcls", "sgdet"},
     "egtr": {"predcls"},
-    "motifs": {"predcls"},
+    "motifs": {"predcls", "sgcls", "sgdet"},
     "cvc": {"predcls"},
 }
 
@@ -403,7 +405,7 @@ def _evaluate_predcls_batch(
     truth information to the matched triplet proposals when evaluating RelTR
     on PredCLS/SGCLS."
     """
-    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+    from utils.box_ops import box_iou, rescale_bboxes
 
     for i, target in enumerate(targets):
         _validate_target(target)
@@ -490,12 +492,9 @@ def _evaluate_predcls_batch(
 
         pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -525,7 +524,7 @@ def _evaluate_sgcls_batch(
     queries, then evaluates the model's class + predicate predictions.
     Falls back to IoU-based matching when Hungarian indices are not available.
     """
-    from utils.box_ops import box_cxcywh_to_xyxy, box_iou, rescale_bboxes
+    from utils.box_ops import box_iou, rescale_bboxes
 
     for i, target in enumerate(targets):
         _validate_target(target)
@@ -778,12 +777,9 @@ def _evaluate_predcls_batch_hstrnet(
         pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
 
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -927,12 +923,9 @@ def _evaluate_predcls_batch_egtr(
         }
 
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)
@@ -1186,12 +1179,9 @@ def _evaluate_predcls_batch_pair_indices(
 
         pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
-            if "predcls" in task_eval_key:
-                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            if "predcls" not in task_mr_key:
-                continue
             gt_rel_labels = gt_relations[:, 2]
             for rel_id in range(1, rel_nums + 1):
                 gt_mask = (gt_rel_labels == rel_id)

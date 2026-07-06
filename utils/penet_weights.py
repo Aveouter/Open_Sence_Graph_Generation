@@ -11,6 +11,7 @@ Matches the official VL-Group/PENET pretraining chain:
 
   The PENet relation predictor is trained from scratch — NOT loaded.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,6 +27,7 @@ import torchvision
 # Key-mapping tables
 # =========================================================================
 
+
 def _fpn_key_map_official_to_ours() -> Dict[str, str]:
     """Map official maskrcnn-benchmark FPN keys → our ``FPNNeck`` keys.
 
@@ -38,10 +40,18 @@ def _fpn_key_map_official_to_ours() -> Dict[str, str]:
     """
     mapping = {}
     for i in range(4):
-        mapping[f"backbone.fpn.fpn_inner{i+1}.weight"] = f"_fpn.inner_blocks.{i}.conv.weight"
-        mapping[f"backbone.fpn.fpn_inner{i+1}.bias"] = f"_fpn.inner_blocks.{i}.conv.bias"
-        mapping[f"backbone.fpn.fpn_layer{i+1}.weight"] = f"_fpn.layer_blocks.{i}.conv.weight"
-        mapping[f"backbone.fpn.fpn_layer{i+1}.bias"] = f"_fpn.layer_blocks.{i}.conv.bias"
+        mapping[f"backbone.fpn.fpn_inner{i + 1}.weight"] = (
+            f"_fpn.inner_blocks.{i}.conv.weight"
+        )
+        mapping[f"backbone.fpn.fpn_inner{i + 1}.bias"] = (
+            f"_fpn.inner_blocks.{i}.conv.bias"
+        )
+        mapping[f"backbone.fpn.fpn_layer{i + 1}.weight"] = (
+            f"_fpn.layer_blocks.{i}.conv.weight"
+        )
+        mapping[f"backbone.fpn.fpn_layer{i + 1}.bias"] = (
+            f"_fpn.layer_blocks.{i}.conv.bias"
+        )
     return mapping
 
 
@@ -59,13 +69,14 @@ def _box_head_key_map_official_to_ours() -> Dict[str, str]:
     }
 
 
-
-
 # =========================================================================
 # Helpers
 # =========================================================================
 
-def _strip_module_prefix(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+
+def _strip_module_prefix(
+    state_dict: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
     """Remove leading ``module.`` prefix added by DataParallel / DDP."""
     stripped = {}
     for k, v in state_dict.items():
@@ -189,7 +200,10 @@ def load_detector_checkpoint(
 
     # 1) Backbone: direct key match (official uses same torchvision resnet keys)
     counts["backbone"] = _transfer_weights(
-        sd, {"": backbone}, {}, strict=False,
+        sd,
+        {"": backbone},
+        {},
+        strict=False,
     )
 
     # 2) FPN: official naming → ours
@@ -199,7 +213,10 @@ def load_detector_checkpoint(
     # 3) Box head fc6/fc7
     box_map = _box_head_key_map_official_to_ours()
     counts["box_extractor"] = _transfer_weights(
-        sd, {"_box_extractor": box_extractor}, box_map, strict=False,
+        sd,
+        {"_box_extractor": box_extractor},
+        box_map,
+        strict=False,
     )
 
     return counts
@@ -238,29 +255,40 @@ def load_all_pretrained(
     if detector_ckpt is not None and os.path.isfile(detector_ckpt):
         print(f"[weights] Loading official detector checkpoint: {detector_ckpt}")
         det_counts = load_detector_checkpoint(
-            backbone, fpn, box_extractor, detector_ckpt,
+            backbone,
+            fpn,
+            box_extractor,
+            detector_ckpt,
         )
         for k, v in det_counts.items():
             counts[f"detector_{k}"] = v
             print(f"[weights]   {k}: {v} params loaded (overrides previous)")
     elif detector_ckpt is not None:
         print(f"[weights] WARNING: detector checkpoint not found: {detector_ckpt}")
-        print(f"[weights]   FPN and box-head will use kaiming_init.")
+        print("[weights]   FPN and box-head will use kaiming_init.")
 
     # ── Summary ──
     have_detector = detector_ckpt is not None and os.path.isfile(detector_ckpt)
     print("[weights] ─────────────────────────────────────────────")
     print("[weights] Weight initialization summary:")
-    print(f"[weights]   Backbone   ← ImageNet (torchvision{' + detector ckpt' if have_detector else ''})")
-    print(f"[weights]   FPN        ← {'COCO (detector ckpt)' if have_detector else 'kaiming_init (needs detector ckpt)'}")
-    print(f"[weights]   Box fc6/fc7← {'COCO (detector ckpt)' if have_detector else 'kaiming_init (needs detector ckpt)'}")
+    print(
+        f"[weights]   Backbone   ← ImageNet (torchvision{' + detector ckpt' if have_detector else ''})"
+    )
+    print(
+        f"[weights]   FPN        ← {'COCO (detector ckpt)' if have_detector else 'kaiming_init (needs detector ckpt)'}"
+    )
+    print(
+        f"[weights]   Box fc6/fc7← {'COCO (detector ckpt)' if have_detector else 'kaiming_init (needs detector ckpt)'}"
+    )
     print("[weights]   Union ext  ← kaiming_init (trained from scratch)")
     print("[weights]   PENet model← kaiming_init (trained from scratch)")
     if not have_detector:
         print("[weights] ─────────────────────────────────────────────")
         print("[weights] To load FPN + box-head COCO pretrained weights:")
         print("[weights]   1. Download pretrained_faster_rcnn/model_final.pth")
-        print("[weights]      from the official PENet repo (Google Drive link in README)")
+        print(
+            "[weights]      from the official PENet repo (Google Drive link in README)"
+        )
         print("[weights]   2. Set penet_detector_ckpt to the file path in PE_NET.py")
     print("[weights] ─────────────────────────────────────────────")
 

@@ -7,8 +7,11 @@ import torch
 
 from src.methods import method_maps
 from src.models.penet import (
-    PENetContext, build_penet, fusion_func, _make_fc, _encode_box_info,
-    _nms_overlaps, _obj_edge_vectors, _VG_OBJECT_NAMES,
+    PENetContext,
+    build_penet,
+    fusion_func,
+    _make_fc,
+    _nms_overlaps,
 )
 
 
@@ -23,13 +26,19 @@ class PENetArchitectureTest(unittest.TestCase):
         """Builder defaults to official hyperparameters."""
         model = build_penet(
             SimpleNamespace(
-                entity_nums=151, rel_nums=51,
-                visual_dim=4096, hidden_dim=2048,
-                penet_embed_dim=300, penet_pooling_dim=4096,
+                entity_nums=151,
+                rel_nums=51,
+                visual_dim=4096,
+                hidden_dim=2048,
+                penet_embed_dim=300,
+                penet_pooling_dim=4096,
                 penet_context_hidden_dim=512,
-                glove_dir=None, use_freq_bias=False,
-                dropout=0.2, penet_nms_thresh=0.5,
-                penet_train_pairs=512, penet_pos_frac=0.25,
+                glove_dir=None,
+                use_freq_bias=False,
+                dropout=0.2,
+                penet_nms_thresh=0.5,
+                penet_train_pairs=512,
+                penet_pos_frac=0.25,
             )
         )
         self.assertIsInstance(model, PENetContext)
@@ -46,13 +55,18 @@ class PENetArchitectureTest(unittest.TestCase):
         """Small dims for fast tests."""
         model = build_penet(
             SimpleNamespace(
-                entity_nums=151, rel_nums=51,
-                visual_dim=64, hidden_dim=32,
-                penet_embed_dim=8, penet_pooling_dim=128,
+                entity_nums=151,
+                rel_nums=51,
+                visual_dim=64,
+                hidden_dim=32,
+                penet_embed_dim=8,
+                penet_pooling_dim=128,
                 penet_context_hidden_dim=16,
-                use_freq_bias=False, dropout=0.0,
+                use_freq_bias=False,
+                dropout=0.0,
                 penet_nms_thresh=0.5,
-                penet_train_pairs=512, penet_pos_frac=0.25,
+                penet_train_pairs=512,
+                penet_pos_frac=0.25,
             )
         )
         self.assertEqual(model.mlp_dim, 32)
@@ -61,10 +75,15 @@ class PENetArchitectureTest(unittest.TestCase):
     def test_weight_init_is_kaiming_uniform(self) -> None:
         """Linear layers use kaiming_uniform_ (matching make_fc)."""
         model = PENetContext(
-            num_classes=151, num_predicates=51,
-            visual_dim=64, hidden_dim=32, context_hidden_dim=16,
-            embed_dim=8, pooling_dim=128,
-            use_freq_bias=False, dropout=0.0,
+            num_classes=151,
+            num_predicates=51,
+            visual_dim=64,
+            hidden_dim=32,
+            context_hidden_dim=16,
+            embed_dim=8,
+            pooling_dim=128,
+            use_freq_bias=False,
+            dropout=0.0,
         )
         for name, layer in [
             ("post_emb", model.post_emb),
@@ -81,10 +100,15 @@ class PENetArchitectureTest(unittest.TestCase):
     def test_out_obj_dimensions(self) -> None:
         """out_obj: Linear(context_hidden_dim=512, num_classes=151)."""
         model = PENetContext(
-            num_classes=151, num_predicates=51,
-            visual_dim=4096, hidden_dim=2048, context_hidden_dim=512,
-            embed_dim=300, pooling_dim=4096,
-            use_freq_bias=False, dropout=0.0,
+            num_classes=151,
+            num_predicates=51,
+            visual_dim=4096,
+            hidden_dim=2048,
+            context_hidden_dim=512,
+            embed_dim=300,
+            pooling_dim=4096,
+            use_freq_bias=False,
+            dropout=0.0,
         )
         self.assertIsInstance(model.out_obj, torch.nn.Linear)
         self.assertEqual(model.out_obj.weight.shape, (151, 512))
@@ -96,10 +120,15 @@ class PENetArchitectureTest(unittest.TestCase):
     def test_post_emb_dimensions(self) -> None:
         """post_emb: Linear(4096, 4096) matching official obj_dim=4096."""
         model = PENetContext(
-            num_classes=151, num_predicates=51,
-            visual_dim=4096, hidden_dim=2048, context_hidden_dim=512,
-            embed_dim=300, pooling_dim=4096,
-            use_freq_bias=False, dropout=0.0,
+            num_classes=151,
+            num_predicates=51,
+            visual_dim=4096,
+            hidden_dim=2048,
+            context_hidden_dim=512,
+            embed_dim=300,
+            pooling_dim=4096,
+            use_freq_bias=False,
+            dropout=0.0,
         )
         self.assertEqual(model.post_emb.weight.shape, (4096, 4096))
         # forward splits to [N, 2, 2048]
@@ -114,10 +143,15 @@ class PENetForwardTest(unittest.TestCase):
 
     def _make_model(self, **overrides) -> PENetContext:
         kw = dict(
-            num_classes=151, num_predicates=51,
-            visual_dim=64, hidden_dim=32, context_hidden_dim=16,
-            embed_dim=8, pooling_dim=128,
-            use_freq_bias=False, dropout=0.0,
+            num_classes=151,
+            num_predicates=51,
+            visual_dim=64,
+            hidden_dim=32,
+            context_hidden_dim=16,
+            embed_dim=8,
+            pooling_dim=128,
+            use_freq_bias=False,
+            dropout=0.0,
         )
         kw.update(overrides)
         return PENetContext(**kw)
@@ -179,7 +213,9 @@ class PENetForwardTest(unittest.TestCase):
         boxes = torch.rand(5, 4)
         labels = torch.randint(1, 151, (5,))
         outputs = model(
-            visual_feats, boxes, labels,
+            visual_feats,
+            boxes,
+            labels,
             rel_annotations=torch.tensor([[0, 1, 10]]),
         )
         self.assertEqual(outputs["add_losses"], {})
@@ -220,11 +256,14 @@ class PENetForwardTest(unittest.TestCase):
         self.assertEqual(fc.bias.shape, (32,))
 
     def test_nms_overlaps(self) -> None:
-        boxes = torch.tensor([
-            [[0, 0, 100, 100]],
-            [[50, 50, 150, 150]],
-            [[200, 200, 300, 300]],
-        ], dtype=torch.float32)
+        boxes = torch.tensor(
+            [
+                [[0, 0, 100, 100]],
+                [[50, 50, 150, 150]],
+                [[200, 200, 300, 300]],
+            ],
+            dtype=torch.float32,
+        )
         iou = _nms_overlaps(boxes)
         self.assertEqual(iou.shape, (3, 3, 1))
         self.assertAlmostEqual(iou[0, 0, 0].item(), 1.0, places=4)
@@ -249,7 +288,9 @@ class PENetForwardTest(unittest.TestCase):
         obj_dists = torch.randn(5, 151)
         boxes_per_cls = torch.rand(5, 151, 4) * 100
         outputs = model(
-            visual_feats, boxes, labels,
+            visual_feats,
+            boxes,
+            labels,
             return_obj_preds=True,
             obj_dists=obj_dists,
             boxes_per_cls=boxes_per_cls,
@@ -285,8 +326,7 @@ class PENetForwardTest(unittest.TestCase):
         boxes = torch.rand(5, 4)
         labels = torch.randint(1, 151, (5,))
         union_feats = torch.randn(20, 128)
-        out = model(visual_feats, boxes, labels,
-                    precomputed_union_feats=union_feats)
+        out = model(visual_feats, boxes, labels, precomputed_union_feats=union_feats)
         self.assertEqual(out["rel_logits"].shape, (20, 51))
 
     def test_external_union_fn(self) -> None:
@@ -306,10 +346,12 @@ class PENetForwardTest(unittest.TestCase):
             return torch.randn(P, 128)
 
         out = model(
-            visual_feats, boxes, labels,
+            visual_feats,
+            boxes,
+            labels,
             _compute_union_fn=fake_union_fn,
             _fpn_features=feature_maps,
-            _image_size=torch.tensor([256., 384.]),
+            _image_size=torch.tensor([256.0, 384.0]),
         )
         self.assertEqual(out["rel_logits"].shape, (20, 51))
 

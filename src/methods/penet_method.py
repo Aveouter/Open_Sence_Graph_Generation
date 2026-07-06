@@ -6,24 +6,22 @@ Fully aligned with official VL-Group/PENET pipeline:
     → PrototypeEmbeddingNetwork → predicate logits + proto losses
 
 Weight loading (matching official pretraining chain):
-  1. Backbone  ← torchvision ImageNet (ResNeXt101_32X8D_Weights.IMAGENET1K_V2)
-  2. FPN       ← torchvision COCO Faster R-CNN ResNet50 FPN (= official architecture)
-  3. Box head  ← official pretrained_faster_rcnn/model_final.pth (4096-dim fc6/fc7)
-                 (torchvision's fc6/fc7 are 1024-dim, incompatible; skipped)
-  4. PENet     ← official trained checkpoint (PE-NET_PredCls/model_final.pth)
+  1. Backbone  ← torchvision ImageNet
+  2. FPN + Box head ← official detector checkpoint (if provided), else kaiming_init
+  3. PENet model ← trained from scratch (kaiming_init)
 """
+
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 from .motifs_method import Motifs_Method, MotifsCriterion
 from src.models.backbone import (
-    PENetBoxFeatureExtractor, PENetUnionFeatureExtractor,
-    ResNetBackbone, FPNNeck, FPNPooler,
+    PENetBoxFeatureExtractor,
+    PENetUnionFeatureExtractor,
+    ResNetBackbone,
+    FPNNeck,
 )
 from src.models.penet import build_penet
 from utils.penet_weights import load_all_pretrained
@@ -67,12 +65,14 @@ class PENet_Method(Motifs_Method):
 
         # 3) Box extractor
         self._box_extractor = PENetBoxFeatureExtractor(
-            roi_output_size=roi_size, representation_size=4096,
+            roi_output_size=roi_size,
+            representation_size=4096,
         )
 
         # 4) Union extractor (always trained from scratch)
         self._union_extractor = PENetUnionFeatureExtractor(
-            roi_output_size=roi_size, representation_size=4096,
+            roi_output_size=roi_size,
+            representation_size=4096,
         )
 
         # ── Load pretrained backbone + FPN + box-head (detector) weights ──
@@ -100,14 +100,18 @@ class PENet_Method(Motifs_Method):
 
         if not hasattr(self, "_backbone") or self._backbone is None:
             return [
-                {"roi_feats": self._visual_extractor(lab.to(self.device)),
-                 "fpn_features": None}
+                {
+                    "roi_feats": self._visual_extractor(lab.to(self.device)),
+                    "fpn_features": None,
+                }
                 for lab in labels_list
             ]
 
         images = self._image_list_from_batch(images)
         if len(images) != len(boxes_list):
-            raise ValueError(f"PENet: {len(images)} images vs {len(boxes_list)} targets")
+            raise ValueError(
+                f"PENet: {len(images)} images vs {len(boxes_list)} targets"
+            )
         device = next(self._backbone.parameters()).device
         images = [img.to(device) for img in images]
         box_dev = [b.to(device) for b in boxes_list]
@@ -115,7 +119,9 @@ class PENet_Method(Motifs_Method):
         cropped = []
         for img, size in zip(images, image_sizes):
             if size is None:
-                size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
+                size = torch.as_tensor(
+                    img.shape[-2:], dtype=torch.float32, device=device
+                )
             elif torch.is_tensor(size):
                 size = size.to(device)
             else:
@@ -142,10 +148,12 @@ class PENet_Method(Motifs_Method):
             # Box features via FPN pooler
             roi_feats = self._box_extractor(fpn_features, boxes, sz)
 
-            results.append({
-                "roi_feats": roi_feats,
-                "fpn_features": fpn_features,
-            })
+            results.append(
+                {
+                    "roi_feats": roi_feats,
+                    "fpn_features": fpn_features,
+                }
+            )
 
         return results
 
@@ -179,15 +187,21 @@ class PENet_Method(Motifs_Method):
         if is_training or targets is not None:
             all_outputs = []
             if targets is None:
-                targets = [{}] * (len(images) if isinstance(images, list) else images.size(0))
+                targets = [{}] * (
+                    len(images) if isinstance(images, list) else images.size(0)
+                )
 
             boxes_list = [t["boxes"] for t in targets]
             labels_list = [t["labels"] for t in targets]
             image_sizes = [t.get("size", t.get("orig_size")) for t in targets]
 
-            vis_results = self._extract_features(images, boxes_list, labels_list, image_sizes)
+            vis_results = self._extract_features(
+                images, boxes_list, labels_list, image_sizes
+            )
 
-            for i, (box, lab, sz) in enumerate(zip(boxes_list, labels_list, image_sizes)):
+            for i, (box, lab, sz) in enumerate(
+                zip(boxes_list, labels_list, image_sizes)
+            ):
                 r = vis_results[i]
                 roi_feats, fpn_feats = r["roi_feats"], r["fpn_features"]
 
@@ -198,8 +212,9 @@ class PENet_Method(Motifs_Method):
                 extra["_fpn_features"] = fpn_feats
                 extra["_image_size"] = sz
 
-                out = self.model(roi_feats, box, lab,
-                                 return_obj_preds=return_obj_preds, **extra)
+                out = self.model(
+                    roi_feats, box, lab, return_obj_preds=return_obj_preds, **extra
+                )
                 all_outputs.append(out)
 
             batched = {
@@ -209,7 +224,9 @@ class PENet_Method(Motifs_Method):
                 "obj_boxes": [o["obj_boxes"] for o in all_outputs],
                 "obj_labels": [o["obj_labels"] for o in all_outputs],
                 "predicate_bg_index": all_outputs[0].get("predicate_bg_index"),
-                "relation_softmax_scope": all_outputs[0].get("relation_softmax_scope", "all"),
+                "relation_softmax_scope": all_outputs[0].get(
+                    "relation_softmax_scope", "all"
+                ),
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]
@@ -221,7 +238,8 @@ class PENet_Method(Motifs_Method):
             if add_losses:
                 batched["add_losses"] = {
                     name: torch.stack(values).mean()
-                    if all(torch.is_tensor(v) for v in values) else values
+                    if all(torch.is_tensor(v) for v in values)
+                    else values
                     for name, values in add_losses.items()
                 }
 

@@ -34,9 +34,9 @@ Integration with OpenSGG:
   - Feature maps are passed through for union feature computation
   - rel_annotations are matched to pairs for prototype losses
 """
+
 from __future__ import annotations
 
-import math
 import os
 import zipfile
 from typing import Optional
@@ -53,10 +53,13 @@ from .motifs import FrequencyBias, generate_object_pairs
 # MLP — exact match of official class
 # =========================================================================
 
+
 class MLP(nn.Module):
     """Matches official ``MLP`` in roi_relation_predictors.py exactly."""
 
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, num_layers: int):
+    def __init__(
+        self, input_dim: int, hidden_dim: int, output_dim: int, num_layers: int
+    ):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
@@ -74,6 +77,7 @@ class MLP(nn.Module):
 # Fusion function — exact match
 # =========================================================================
 
+
 def fusion_func(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """F(s, o) = ReLU(s + o) - (s - o)^2  (official)."""
     return F.relu(x + y) - (x - y) ** 2
@@ -82,6 +86,7 @@ def fusion_func(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 # =========================================================================
 # make_fc — matches official maskrcnn_benchmark make_fc
 # =========================================================================
+
 
 def _make_fc(dim_in: int, hidden_dim: int) -> nn.Linear:
     """Create Linear with kaiming_uniform_ init matching official ``make_fc``."""
@@ -94,6 +99,7 @@ def _make_fc(dim_in: int, hidden_dim: int) -> nn.Linear:
 # =========================================================================
 # nms_overlaps — exact match of official utils_relation.nms_overlaps
 # =========================================================================
+
 
 def _nms_overlaps(boxes: torch.Tensor) -> torch.Tensor:
     """Get per-class IoU overlaps matching official ``nms_overlaps`` exactly.
@@ -126,6 +132,7 @@ def _nms_overlaps(boxes: torch.Tensor) -> torch.Tensor:
 # =========================================================================
 # GloVe loading — exact match of official obj_edge_vectors / rel_vectors
 # =========================================================================
+
 
 def _load_word_vectors(root: str, wv_type: str, dim: int | str):
     """Load word vectors matching official ``load_word_vectors``.
@@ -249,35 +256,205 @@ def _rel_vectors(
 
 _VG_PREDICATE_NAMES = [
     "__no_relation__",
-    "above", "across", "against", "along", "and", "at", "attached to", "behind",
-    "belonging to", "between", "carrying", "covered in", "covering", "eating",
-    "flying in", "for", "from", "growing on", "hanging from", "has", "holding",
-    "in", "in front of", "laying on", "looking at", "lying on", "made of",
-    "mounted on", "near", "of", "on", "on back of", "over", "painted on",
-    "parked on", "part of", "playing", "riding", "says", "sitting on",
-    "skiing on", "standing on", "surfing on", "to", "under", "using",
-    "walking in", "walking on", "watching", "wearing", "wears", "with",
+    "above",
+    "across",
+    "against",
+    "along",
+    "and",
+    "at",
+    "attached to",
+    "behind",
+    "belonging to",
+    "between",
+    "carrying",
+    "covered in",
+    "covering",
+    "eating",
+    "flying in",
+    "for",
+    "from",
+    "growing on",
+    "hanging from",
+    "has",
+    "holding",
+    "in",
+    "in front of",
+    "laying on",
+    "looking at",
+    "lying on",
+    "made of",
+    "mounted on",
+    "near",
+    "of",
+    "on",
+    "on back of",
+    "over",
+    "painted on",
+    "parked on",
+    "part of",
+    "playing",
+    "riding",
+    "says",
+    "sitting on",
+    "skiing on",
+    "standing on",
+    "surfing on",
+    "to",
+    "under",
+    "using",
+    "walking in",
+    "walking on",
+    "watching",
+    "wearing",
+    "wears",
+    "with",
 ]
 
 _VG_OBJECT_NAMES = [
     "__background__",
-    "airplane", "animal", "arm", "bag", "banana", "basket", "beach", "bear",
-    "bed", "bench", "bike", "bird", "board", "boat", "book", "boot", "bottle",
-    "bowl", "box", "boy", "branch", "building", "bus", "cabinet", "cap", "car",
-    "cat", "chair", "child", "clock", "coat", "counter", "cow", "cup", "curtain",
-    "desk", "dog", "door", "drawer", "ear", "elephant", "engine", "eye", "face",
-    "fence", "finger", "flag", "flower", "food", "fork", "fruit", "glasses",
-    "guy", "hair", "hand", "handle", "hat", "head", "helmet", "hill", "horse",
-    "house", "jacket", "jeans", "kid", "kite", "lady", "lamp", "laptop", "leaf",
-    "leg", "letter", "light", "logo", "man", "men", "mirror", "motorcycle",
-    "mountain", "mouth", "neck", "nose", "number", "pant", "paper", "paw",
-    "people", "person", "phone", "pillow", "plane", "plant", "plate", "player",
-    "pole", "post", "pot", "racket", "railing", "rock", "roof", "room", "screen",
-    "seat", "shelf", "shirt", "shoe", "short", "sidewalk", "sign", "sink",
-    "skateboard", "ski", "skier", "sneaker", "snow", "sock", "stand", "street",
-    "surfboard", "table", "tail", "tie", "tile", "tire", "toilet", "towel",
-    "tower", "track", "train", "tree", "truck", "trunk", "umbrella", "vase",
-    "vehicle", "wave", "wheel", "window", "windshield", "wing", "wire", "woman",
+    "airplane",
+    "animal",
+    "arm",
+    "bag",
+    "banana",
+    "basket",
+    "beach",
+    "bear",
+    "bed",
+    "bench",
+    "bike",
+    "bird",
+    "board",
+    "boat",
+    "book",
+    "boot",
+    "bottle",
+    "bowl",
+    "box",
+    "boy",
+    "branch",
+    "building",
+    "bus",
+    "cabinet",
+    "cap",
+    "car",
+    "cat",
+    "chair",
+    "child",
+    "clock",
+    "coat",
+    "counter",
+    "cow",
+    "cup",
+    "curtain",
+    "desk",
+    "dog",
+    "door",
+    "drawer",
+    "ear",
+    "elephant",
+    "engine",
+    "eye",
+    "face",
+    "fence",
+    "finger",
+    "flag",
+    "flower",
+    "food",
+    "fork",
+    "fruit",
+    "glasses",
+    "guy",
+    "hair",
+    "hand",
+    "handle",
+    "hat",
+    "head",
+    "helmet",
+    "hill",
+    "horse",
+    "house",
+    "jacket",
+    "jeans",
+    "kid",
+    "kite",
+    "lady",
+    "lamp",
+    "laptop",
+    "leaf",
+    "leg",
+    "letter",
+    "light",
+    "logo",
+    "man",
+    "men",
+    "mirror",
+    "motorcycle",
+    "mountain",
+    "mouth",
+    "neck",
+    "nose",
+    "number",
+    "pant",
+    "paper",
+    "paw",
+    "people",
+    "person",
+    "phone",
+    "pillow",
+    "plane",
+    "plant",
+    "plate",
+    "player",
+    "pole",
+    "post",
+    "pot",
+    "racket",
+    "railing",
+    "rock",
+    "roof",
+    "room",
+    "screen",
+    "seat",
+    "shelf",
+    "shirt",
+    "shoe",
+    "short",
+    "sidewalk",
+    "sign",
+    "sink",
+    "skateboard",
+    "ski",
+    "skier",
+    "sneaker",
+    "snow",
+    "sock",
+    "stand",
+    "street",
+    "surfboard",
+    "table",
+    "tail",
+    "tie",
+    "tile",
+    "tire",
+    "toilet",
+    "towel",
+    "tower",
+    "track",
+    "train",
+    "tree",
+    "truck",
+    "trunk",
+    "umbrella",
+    "vase",
+    "vehicle",
+    "wave",
+    "wheel",
+    "window",
+    "windshield",
+    "wing",
+    "wire",
+    "woman",
     "zebra",
 ]
 
@@ -285,6 +462,7 @@ _VG_OBJECT_NAMES = [
 # =========================================================================
 # encode_box_info — exact match of official (normalized-by-image-size)
 # =========================================================================
+
 
 def _encode_box_info(boxes: torch.Tensor) -> torch.Tensor:
     """Encode box info matching official ``encode_box_info`` EXACTLY.
@@ -305,21 +483,10 @@ def _encode_box_info(boxes: torch.Tensor) -> torch.Tensor:
     return torch.stack([w, h, cx, cy, x1, y1, x2, y2, area], dim=-1)
 
 
-def _boxes_cxcywh_to_xyxy(
-    boxes: torch.Tensor, img_h: float, img_w: float
-) -> torch.Tensor:
-    """Convert normalized (cx, cy, w, h) to absolute (x1, y1, x2, y2)."""
-    cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-    x1 = (cx - w / 2) * img_w
-    y1 = (cy - h / 2) * img_h
-    x2 = (cx + w / 2) * img_w
-    y2 = (cy + h / 2) * img_h
-    return torch.stack([x1, y1, x2, y2], dim=-1)
-
-
 # =========================================================================
 # PE-NET Model
 # =========================================================================
+
 
 class PENetContext(nn.Module):
     """Prototype-based Embedding Network — strict match with official PENet.
@@ -334,11 +501,11 @@ class PENetContext(nn.Module):
         self,
         num_classes: int = 151,
         num_predicates: int = 51,
-        visual_dim: int = 4096,              # official obj_dim = MLP_HEAD_DIM = 4096
-        hidden_dim: int = 2048,              # mlp_dim in official
-        context_hidden_dim: int = 512,       # CONTEXT_HIDDEN_DIM in official
+        visual_dim: int = 4096,  # official obj_dim = MLP_HEAD_DIM = 4096
+        hidden_dim: int = 2048,  # mlp_dim in official
+        context_hidden_dim: int = 512,  # CONTEXT_HIDDEN_DIM in official
         embed_dim: int = 300,
-        pooling_dim: int = 4096,             # CONTEXT_POOLING_DIM
+        pooling_dim: int = 4096,  # CONTEXT_POOLING_DIM
         glove_dir: Optional[str] = None,
         obj_class_names: Optional[list[str]] = None,
         pred_class_names: Optional[list[str]] = None,
@@ -354,7 +521,7 @@ class PENetContext(nn.Module):
 
         self.num_classes = num_classes
         self.num_predicates = num_predicates
-        self.mlp_dim = hidden_dim            # 2048
+        self.mlp_dim = hidden_dim  # 2048
         self.context_hidden_dim = context_hidden_dim  # 512
         self.embed_dim = embed_dim
         self.pooling_dim = pooling_dim
@@ -476,7 +643,6 @@ class PENetContext(nn.Module):
         num_objs: int,
     ) -> torch.Tensor:
         """Per-class NMS matching official ``nms_per_cls`` exactly."""
-        device = obj_dists.device
         is_overlap = (
             _nms_overlaps(boxes_per_cls).detach().cpu().numpy() >= self.nms_thresh
         )
@@ -537,7 +703,8 @@ class PENetContext(nn.Module):
             # predcls — GT labels directly
             obj_preds = obj_labels
             obj_dists_out = torch.zeros(
-                roi_features.size(0), self.num_classes,
+                roi_features.size(0),
+                self.num_classes,
                 device=roi_features.device,
             )
             obj_dists_out.scatter_(1, obj_labels.unsqueeze(1), 1.0)
@@ -670,10 +837,13 @@ class PENetContext(nn.Module):
             bg_idxs = bg_idxs[perm]
 
         sampled_idxs = torch.cat([fg_idxs, bg_idxs], dim=0)
-        sampled_labels = torch.cat([
-            fg_labels[fg_idxs],
-            torch.zeros(bg_idxs.numel(), dtype=torch.long, device=device),
-        ], dim=0)
+        sampled_labels = torch.cat(
+            [
+                fg_labels[fg_idxs],
+                torch.zeros(bg_idxs.numel(), dtype=torch.long, device=device),
+            ],
+            dim=0,
+        )
 
         return sampled_idxs, sampled_labels
 
@@ -712,17 +882,19 @@ class PENetContext(nn.Module):
 
         # ── 1. Object label refinement ──
         entity_dists, entity_preds = self._refine_obj_labels(
-            visual_feats, boxes, labels,
+            visual_feats,
+            boxes,
+            labels,
             obj_dists=obj_dists,
             use_gt_label=use_gt,
             boxes_per_cls=boxes_per_cls if not use_gt else None,
         )
 
         # ── 2. Split visual features into sub / obj ──
-        entity_rep = self.post_emb(visual_feats)      # [N, mlp_dim*2]
+        entity_rep = self.post_emb(visual_feats)  # [N, mlp_dim*2]
         entity_rep = entity_rep.view(N, 2, self.mlp_dim)
-        sub_rep = entity_rep[:, 1].contiguous().view(-1, self.mlp_dim)   # xs
-        obj_rep = entity_rep[:, 0].contiguous().view(-1, self.mlp_dim)   # xo
+        sub_rep = entity_rep[:, 1].contiguous().view(-1, self.mlp_dim)  # xs
+        obj_rep = entity_rep[:, 0].contiguous().view(-1, self.mlp_dim)  # xo
 
         # ── 3. Word embeddings ──
         entity_embeds = self.obj_embed(entity_preds)
@@ -744,7 +916,9 @@ class PENetContext(nn.Module):
         # ── 5. Determine which pairs to use ──
         if is_training and rel_annotations is not None:
             use_idxs, rel_labels_for_loss = self._sample_pairs(
-                pairs, rel_annotations, device,
+                pairs,
+                rel_annotations,
+                device,
             )
             P = use_idxs.size(0)
             s_idx = pairs[use_idxs, 0]
@@ -760,8 +934,8 @@ class PENetContext(nn.Module):
         o_embed = self.W_obj(entity_embeds[o_idx])  # Wo @ to
 
         # ── 7. Visual → semantic ──
-        sem_sub = self.vis2sem(sub_rep[s_idx])      # h(xs)
-        sem_obj = self.vis2sem(obj_rep[o_idx])      # h(xo)
+        sem_sub = self.vis2sem(sub_rep[s_idx])  # h(xs)
+        sem_obj = self.vis2sem(obj_rep[o_idx])  # h(xo)
 
         # ── 8. Gated fusion ──
         gate_sem_sub = torch.sigmoid(
@@ -774,12 +948,8 @@ class PENetContext(nn.Module):
         obj = o_embed + sem_obj * gate_sem_obj
 
         # ── 9. Residual + LN ──
-        sub = self.norm_sub(
-            self.dropout_sub(torch.relu(self.linear_sub(sub))) + sub
-        )
-        obj = self.norm_obj(
-            self.dropout_obj(torch.relu(self.linear_obj(obj))) + obj
-        )
+        sub = self.norm_sub(self.dropout_sub(torch.relu(self.linear_sub(sub))) + sub)
+        obj = self.norm_obj(self.dropout_obj(torch.relu(self.linear_obj(obj))) + obj)
 
         # ── 10. Fusion ──
         fusion_so = fusion_func(sub, obj)  # [P, mlp_dim]
@@ -789,15 +959,23 @@ class PENetContext(nn.Module):
         resolved_union = None
         if union_feats is not None and union_feats.size(0) == P:
             resolved_union = union_feats
-        elif (precomputed_union_feats is not None
-              and precomputed_union_feats.size(0) == P):
+        elif (
+            precomputed_union_feats is not None and precomputed_union_feats.size(0) == P
+        ):
             resolved_union = precomputed_union_feats
-        elif (_compute_union_fn is not None
-              and _fpn_features is not None and img_size is not None):
+        elif (
+            _compute_union_fn is not None
+            and _fpn_features is not None
+            and img_size is not None
+        ):
             resolved_union = _compute_union_fn(
-                _fpn_features, boxes,
-                (pairs[use_idxs] if is_training and rel_annotations is not None
-                 else pairs),
+                _fpn_features,
+                boxes,
+                (
+                    pairs[use_idxs]
+                    if is_training and rel_annotations is not None
+                    else pairs
+                ),
                 img_size,
             )
 
@@ -847,8 +1025,10 @@ class PENetContext(nn.Module):
         add_losses: dict[str, torch.Tensor] = {}
         if is_training and rel_labels_for_loss is not None:
             add_losses = self._proto_losses(
-                predicate_proto_norm, predicate_proto_proj,
-                rel_rep_proj, rel_labels_for_loss,
+                predicate_proto_norm,
+                predicate_proto_proj,
+                rel_rep_proj,
+                rel_labels_for_loss,
             )
 
         # Build output pairs
@@ -873,12 +1053,13 @@ class PENetContext(nn.Module):
 # Builder
 # =========================================================================
 
+
 def build_penet(args) -> PENetContext:
     """Build PE-NET from config args, matching official hyperparameters."""
     model = PENetContext(
         num_classes=getattr(args, "entity_nums", 151),
         num_predicates=getattr(args, "rel_nums", 51),
-        visual_dim=getattr(args, "visual_dim", 4096),          # official obj_dim
+        visual_dim=getattr(args, "visual_dim", 4096),  # official obj_dim
         hidden_dim=getattr(args, "hidden_dim", 2048),
         context_hidden_dim=getattr(args, "penet_context_hidden_dim", 512),
         embed_dim=getattr(args, "penet_embed_dim", 300),

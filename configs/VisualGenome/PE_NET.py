@@ -46,25 +46,25 @@
 #   IMS_PER_BATCH        = 8
 #   GLOVE_DIR            = ./datasets/vg/
 
-method = 'penet'
-loss = 'motifs_loss'
+method = "penet"
+loss = "motifs_loss"
 
 # ===== optimizer (official: SGD + WarmupMultiStepLR) =====
-lr = 1e-3                       # BASE_LR
+lr = 1e-3  # BASE_LR
 lr_backbone = 1e-5
-weight_decay = 1e-4             # WEIGHT_DECAY
-momentum = 0.9                  # official SGD momentum
-clip_max_norm = 5.0             # GRAD_NORM_CLIP
+weight_decay = 1e-4  # WEIGHT_DECAY
+momentum = 0.9  # official SGD momentum
+clip_max_norm = 5.0  # GRAD_NORM_CLIP
 opt = "sgd"
 sched = "warmup_multi_step"
-warmup_factor = 0.1             # official WARMUP_FACTOR
-steps = [28000, 48000]          # official SOLVER.STEPS
+warmup_factor = 0.1  # official WARMUP_FACTOR
+steps = [28000, 48000]  # official SOLVER.STEPS
 
 # ===== training (official) =====
-epoch = 50                      # approximately 60000 iter / steps-per-epoch
-batch_size = 8                  # IMS_PER_BATCH
-val_batch_size = 8              # TEST.IMS_PER_BATCH
-max_iter = 60000                # SOLVER.MAX_ITER
+epoch = 50  # approximately 60000 iter / steps-per-epoch
+batch_size = 8  # IMS_PER_BATCH
+val_batch_size = 8  # TEST.IMS_PER_BATCH
+max_iter = 60000  # SOLVER.MAX_ITER
 
 # ===== pair sampling (official) =====
 # Matches gtbox_relsample: BATCH_SIZE_PER_IMAGE=512, POSITIVE_FRACTION=0.25
@@ -72,12 +72,12 @@ penet_train_pairs = 512
 penet_pos_frac = 0.25
 
 # ===== model architecture (official) =====
-hidden_dim = 2048               # mlp_dim
-visual_dim = 4096               # obj_dim (MLP_HEAD_DIM via box feature extractor)
-penet_embed_dim = 300           # GloVe 300d
-penet_pooling_dim = 4096        # CONTEXT_POOLING_DIM
+hidden_dim = 2048  # mlp_dim
+visual_dim = 4096  # obj_dim (MLP_HEAD_DIM via box feature extractor)
+penet_embed_dim = 300  # GloVe 300d
+penet_pooling_dim = 4096  # CONTEXT_POOLING_DIM
 penet_context_hidden_dim = 512  # CONTEXT_HIDDEN_DIM
-dropout = 0.2                   # PENET_DROPOUT
+dropout = 0.2  # PENET_DROPOUT
 
 # ===== GloVe (official: GLOVE_DIR ./datasets/vg/) =====
 # Download glove.6B.300d.txt from https://nlp.stanford.edu/data/glove.6B.zip
@@ -90,8 +90,8 @@ use_freq_bias = False
 freq_bias_eps = 1e-12
 
 # ===== dataset =====
-dataset = 'VisualGenome'
-dataname = 'VisualGenome'
+dataset = "VisualGenome"
+dataname = "VisualGenome"
 entity_nums = 151
 rel_nums = 51
 
@@ -112,10 +112,15 @@ penet_detector_ckpt = None
 penet_nms_thresh = 0.5
 
 # ===== evaluation =====
-eval_mode = 'predcls'
-metrics = ["R@50", "R@100", "mR@50", "mR@100"]
+# Supported modes: predcls, sgcls, sgdet
+# Metrics are auto-derived from eval_mode — just change eval_mode above.
+eval_mode = "predcls"
+_METRIC_KS = [20, 50, 100]
+metrics = [f"{eval_mode}_R@{k}" for k in _METRIC_KS] + [
+    f"{eval_mode}_mR@{k}" for k in _METRIC_KS
+]
 
 # ===== misc =====
-device = 'cuda'
+device = "cuda"
 num_workers = 4
 seed = 42

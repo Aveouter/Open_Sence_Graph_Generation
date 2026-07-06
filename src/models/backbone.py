@@ -3,21 +3,27 @@ Visual backbone for classical SGG methods.
 
 Supports ResNet / ResNeXt backbones with optional FPN neck for PENet.
 """
+
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.ops import roi_align
 from torchvision.models import (
-    resnet50, resnet101, resnext101_32x8d,
-    ResNet50_Weights, ResNet101_Weights, ResNeXt101_32X8D_Weights,
+    resnet50,
+    resnet101,
+    resnext101_32x8d,
+    ResNet50_Weights,
+    ResNet101_Weights,
+    ResNeXt101_32X8D_Weights,
 )
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple
 
 
 # =========================================================================
 # ResNet / ResNeXt backbone
 # =========================================================================
+
 
 class ResNetBackbone(nn.Module):
     _ARCH_BUILDERS = {
@@ -53,11 +59,11 @@ class ResNetBackbone(nn.Module):
         x = self.conv1(images)
         x = self.bn1(x)
         x = self.relu(x)
-        x = self.maxpool(x)          # stride 4
-        x1 = self.layer1(x)          # stride 4
-        x2 = self.layer2(x1)         # stride 8
-        x3 = self.layer3(x2)         # stride 16
-        x4 = self.layer4(x3)         # stride 32
+        x = self.maxpool(x)  # stride 4
+        x1 = self.layer1(x)  # stride 4
+        x2 = self.layer2(x1)  # stride 8
+        x3 = self.layer3(x2)  # stride 16
+        x4 = self.layer4(x3)  # stride 32
         if return_all_scales:
             r = {4: x1, 8: x2, 16: x3, 32: x4}
         else:
@@ -77,6 +83,7 @@ class ResNetBackbone(nn.Module):
 # =========================================================================
 # ROI align extractor (used by Motifs, VCTree, etc.)
 # =========================================================================
+
 
 class ROIAlignExtractor(nn.Module):
     def __init__(self, output_size=7, pool="avg"):
@@ -98,12 +105,24 @@ class ROIAlignExtractor(nn.Module):
         y2 = (cy + h / 2) * img_h
         scale_x, scale_y = W_f / img_w, H_f / img_h
         batch_idx = torch.zeros(N, 1, device=device)
-        rois = torch.cat([batch_idx, (x1*scale_x).unsqueeze(1), (y1*scale_y).unsqueeze(1),
-                          (x2*scale_x).unsqueeze(1), (y2*scale_y).unsqueeze(1)], dim=1)
+        rois = torch.cat(
+            [
+                batch_idx,
+                (x1 * scale_x).unsqueeze(1),
+                (y1 * scale_y).unsqueeze(1),
+                (x2 * scale_x).unsqueeze(1),
+                (y2 * scale_y).unsqueeze(1),
+            ],
+            dim=1,
+        )
         fm_b = feature_map.unsqueeze(0)
-        roi_feats = roi_align(fm_b, rois,
-                              output_size=(self.output_size, self.output_size),
-                              spatial_scale=1.0, aligned=True)
+        roi_feats = roi_align(
+            fm_b,
+            rois,
+            output_size=(self.output_size, self.output_size),
+            spatial_scale=1.0,
+            aligned=True,
+        )
         if self.pool == "avg":
             roi_feats = F.adaptive_avg_pool2d(roi_feats, (1, 1))
             return roi_feats.squeeze(-1).squeeze(-1)
@@ -114,8 +133,11 @@ class ROIAlignExtractor(nn.Module):
 # Visual feature extractor (Motifs/VCTree-compatible)
 # =========================================================================
 
+
 class VisualFeatureExtractor(nn.Module):
-    def __init__(self, arch="resnet50", pretrained=True, frozen=True, roi_output_size=7):
+    def __init__(
+        self, arch="resnet50", pretrained=True, frozen=True, roi_output_size=7
+    ):
         super().__init__()
         self.backbone = ResNetBackbone(arch, pretrained, frozen)
         self.roi_align = ROIAlignExtractor(output_size=roi_output_size, pool="avg")
@@ -126,7 +148,9 @@ class VisualFeatureExtractor(nn.Module):
         for img, boxes, sz in zip(images, boxes_list, image_sizes):
             img = img.to(next(self.backbone.parameters()).device)
             boxes, sz = boxes.to(img.device), sz.to(img.device)
-            with torch.set_grad_enabled(not all(not p.requires_grad for p in self.backbone.parameters())):
+            with torch.set_grad_enabled(
+                not all(not p.requires_grad for p in self.backbone.parameters())
+            ):
                 fm = self.backbone(img)
             feats = self.roi_align(fm, boxes, sz)
             results.append((feats, fm) if return_feature_maps else feats)
@@ -150,8 +174,10 @@ def build_visual_extractor(args):
 # FPN Neck — exact match of official maskrcnn_benchmark FPN
 # =========================================================================
 
+
 class _ConvBlock(nn.Module):
     """Conv2d used as `conv_block` by official FPN."""
+
     def __init__(self, in_c, out_c, kernel, stride=1):
         super().__init__()
         self.conv = nn.Conv2d(in_c, out_c, kernel, stride, kernel // 2)
@@ -164,6 +190,7 @@ class _ConvBlock(nn.Module):
 
 class LastLevelMaxPool(nn.Module):
     """P6 = maxpool(P5)."""
+
     def forward(self, x):
         return [F.max_pool2d(x, 1, 2, 0)]
 
@@ -195,10 +222,13 @@ class FPNNeck(nn.Module):
 
         last_inner = self.inner_blocks[-1](x[-1])
         results = [self.layer_blocks[-1](last_inner)]
-        for feat, ib, lb in zip(x[:-1][::-1], self.inner_blocks[:-1][::-1],
-                                 self.layer_blocks[:-1][::-1]):
+        for feat, ib, lb in zip(
+            x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1]
+        ):
             inner_top_down = F.interpolate(
-                last_inner, scale_factor=2, mode="nearest",
+                last_inner,
+                size=feat.shape[-2:],
+                mode="nearest",
             )
             last_inner = ib(feat) + inner_top_down
             results.insert(0, lb(last_inner))
@@ -214,6 +244,7 @@ class FPNNeck(nn.Module):
 # LevelMapper + FPNPooler — exact match of official Pooler
 # =========================================================================
 
+
 class LevelMapper:
     """FPN level assignment matching official ``LevelMapper``.
 
@@ -225,13 +256,14 @@ class LevelMapper:
         self.s0, self.lvl0, self.eps = canonical_scale, canonical_level, eps
 
     def __call__(self, boxes_xyxy: List[torch.Tensor]) -> torch.Tensor:
-        areas = torch.cat([
-            (b[:, 2] - b[:, 0] + 1) * (b[:, 3] - b[:, 1] + 1) for b in boxes_xyxy
-        ], dim=0)
+        areas = torch.cat(
+            [(b[:, 2] - b[:, 0] + 1) * (b[:, 3] - b[:, 1] + 1) for b in boxes_xyxy],
+            dim=0,
+        )
         s = torch.sqrt(areas)
         target_lvls = torch.floor(self.lvl0 + torch.log2(s / self.s0 + self.eps))
         target_lvls = torch.clamp(target_lvls, min=self.k_min, max=self.k_max)
-        return (target_lvls.to(torch.int64) - self.k_min)
+        return target_lvls.to(torch.int64) - self.k_min
 
 
 class FPNPooler(nn.Module):
@@ -241,8 +273,12 @@ class FPNPooler(nn.Module):
     ROI Align with per-level spatial_scale.
     """
 
-    def __init__(self, output_size=7, scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
-                 sampling_ratio=2):
+    def __init__(
+        self,
+        output_size=7,
+        scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+        sampling_ratio=2,
+    ):
         super().__init__()
         self.output_size = output_size
         self.scales = scales
@@ -253,7 +289,7 @@ class FPNPooler(nn.Module):
 
     def forward(self, fpn_features, boxes_xyxy_list):
         """fpn_features: tuple of [C, H_i, W_i]  (P2, P3, P4, P5, ...).
-           boxes_xyxy_list: list of [N_i, 4] absolute (x1,y1,x2,y2)."""
+        boxes_xyxy_list: list of [N_i, 4] absolute (x1,y1,x2,y2)."""
         num_levels = len(fpn_features)
         C = fpn_features[0].size(0)
         out_s = self.output_size
@@ -279,7 +315,8 @@ class FPNPooler(nn.Module):
             rois_lvl = rois[mask]
             feat = fpn_features[lvl].unsqueeze(0)
             pooled = roi_align(
-                feat, rois_lvl,
+                feat,
+                rois_lvl,
                 output_size=(out_s, out_s),
                 spatial_scale=self.scales[lvl],
                 sampling_ratio=self.sampling_ratio,
@@ -293,6 +330,7 @@ class FPNPooler(nn.Module):
 # PENet-specific feature extractors (use FPN + FPNPooler)
 # =========================================================================
 
+
 class PENetBoxFeatureExtractor(nn.Module):
     """Box feature extractor — matches official FPN2MLPFeatureExtractor.
 
@@ -301,9 +339,11 @@ class PENetBoxFeatureExtractor(nn.Module):
 
     def __init__(self, roi_output_size=7, representation_size=4096):
         super().__init__()
-        self.pooler = FPNPooler(output_size=roi_output_size,
-                                scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
-                                sampling_ratio=2)
+        self.pooler = FPNPooler(
+            output_size=roi_output_size,
+            scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+            sampling_ratio=2,
+        )
         input_size = 256 * roi_output_size * roi_output_size  # 12544
         self.fc6 = nn.Linear(input_size, representation_size)
         self.fc7 = nn.Linear(representation_size, representation_size)
@@ -316,12 +356,17 @@ class PENetBoxFeatureExtractor(nn.Module):
         """boxes: [N,4] (cx,cy,w,h norm), image_size: [2] (H,W)."""
         img_h, img_w = image_size[0].float().item(), image_size[1].float().item()
         cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-        xyxy = torch.stack([
-            (cx - w / 2) * img_w, (cy - h / 2) * img_h,
-            (cx + w / 2) * img_w, (cy + h / 2) * img_h,
-        ], dim=-1)
-        pooled = self.pooler(fpn_features, [xyxy])   # [N, 256, 7, 7]
-        x = F.relu(self.fc6(pooled.flatten(1)))       # [N, 4096]
+        xyxy = torch.stack(
+            [
+                (cx - w / 2) * img_w,
+                (cy - h / 2) * img_h,
+                (cx + w / 2) * img_w,
+                (cy + h / 2) * img_h,
+            ],
+            dim=-1,
+        )
+        pooled = self.pooler(fpn_features, [xyxy])  # [N, 256, 7, 7]
+        x = F.relu(self.fc6(pooled.flatten(1)))  # [N, 4096]
         return F.relu(self.fc7(x))
 
 
@@ -335,9 +380,11 @@ class PENetUnionFeatureExtractor(nn.Module):
         super().__init__()
         self.roi_output_size = roi_output_size
         self.rect_size = roi_output_size * 4 - 1  # 27
-        self.pooler = FPNPooler(output_size=roi_output_size,
-                                scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
-                                sampling_ratio=2)
+        self.pooler = FPNPooler(
+            output_size=roi_output_size,
+            scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+            sampling_ratio=2,
+        )
         self.rect_conv = nn.Sequential(
             nn.Conv2d(2, 128, 7, stride=2, padding=3, bias=True),
             nn.ReLU(inplace=True),
@@ -364,20 +411,28 @@ class PENetUnionFeatureExtractor(nn.Module):
 
         # Normalized cxcywh → absolute xyxy
         cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-        xyxy = torch.stack([
-            (cx - w / 2) * img_w, (cy - h / 2) * img_h,
-            (cx + w / 2) * img_w, (cy + h / 2) * img_h,
-        ], dim=-1)
+        xyxy = torch.stack(
+            [
+                (cx - w / 2) * img_w,
+                (cy - h / 2) * img_h,
+                (cx + w / 2) * img_w,
+                (cy + h / 2) * img_h,
+            ],
+            dim=-1,
+        )
         s_boxes = xyxy[pairs[:, 0]]
         o_boxes = xyxy[pairs[:, 1]]
 
         # Union boxes + FPN pooler
-        union_xyxy = torch.stack([
-            torch.min(s_boxes[:, 0], o_boxes[:, 0]),
-            torch.min(s_boxes[:, 1], o_boxes[:, 1]),
-            torch.max(s_boxes[:, 2], o_boxes[:, 2]),
-            torch.max(s_boxes[:, 3], o_boxes[:, 3]),
-        ], dim=-1)
+        union_xyxy = torch.stack(
+            [
+                torch.min(s_boxes[:, 0], o_boxes[:, 0]),
+                torch.min(s_boxes[:, 1], o_boxes[:, 1]),
+                torch.max(s_boxes[:, 2], o_boxes[:, 2]),
+                torch.max(s_boxes[:, 3], o_boxes[:, 3]),
+            ],
+            dim=-1,
+        )
         union_vis = self.pooler(fpn_features, [union_xyxy])  # [P, 256, 7, 7]
 
         # Binary rect masks + rect_conv
@@ -386,24 +441,29 @@ class PENetUnionFeatureExtractor(nn.Module):
 
         def resize_box(b, sz):
             s = float(sz - 1)
-            return torch.stack([
-                b[:, 0] / img_w * s, b[:, 1] / img_h * s,
-                b[:, 2] / img_w * s, b[:, 3] / img_h * s,
-            ], dim=-1)
+            return torch.stack(
+                [
+                    b[:, 0] / img_w * s,
+                    b[:, 1] / img_h * s,
+                    b[:, 2] / img_w * s,
+                    b[:, 3] / img_h * s,
+                ],
+                dim=-1,
+            )
 
         s_r, o_r = resize_box(s_boxes, rs), resize_box(o_boxes, rs)
 
         def make_rect(b):
             return (
-                (xr >= b[:, 0].floor().view(-1, 1, 1).long()) &
-                (xr <= b[:, 2].ceil().view(-1, 1, 1).long()) &
-                (yr >= b[:, 1].floor().view(-1, 1, 1).long()) &
-                (yr <= b[:, 3].ceil().view(-1, 1, 1).long())
+                (xr >= b[:, 0].floor().view(-1, 1, 1).long())
+                & (xr <= b[:, 2].ceil().view(-1, 1, 1).long())
+                & (yr >= b[:, 1].floor().view(-1, 1, 1).long())
+                & (yr <= b[:, 3].ceil().view(-1, 1, 1).long())
             ).float()
 
         rect_input = torch.stack([make_rect(s_r), make_rect(o_r)], dim=1)
-        rect_feats = self.rect_conv(rect_input)        # [P, 256, 7, 7]
+        rect_feats = self.rect_conv(rect_input)  # [P, 256, 7, 7]
 
-        combined = union_vis + rect_feats               # element-wise add
-        x = F.relu(self.fc6(combined.flatten(1)))       # [P, 4096]
+        combined = union_vis + rect_feats  # element-wise add
+        x = F.relu(self.fc6(combined.flatten(1)))  # [P, 4096]
         return F.relu(self.fc7(x))

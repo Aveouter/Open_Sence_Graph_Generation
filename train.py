@@ -22,12 +22,10 @@ if __name__ == '__main__':
 
     # --- Framework imports ---
     from utils.main_utils import get_dist_info, load_config, update_config
-    from utils.misc import is_main_process
     from src.exp import BaseExperiment
     from utils.parser import create_parser, default_parser
 
     import torch
-    import gc
 
     # Config file name alias map — some CLI method names differ from config
     # file basenames (e.g. CLI "GPSNet" → config "GPS_Net.py").
@@ -63,6 +61,14 @@ if __name__ == '__main__':
             if config[attribute] is None:
                 config[attribute] = default_values[attribute]
     args = SimpleNamespace(**config)
+
+    # Re-derive metrics from the final eval_mode (which may differ from the
+    # config file after CLI override).
+    if hasattr(args, 'eval_mode'):
+        ks = [20, 50, 100]
+        args.metrics = [f"{args.eval_mode}_R@{k}" for k in ks] + \
+                       [f"{args.eval_mode}_mR@{k}" for k in ks]
+
     print('>'*35 + ' training ' + '<'*35)
     exp = BaseExperiment(args)
     rank, _ = get_dist_info()
