@@ -26,12 +26,20 @@ def load_data(args=None, **kwargs):
     if eval_size is None:
         eval_size = getattr(args, 'val_dataset_size', None)
 
+    train_start = int(getattr(args, 'dataset_start_index', 0) or 0)
+    eval_start = getattr(args, 'test_dataset_start_index', None)
+    if eval_start is None:
+        eval_start = getattr(args, 'val_dataset_start_index', 0)
+    eval_start = int(eval_start or 0)
+
     if train_size is not None:
-        train_n = min(int(train_size), len(dataset_train))
-        dataset_train = Subset(dataset_train, list(range(train_n)))
+        train_start = min(max(train_start, 0), len(dataset_train))
+        train_n = min(int(train_size), max(len(dataset_train) - train_start, 0))
+        dataset_train = Subset(dataset_train, list(range(train_start, train_start + train_n)))
     if eval_size is not None:
-        val_n = min(int(eval_size), len(dataset_val))
-        dataset_val = Subset(dataset_val, list(range(val_n)))
+        eval_start = min(max(eval_start, 0), len(dataset_val))
+        val_n = min(int(eval_size), max(len(dataset_val) - eval_start, 0))
+        dataset_val = Subset(dataset_val, list(range(eval_start, eval_start + val_n)))
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)

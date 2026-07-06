@@ -17,6 +17,7 @@ Exit code 0 on all passes, 1 on any failure.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import traceback
@@ -488,6 +489,7 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str]:
         "--sched",
         "onecycle",
         "--overwrite",
+        "--no_display_method_info",
         "--ex_name",
         f"CI_Smoke_{method_name}",
     ]
@@ -499,6 +501,7 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str]:
             capture_output=True,
             text=True,
             cwd=ROOT,
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
             timeout=300,  # 5 min max per method
         )
         if result.returncode != 0:

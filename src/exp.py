@@ -410,8 +410,8 @@ class BaseExperiment(object):
         Show model structure / FLOPs / throughput.
         This version is adapted for RelTR-like image relation generation tasks.
         """
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        if getattr(args, 'device', 'cuda') == 'cuda' and torch.cuda.is_available():
+        device = torch.device('cpu')
+        if getattr(args, 'device', 'cuda') != 'cpu' and torch.cuda.is_available():
             gpus = getattr(args, 'gpus', [0])
             if isinstance(gpus, (list, tuple)) and len(gpus) > 0:
                 assign_gpu = 'cuda:' + str(gpus[0])
