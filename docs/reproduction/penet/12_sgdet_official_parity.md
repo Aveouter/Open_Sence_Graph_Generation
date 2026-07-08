@@ -114,6 +114,15 @@ Network note:
 - Current environment resolves the official OneDrive resources but `curl`
   exits with TLS `unexpected eof while reading` before a downloadable payload is
   received.
+- The same OneDrive failure was reproduced with `wget`, Python `urllib`,
+  `curl --http1.1 --tlsv1.2`, and a small range request against
+  `onedrive.live.com/download?resid=22376FFAD72C4B64%21779870`; no detector
+  bytes were retrieved.
+- Stanford VG image links respond with HTTP 200 and byte ranges:
+  `images.zip` has `Content-Length: 9731705982`; `images2.zip` has
+  `Content-Length: 5471658058`. A 1 MiB probe succeeded, but the observed
+  single-connection speed was about `0.5 MB/s`, so full image download was not
+  started in this audit turn.
 - A non-official Hugging Face mirror candidate for `VG-SGG-with-attri.h5` was
   downloaded only for structure inspection:
   `outputs/pretrained/penet_official/mirrors/VG-SGG-with-attri.h5`
