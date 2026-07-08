@@ -22,6 +22,7 @@ REQUIRED_VG_FILES = (
     "VG-SGG-dicts-with-attri.json",
     "image_data.json",
 )
+DEFAULT_VG_IMAGE_DIR = "VG_100K"
 
 CHECKPOINT_PROTOCOLS = {
     "predcls": ("PE-NET_PredCls", "1rjsLs3N33iiOB5xYO7zetNhR7ebi385W"),
@@ -93,6 +94,27 @@ def checkpoint_candidates(root: Path, model_dir_name: str) -> list[dict[str, Any
     return candidates
 
 
+def next_action_for(blockers: list[str], missing_ckpts: list[str]) -> str:
+    if not blockers:
+        return (
+            "Run official PENet evaluation and compare OpenSGG adapter only "
+            "after checkpoint/config/evaluator parity"
+        )
+    actions = []
+    if "missing_penet_vg_inputs" in blockers:
+        actions.append("PENET-format VG scene-graph inputs")
+    if "missing_vg_images" in blockers:
+        actions.append("VG_100K images")
+    if "missing_pretrained_detector_checkpoint" in blockers:
+        actions.append("the official pretrained Faster R-CNN detector")
+    if missing_ckpts:
+        actions.append(
+            "trusted PENet checkpoint(s) for "
+            + ", ".join(sorted(missing_ckpts))
+        )
+    return "Provide " + "; ".join(actions)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -112,6 +134,21 @@ def main() -> int:
         default=Path("outputs/pretrained/penet_official"),
     )
     parser.add_argument(
+        "--protocol",
+        choices=sorted(CHECKPOINT_PROTOCOLS),
+        action="append",
+        help=(
+            "Target PENet protocol to require. May be passed multiple times. "
+            "Defaults to all protocols for suite-wide audits."
+        ),
+    )
+    parser.add_argument(
+        "--vg-image-dir",
+        type=Path,
+        default=None,
+        help="VG image directory; defaults to <vg-root>/VG_100K",
+    )
+    parser.add_argument(
         "--pretrained-detector",
         type=Path,
         default=None,
@@ -124,6 +161,7 @@ def main() -> int:
     args = parser.parse_args()
 
     vg_root = args.vg_root or args.penet_root / "datasets" / "vg"
+    vg_image_dir = args.vg_image_dir or vg_root / DEFAULT_VG_IMAGE_DIR
     detector = (
         args.pretrained_detector
         or args.penet_root
@@ -155,10 +193,13 @@ def main() -> int:
     vg_checks = [dir_check(vg_root)]
     for name in REQUIRED_VG_FILES:
         vg_checks.append(file_check(vg_root / name))
+    vg_image_check = dir_check(vg_image_dir)
 
     detector_check = file_check(detector)
     checkpoint_checks = {}
-    for protocol, (model_dir_name, drive_id) in CHECKPOINT_PROTOCOLS.items():
+    target_protocols = args.protocol or sorted(CHECKPOINT_PROTOCOLS)
+    for protocol in target_protocols:
+        model_dir_name, drive_id = CHECKPOINT_PROTOCOLS[protocol]
         candidates = checkpoint_candidates(args.checkpoint_root, model_dir_name)
         checkpoint_checks[protocol] = {
             "expected_model_dir": model_dir_name,
@@ -179,6 +220,8 @@ def main() -> int:
         blockers.append("missing_official_penet_source")
     if missing_vg:
         blockers.append("missing_penet_vg_inputs")
+    if not vg_image_check["exists"]:
+        blockers.append("missing_vg_images")
     if not detector_check["exists"]:
         blockers.append("missing_pretrained_detector_checkpoint")
     if missing_ckpts:
@@ -191,9 +234,12 @@ def main() -> int:
         "official_commit": git_commit(args.penet_root),
         "penet_root": str(args.penet_root),
         "vg_root": str(vg_root),
+        "vg_image_dir": str(vg_image_dir),
         "checkpoint_root": str(args.checkpoint_root),
+        "target_protocols": target_protocols,
         "source_checks": source_checks,
         "vg_checks": vg_checks,
+        "vg_image_check": vg_image_check,
         "pretrained_detector_check": detector_check,
         "checkpoint_checks": checkpoint_checks,
         "missing_source_paths": missing_source,
@@ -214,12 +260,17 @@ def main() -> int:
                 "README states PredCls/SGCls use rel_nms from RU-Net/HL-Net "
                 "during evaluation."
             ),
+            "official_downloads": {
+                "vg_images_part1": "https://cs.stanford.edu/people/rak248/VG_100K_2/images.zip",
+                "vg_images_part2": "https://cs.stanford.edu/people/rak248/VG_100K_2/images2.zip",
+                "scene_graphs_onedrive": "https://1drv.ms/u/s!AmRLLNf6bzcir8xf9oC3eNWlVMTRDw?e=63t7Ed",
+                "pretrained_faster_rcnn_onedrive": "https://1drv.ms/u/s!AmRLLNf6bzcir8xemVHbqPBrvjjtQg?e=hAhYCw",
+                "backup_baidu": "https://pan.baidu.com/s/1oyPQBDHXMQ5Tsl0jy5OzgA",
+                "backup_baidu_extraction_code": "1234",
+                "backup_weiyun": "https://share.weiyun.com/ViTWrFxG",
+            },
         },
-        "next_action": (
-            "Run official PENet evaluation and compare OpenSGG adapter only after checkpoint/config/evaluator parity"
-            if not blockers
-            else "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints"
-        ),
+        "next_action": next_action_for(blockers, missing_ckpts),
     }
 
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"

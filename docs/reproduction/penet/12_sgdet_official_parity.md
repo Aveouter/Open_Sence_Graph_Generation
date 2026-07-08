@@ -39,6 +39,9 @@ These numbers are targets from the official README, not local results.
 - `tools/reproduction/check_penet_official_inputs.py` now checks checkpoint
   directories per protocol and no longer counts an SGDet checkpoint as a
   PredCls/SGCls checkpoint.
+- `tools/reproduction/check_penet_official_inputs.py` supports
+  `--protocol sgdet` for target-specific gates and checks the `VG_100K` image
+  directory required for full VG evaluation.
 
 ## Official Checkpoint
 
@@ -70,6 +73,7 @@ Automated input check:
 
 ```bash
 python tools/reproduction/check_penet_official_inputs.py \
+  --protocol sgdet \
   --output docs/reproduction/penet/penet_official_input_check.json
 ```
 
@@ -82,11 +86,42 @@ Blocking inputs:
 - Missing `VG-SGG-with-attri.h5`
 - Missing `VG-SGG-dicts-with-attri.json`
 - Missing `image_data.json`
+- Missing VG image directory:
+  `/workspace/external/penet_official/PENET/datasets/vg/VG_100K`
 - Missing official detector checkpoint:
   `/workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth`
 
-The checker also reports missing PredCls/SGCls checkpoints, but those are
-non-target protocols for this SGDet task.
+The SGDet-targeted checker no longer reports missing PredCls/SGCls checkpoints
+as blockers for this task.
+
+Official/manual download links recorded from PENET and Scene-Graph-Benchmark:
+
+- VG images part 1:
+  `https://cs.stanford.edu/people/rak248/VG_100K_2/images.zip`
+- VG images part 2:
+  `https://cs.stanford.edu/people/rak248/VG_100K_2/images2.zip`
+- Official scene-graph files:
+  `https://1drv.ms/u/s!AmRLLNf6bzcir8xf9oC3eNWlVMTRDw?e=63t7Ed`
+- Official pretrained Faster R-CNN:
+  `https://1drv.ms/u/s!AmRLLNf6bzcir8xemVHbqPBrvjjtQg?e=hAhYCw`
+- Backup Baidu link:
+  `https://pan.baidu.com/s/1oyPQBDHXMQ5Tsl0jy5OzgA`, extraction code `1234`
+- Backup Weiyun link:
+  `https://share.weiyun.com/ViTWrFxG`
+
+Network note:
+
+- Current environment resolves the official OneDrive resources but `curl`
+  exits with TLS `unexpected eof while reading` before a downloadable payload is
+  received.
+- A non-official Hugging Face mirror candidate for `VG-SGG-with-attri.h5` was
+  downloaded only for structure inspection:
+  `outputs/pretrained/penet_official/mirrors/VG-SGG-with-attri.h5`
+- Mirror candidate SHA256:
+  `ad52a01f8e6142bb7bc62d91f97dad1567f44772a23eac68d60a5b7766ffe4b1`
+- The mirror H5 contains SGB/PENET-style keys including `boxes_1024`,
+  `boxes_512`, `labels`, `relationships`, `predicates`, `attributes`, and
+  `split`; it is not treated as official provenance by this report.
 
 ## Evaluation Boundary
 

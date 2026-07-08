@@ -13,8 +13,8 @@ Alignment audit:
   `outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth`.
 - SGDet checkpoint SHA256:
   `ca7009b404f845ed989f799d1dc426be28a33db89b6b8d16649309d338948183`.
-- Official pretrained detector checkpoint and PENET-format VG input files are
-  still missing locally.
+- Official pretrained detector checkpoint, PENET-format VG input files, and
+  `VG_100K` image directory are still missing locally.
 - OpenSGG `PENetContext` now mirrors the official
   `PrototypeEmbeddingNetwork` relation-predictor modules and can remap
   `roi_heads.relation.predictor.*` weights from the official checkpoint.
@@ -32,10 +32,10 @@ Environment:
 
 Last result:
 
-- `python tools/reproduction/check_penet_official_inputs.py --output docs/reproduction/penet/penet_official_input_check.json`
-  returned `BLOCKED` with missing PENET VG inputs, missing pretrained detector,
-  and missing non-target PredCls/SGCls checkpoints. The target SGDet checkpoint
-  is present and checksum-recorded.
+- `python tools/reproduction/check_penet_official_inputs.py --protocol sgdet --output docs/reproduction/penet/penet_official_input_check.json`
+  returned `BLOCKED` with missing PENET VG inputs, missing `VG_100K` images,
+  and missing pretrained detector. The target SGDet checkpoint is present and
+  checksum-recorded.
 - Synthetic forward smoke passed with finite synthetic loss across local
   reruns. The value is stochastic because the smoke uses random tensors.
 - Clean integration regression coverage now verifies PENet registration,
@@ -50,5 +50,6 @@ Current SGDet parity report:
 
 - `docs/reproduction/penet/12_sgdet_official_parity.md`
 
-Next action: provide official PENET-format VG inputs and the official
-pretrained detector before attempting checkpoint-backed SGDet evaluation.
+Next action: provide official PENET-format VG inputs, `VG_100K` images, and
+the official pretrained detector before attempting checkpoint-backed SGDet
+evaluation.

@@ -1,22 +1,10 @@
 {
   "blockers": [
     "missing_penet_vg_inputs",
-    "missing_pretrained_detector_checkpoint",
-    "missing_official_penet_checkpoints"
+    "missing_vg_images",
+    "missing_pretrained_detector_checkpoint"
   ],
   "checkpoint_checks": {
-    "predcls": {
-      "candidate_count": 0,
-      "candidates": [],
-      "expected_model_dir": "PE-NET_PredCls",
-      "official_google_drive_id": "1rjsLs3N33iiOB5xYO7zetNhR7ebi385W"
-    },
-    "sgcls": {
-      "candidate_count": 0,
-      "candidates": [],
-      "expected_model_dir": "PE-NET_SGCls",
-      "official_google_drive_id": "1uRl-O-yXmpCs__l_V-WTdYtbWPl57M1B"
-    },
     "sgdet": {
       "candidate_count": 1,
       "candidates": [
@@ -31,10 +19,7 @@
     }
   },
   "checkpoint_root": "outputs/pretrained/penet_official",
-  "missing_checkpoint_protocols": [
-    "predcls",
-    "sgcls"
-  ],
+  "missing_checkpoint_protocols": [],
   "missing_source_paths": [],
   "missing_vg_paths": [
     "/workspace/external/penet_official/PENET/datasets/vg",
@@ -42,11 +27,20 @@
     "/workspace/external/penet_official/PENET/datasets/vg/VG-SGG-dicts-with-attri.json",
     "/workspace/external/penet_official/PENET/datasets/vg/image_data.json"
   ],
-  "next_action": "Provide missing VG inputs, pretrained detector, and trusted PENet checkpoints",
+  "next_action": "Provide PENET-format VG scene-graph inputs; VG_100K images; the official pretrained Faster R-CNN detector",
   "official_commit": "9c9f50777c66647799cb7a17dfb855aa98aecd1e",
   "official_protocol_summary": {
     "config": "configs/e2e_relation_X_101_32_8_FPN_1x.yaml",
     "notable_evaluator_detail": "README states PredCls/SGCls use rel_nms from RU-Net/HL-Net during evaluation.",
+    "official_downloads": {
+      "backup_baidu": "https://pan.baidu.com/s/1oyPQBDHXMQ5Tsl0jy5OzgA",
+      "backup_baidu_extraction_code": "1234",
+      "backup_weiyun": "https://share.weiyun.com/ViTWrFxG",
+      "pretrained_faster_rcnn_onedrive": "https://1drv.ms/u/s!AmRLLNf6bzcir8xemVHbqPBrvjjtQg?e=hAhYCw",
+      "scene_graphs_onedrive": "https://1drv.ms/u/s!AmRLLNf6bzcir8xf9oC3eNWlVMTRDw?e=63t7Ed",
+      "vg_images_part1": "https://cs.stanford.edu/people/rak248/VG_100K_2/images.zip",
+      "vg_images_part2": "https://cs.stanford.edu/people/rak248/VG_100K_2/images2.zip"
+    },
     "predcls_overrides": [
       "MODEL.ROI_RELATION_HEAD.USE_GT_BOX True",
       "MODEL.ROI_RELATION_HEAD.USE_GT_OBJECT_LABEL True",
@@ -135,6 +129,9 @@
     }
   ],
   "status": "BLOCKED",
+  "target_protocols": [
+    "sgdet"
+  ],
   "vg_checks": [
     {
       "exists": false,
@@ -157,5 +154,11 @@
       "type": "file"
     }
   ],
+  "vg_image_check": {
+    "exists": false,
+    "path": "/workspace/external/penet_official/PENET/datasets/vg/VG_100K",
+    "type": "directory"
+  },
+  "vg_image_dir": "/workspace/external/penet_official/PENET/datasets/vg/VG_100K",
   "vg_root": "/workspace/external/penet_official/PENET/datasets/vg"
 }
