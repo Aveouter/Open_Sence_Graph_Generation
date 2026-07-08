@@ -236,7 +236,7 @@ configs/
 - [Published Method Checkpoint Evaluations](guides/published_method_reproduction.md) — concise PR-ready summary of traced checkpoint-backed OpenSGG evaluation results for published paper methods.
 - [Adding A New Model](guides/adding_new_model.md) — step-by-step contributor guide for integrating a new method into the main training and evaluation pipeline.
 - [Reproduction Workflow Usage](reproduction/USAGE.md) — evidence-first workflow for deciding whether a baseline is reproduced, audited, smoke-tested, or deferred.
-- [Baseline Reproduction Tracker](docs/reproduction/README.md) — current blocked/deferred status for FREQ, TDE, VCTree, PENet, SHA-GCL, and RA-SGG.
+- [Baseline Reproduction Workflow](reproduction/README.md) — current reproduction standard, deferred audit matrix, and evidence gates.
 - [Contributing](CONTRIBUTING.md) — PR expectations, validation commands, and repository hygiene rules.
 - [Security Policy](SECURITY.md) — private reporting path for dependency, checkpoint-loading, credential, and CI-token issues.
 

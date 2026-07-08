@@ -50,13 +50,16 @@ BASELINES: dict[str, dict[str, Any]] = {
     },
 }
 
-REQUIRED_GLOBAL_DOCS = (
+REQUIRED_REPRODUCTION_DOCS = (
     "README.md",
-    "alignment_reaudit.md",
-    "artifact_manifest.json",
-    "baseline_matrix.md",
+    "USAGE.md",
+    "glossary.md",
     "evidence_gates.md",
-    "evidence_gate_summary.json",
+    "baselines/README.md",
+    "baselines/alignment_reaudit.md",
+    "baselines/deferred_audit_matrix.md",
+    "evidence/artifact_manifest.json",
+    "evidence/evidence_gate_summary.json",
 )
 
 REQUIRED_TOOLS = (
@@ -72,21 +75,6 @@ REQUIRED_TESTS = (
     "tests/reproduction/test_check_reproduction_claims.py",
     "tests/reproduction/test_check_reproduction_docs.py",
     "tests/reproduction/test_run_evidence_gate_checks.py",
-)
-
-REQUIRED_PHASE_DOCS = (
-    "00_status.md",
-    "01_official_sources.md",
-    "02_code_inventory.md",
-    "03_integration_plan.md",
-    "04_code_integration.md",
-    "05_smoke_report.md",
-    "06_code_review.md",
-    "07_metric_validation.md",
-    "08_hidden_eval.md",
-    "09_deviations.md",
-    "10_final_report.md",
-    "11_evidence_gate_audit.md",
 )
 
 ALLOWED_NON_REPRODUCED_STATUSES = (
@@ -142,10 +130,13 @@ def check_global_docs(
     root: Path, tracked_paths: set[Path], require_tracked: bool
 ) -> list[str]:
     findings: list[str] = []
-    docs_root = root / "docs" / "reproduction"
-    for name in REQUIRED_GLOBAL_DOCS:
+    reproduction_root = root / "reproduction"
+    for name in REQUIRED_REPRODUCTION_DOCS:
         add_file_check(
-            findings, docs_root / name, tracked_paths, require_tracked=require_tracked
+            findings,
+            reproduction_root / name,
+            tracked_paths,
+            require_tracked=require_tracked,
         )
     tools_root = root / "tools" / "reproduction"
     for name in REQUIRED_TOOLS:
@@ -166,7 +157,7 @@ def check_suite_summary(
     require_tracked: bool,
 ) -> list[str]:
     findings: list[str] = []
-    summary_path = root / "docs" / "reproduction" / "evidence_gate_summary.json"
+    summary_path = root / "reproduction" / "evidence" / "evidence_gate_summary.json"
     add_file_check(
         findings, summary_path, tracked_paths, require_tracked=require_tracked
     )
@@ -197,7 +188,7 @@ def check_suite_summary(
         if not item:
             findings.append(f"{summary_path}: missing suite result for {key}")
             continue
-        expected_output = f"docs/reproduction/{key}/{BASELINES[key]['input_check']}"
+        expected_output = f"reproduction/evidence/{key}/{BASELINES[key]['input_check']}"
         if item.get("output") != expected_output:
             findings.append(
                 f"{summary_path}: {key} output should be {expected_output}, got {item.get('output')!r}"
@@ -222,15 +213,8 @@ def check_baseline(
     require_tracked: bool,
 ) -> list[str]:
     findings: list[str] = []
-    docs_root = root / "docs" / "reproduction"
-    baseline_root = docs_root / key
-    for name in REQUIRED_PHASE_DOCS:
-        add_file_check(
-            findings,
-            baseline_root / name,
-            tracked_paths,
-            require_tracked=require_tracked,
-        )
+    evidence_root = root / "reproduction" / "evidence"
+    baseline_root = evidence_root / key
     add_file_check(
         findings,
         baseline_root / info["input_check"],
@@ -238,23 +222,7 @@ def check_baseline(
         require_tracked=require_tracked,
     )
 
-    status_path = baseline_root / "00_status.md"
-    if status_path.is_file():
-        status_text = read_text(status_path)
-        if not any(status in status_text for status in ALLOWED_NON_REPRODUCED_STATUSES):
-            findings.append(
-                f"{status_path}: missing explicit non-reproduced/audit status label"
-            )
-
-    gate_path = baseline_root / "11_evidence_gate_audit.md"
-    if gate_path.is_file():
-        gate_text = read_text(gate_path)
-        if not any(status in gate_text for status in ALLOWED_NON_REPRODUCED_STATUSES):
-            findings.append(
-                f"{gate_path}: missing explicit non-reproduced/audit status label"
-            )
-
-    matrix_path = docs_root / "baseline_matrix.md"
+    matrix_path = root / "reproduction" / "baselines" / "deferred_audit_matrix.md"
     if matrix_path.is_file():
         matrix_text = read_text(matrix_path)
         matrix_label = info.get("matrix_label", info["label"])
@@ -263,7 +231,7 @@ def check_baseline(
         if "DEFERRED_NOT_REPRODUCED" not in matrix_text:
             findings.append(f"{matrix_path}: missing deferred status language")
 
-    evidence_path = docs_root / "evidence_gates.md"
+    evidence_path = root / "reproduction" / "evidence_gates.md"
     if evidence_path.is_file():
         evidence_text = read_text(evidence_path)
         if info["evidence_section"] not in evidence_text:

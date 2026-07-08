@@ -43,9 +43,13 @@ class ArtifactManifestTest(unittest.TestCase):
     def test_build_manifest_preserves_non_reproduction_claim(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            summary = root / "docs" / "reproduction" / "evidence_gate_summary.json"
+            summary = root / "reproduction" / "evidence" / "evidence_gate_summary.json"
             detail = (
-                root / "docs" / "reproduction" / "freq" / "sgb_freq_input_check.json"
+                root
+                / "reproduction"
+                / "evidence"
+                / "freq"
+                / "sgb_freq_input_check.json"
             )
             detail.parent.mkdir(parents=True)
             summary.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +71,7 @@ class ArtifactManifestTest(unittest.TestCase):
                                 "label": "FREQ",
                                 "status": "BLOCKED",
                                 "reported_status": "BLOCKED_MISSING_SGB_VG_INPUTS",
-                                "output": "docs/reproduction/freq/sgb_freq_input_check.json",
+                                "output": "reproduction/evidence/freq/sgb_freq_input_check.json",
                                 "blockers": ["missing_sgb_vg_inputs"],
                                 "next_action": "Provide SGB-format VG inputs",
                             }
