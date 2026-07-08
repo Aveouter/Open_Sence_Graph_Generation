@@ -134,12 +134,12 @@ def main() -> int:
     parser.add_argument(
         "--summary",
         type=Path,
-        default=Path("docs/reproduction/evidence_gate_summary.json"),
+        default=Path("reproduction/evidence/evidence_gate_summary.json"),
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("docs/reproduction/artifact_manifest.json"),
+        default=Path("reproduction/evidence/artifact_manifest.json"),
     )
     args = parser.parse_args()
 
