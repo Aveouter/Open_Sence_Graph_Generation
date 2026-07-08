@@ -14,7 +14,8 @@ Alignment audit:
 - SGDet checkpoint SHA256:
   `ca7009b404f845ed989f799d1dc426be28a33db89b6b8d16649309d338948183`.
 - Official pretrained detector checkpoint, PENET-format VG input files, and
-  `VG_100K` image directory are still missing locally.
+  `VG_100K` image directory are now present from official/backup sources; the
+  SGDet input gate passes.
 - OpenSGG `PENetContext` now mirrors the official
   `PrototypeEmbeddingNetwork` relation-predictor modules and can remap
   `roi_heads.relation.predictor.*` weights from the official checkpoint.
@@ -33,9 +34,16 @@ Environment:
 Last result:
 
 - `python tools/reproduction/check_penet_official_inputs.py --protocol sgdet --output docs/reproduction/penet/penet_official_input_check.json`
-  returned `BLOCKED` with missing PENET VG inputs, missing `VG_100K` images,
-  and missing pretrained detector. The target SGDet checkpoint is present and
-  checksum-recorded.
+  returned `PASS` after retrieving the official-backup VG H5 and pretrained
+  Faster R-CNN detector from Weiyun and linking the existing local VG image
+  pack used by RELTR.
+- Local OpenSGG eval-only probe loaded the official SGDet relation checkpoint
+  but stopped before metrics because the local VisualGenome targets do not
+  contain official SGDet detector proposal fields (`boxes_per_cls` and
+  `obj_dists`/`scores_all`).
+- Official PENET evaluator execution is blocked in `conda hsg` because the
+  legacy maskrcnn-benchmark extension does not build under the current
+  Python/PyTorch/CUDA stack and `apex` is unavailable.
 - Synthetic forward smoke passed with finite synthetic loss across local
   reruns. The value is stochastic because the smoke uses random tensors.
 - Clean integration regression coverage now verifies PENet registration,
@@ -50,6 +58,7 @@ Current SGDet parity report:
 
 - `docs/reproduction/penet/12_sgdet_official_parity.md`
 
-Next action: provide official PENET-format VG inputs, `VG_100K` images, and
-the official pretrained detector before attempting checkpoint-backed SGDet
-evaluation.
+Next action: provide or generate official SGDet detector proposal fields for
+the local OpenSGG adapter, or run the official PENET evaluator in a legacy
+maskrcnn-benchmark/APEX environment, before attempting checkpoint-backed
+R@50/mR@50 reporting.

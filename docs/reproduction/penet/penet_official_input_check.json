@@ -1,9 +1,5 @@
 {
-  "blockers": [
-    "missing_penet_vg_inputs",
-    "missing_vg_images",
-    "missing_pretrained_detector_checkpoint"
-  ],
+  "blockers": [],
   "checkpoint_checks": {
     "sgdet": {
       "candidate_count": 1,
@@ -21,13 +17,8 @@
   "checkpoint_root": "outputs/pretrained/penet_official",
   "missing_checkpoint_protocols": [],
   "missing_source_paths": [],
-  "missing_vg_paths": [
-    "/workspace/external/penet_official/PENET/datasets/vg",
-    "/workspace/external/penet_official/PENET/datasets/vg/VG-SGG-with-attri.h5",
-    "/workspace/external/penet_official/PENET/datasets/vg/VG-SGG-dicts-with-attri.json",
-    "/workspace/external/penet_official/PENET/datasets/vg/image_data.json"
-  ],
-  "next_action": "Provide PENET-format VG scene-graph inputs; VG_100K images; the official pretrained Faster R-CNN detector",
+  "missing_vg_paths": [],
+  "next_action": "Run official PENet evaluation and compare OpenSGG adapter only after checkpoint/config/evaluator parity",
   "official_commit": "9c9f50777c66647799cb7a17dfb855aa98aecd1e",
   "official_protocol_summary": {
     "config": "configs/e2e_relation_X_101_32_8_FPN_1x.yaml",
@@ -54,8 +45,10 @@
   "official_repo": "https://github.com/VL-Group/PENET",
   "penet_root": "/workspace/external/penet_official/PENET",
   "pretrained_detector_check": {
-    "exists": false,
+    "exists": true,
     "path": "/workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth",
+    "sha256": "b2cf9b2b4771a340c5dd02a30a9e4d08d14d032de38704545fec643801feba9e",
+    "size_bytes": 1293168527,
     "type": "file"
   },
   "source_checks": [
@@ -128,34 +121,40 @@
       "type": "file"
     }
   ],
-  "status": "BLOCKED",
+  "status": "PASS",
   "target_protocols": [
     "sgdet"
   ],
   "vg_checks": [
     {
-      "exists": false,
+      "exists": true,
       "path": "/workspace/external/penet_official/PENET/datasets/vg",
       "type": "directory"
     },
     {
-      "exists": false,
+      "exists": true,
       "path": "/workspace/external/penet_official/PENET/datasets/vg/VG-SGG-with-attri.h5",
+      "sha256": "a6370b4438991a4a866f02445a10d4123b8c8cea4a8e35828a0abb6aa7f739e8",
+      "size_bytes": 150724042,
       "type": "file"
     },
     {
-      "exists": false,
+      "exists": true,
       "path": "/workspace/external/penet_official/PENET/datasets/vg/VG-SGG-dicts-with-attri.json",
+      "sha256": "1255873ae0250555f59d20f8d1e5a4bdf22b331119502c850f765173b6963ca1",
+      "size_bytes": 18482,
       "type": "file"
     },
     {
-      "exists": false,
+      "exists": true,
       "path": "/workspace/external/penet_official/PENET/datasets/vg/image_data.json",
+      "sha256": "5a0b63286b6ec81bcae17df1d4a50777bfc56befb70d65a8a7e9bcab0fcd9bc4",
+      "size_bytes": 21023782,
       "type": "file"
     }
   ],
   "vg_image_check": {
-    "exists": false,
+    "exists": true,
     "path": "/workspace/external/penet_official/PENET/datasets/vg/VG_100K",
     "type": "directory"
   },

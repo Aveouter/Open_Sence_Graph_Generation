@@ -67,7 +67,7 @@ Key inspection:
   The fallback is not part of the official predictor path when official union
   features are available.
 
-## Remaining Blockers
+## Official Backup Inputs
 
 Automated input check:
 
@@ -77,22 +77,44 @@ python tools/reproduction/check_penet_official_inputs.py \
   --output docs/reproduction/penet/penet_official_input_check.json
 ```
 
-Current result: `BLOCKED`
+Current result: `PASS`
 
-Blocking inputs:
+Official backup inputs now present:
 
-- Missing PENET-format VG root:
+- PENET-format VG root:
   `/workspace/external/penet_official/PENET/datasets/vg`
-- Missing `VG-SGG-with-attri.h5`
-- Missing `VG-SGG-dicts-with-attri.json`
-- Missing `image_data.json`
-- Missing VG image directory:
+- Official-backup `VG-SGG-with-attri.h5`
+  - Size: `150724042` bytes
+  - SHA1 from Weiyun metadata:
+    `345119e71d16e387a0154164379d918dd72cbb16`
+  - SHA256:
+    `a6370b4438991a4a866f02445a10d4123b8c8cea4a8e35828a0abb6aa7f739e8`
+- `VG-SGG-dicts-with-attri.json`
+  - SHA256:
+    `1255873ae0250555f59d20f8d1e5a4bdf22b331119502c850f765173b6963ca1`
+- `image_data.json`
+  - SHA256:
+    `5a0b63286b6ec81bcae17df1d4a50777bfc56befb70d65a8a7e9bcab0fcd9bc4`
+- VG image directory:
   `/workspace/external/penet_official/PENET/datasets/vg/VG_100K`
-- Missing official detector checkpoint:
+  - Linked to the existing local VG image pack used for RELTR:
+    `/workspace/Item_code/OpenSGG/data/VisualGenome/images`
+  - Image count: `108249` jpg files
+- Official-backup pretrained Faster R-CNN detector:
   `/workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth`
+  - Size: `1293168527` bytes
+  - SHA256:
+    `b2cf9b2b4771a340c5dd02a30a9e4d08d14d032de38704545fec643801feba9e`
 
-The SGDet-targeted checker no longer reports missing PredCls/SGCls checkpoints
-as blockers for this task.
+The detector archive was retrieved from the official Weiyun backup:
+
+- Archive:
+  `/workspace/Item_code/OpenSGG/outputs/pretrained/penet_official/downloads/pretrained_faster_rcnn.zip`
+- Archive size: `1201052079` bytes
+- SHA1 from Weiyun metadata:
+  `a8329c1a656af4972c1a5fa07a2d829fea3921d6`
+- Archive SHA256:
+  `8039ddf7fa0414250349bdeeca5cc2268407db8626498a40efbcea2b1d003fae`
 
 Official/manual download links recorded from PENET and Scene-Graph-Benchmark:
 
@@ -111,18 +133,18 @@ Official/manual download links recorded from PENET and Scene-Graph-Benchmark:
 
 Network note:
 
+- Current environment can reach the official Weiyun backup through the
+  container proxy at `127.0.0.1:17891`.
 - Current environment resolves the official OneDrive resources but `curl`
   exits with TLS `unexpected eof while reading` before a downloadable payload is
   received.
 - The same OneDrive failure was reproduced with `wget`, Python `urllib`,
   `curl --http1.1 --tlsv1.2`, and a small range request against
   `onedrive.live.com/download?resid=22376FFAD72C4B64%21779870`; no detector
-  bytes were retrieved.
-- Stanford VG image links respond with HTTP 200 and byte ranges:
-  `images.zip` has `Content-Length: 9731705982`; `images2.zip` has
-  `Content-Length: 5471658058`. A 1 MiB probe succeeded, but the observed
-  single-connection speed was about `0.5 MB/s`, so full image download was not
-  started in this audit turn.
+  bytes were retrieved from OneDrive.
+- Stanford VG image links respond with HTTP 200 and byte ranges, but the
+  existing local raw VG image pack is already the same `VG_100K_2` image source
+  required by PENET/SGB and was reused instead of redownloading.
 - A non-official Hugging Face mirror candidate for `VG-SGG-with-attri.h5` was
   downloaded only for structure inspection:
   `outputs/pretrained/penet_official/mirrors/VG-SGG-with-attri.h5`
@@ -132,8 +154,67 @@ Network note:
   `boxes_512`, `labels`, `relationships`, `predicates`, `attributes`, and
   `split`; it is not treated as official provenance by this report.
 
+## Eval-Only Probes
+
+Local OpenSGG eval-only probe:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n hsg python train.py \
+  --test \
+  --method PENet \
+  --config_file configs/VisualGenome/PE_NET.py \
+  --ckpt_path outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth \
+  --test_dataset_size 1 \
+  --val_batch_size 1 \
+  --num_workers 0 \
+  --ex_name PENet_official_sgdet_probe \
+  --no_display_method_info \
+  --gpus 0
+```
+
+Observed result:
+
+- Official relation checkpoint loaded through the remapping path:
+  `Remapped external checkpoint keys: 642 -> 63`.
+- Missing local-only fallback tensors were limited to:
+  `union_fallback.0.weight` and `union_fallback.0.bias`.
+- The run stopped before metric reporting because the local VisualGenome eval
+  target does not provide official SGDet detector proposal fields:
+  `boxes_per_cls` and `obj_dists`/`scores_all`.
+
+This is the intended guard behavior. Producing R@50/mR@50 without those
+proposal fields would be a protocol mismatch.
+
+Official PENET runtime probe in `conda hsg`:
+
+```bash
+cd /workspace/external/penet_official/PENET
+conda run --no-capture-output -n hsg python setup.py build_ext --inplace
+```
+
+Observed result:
+
+- `apex` is not installed in `hsg`; official `relation_test_net.py` imports
+  `apex.amp` at module import time.
+- `maskrcnn_benchmark._C` is not importable before building.
+- Building the official extension fails under the current Python 3.10 /
+  modern PyTorch/CUDA environment with legacy maskrcnn-benchmark C++/CUDA
+  compilation errors, including missing legacy THC headers and a final
+  `RuntimeError: Error compiling objects for extension`.
+
+This is an official-code runtime environment blocker, not a missing-input
+blocker. The official repository's legacy stack needs a compatible
+maskrcnn-benchmark/APEX environment before the official evaluator can be used
+as the parity oracle.
+
 ## Evaluation Boundary
 
-No checkpoint-backed SGDet metric run has been performed yet. Running the
-current local code without official VG inputs and detector proposals would be a
-protocol mismatch, not an official PE-NET SGDet reproduction.
+No checkpoint-backed SGDet R@50/mR@50 result has been produced from local
+OpenSGG. The current status is:
+
+- official input provenance: `PASS`
+- local OpenSGG SGDet evaluation: `protocol_mismatch` until detector proposal
+  fields are provided
+- official PENET evaluator: `runtime_blocked` in the current `hsg` environment
+- paper table targets only:
+  `R@50 = 30.41` and `mR@50 = 12.25`
