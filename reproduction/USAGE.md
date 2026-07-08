@@ -91,7 +91,7 @@ Missing artifact manifest:
 python tools/reproduction/build_artifact_manifest.py
 ```
 
-This creates `docs/reproduction/artifact_manifest.json`, a structured list of
+This creates `reproduction/evidence/artifact_manifest.json`, a structured list of
 official inputs, checkpoints, detector weights, and memory-bank artifacts still
 needed before any deferred baseline can be reconsidered for reproduction.
 
@@ -170,13 +170,13 @@ FREQ/TDE/VCTree input audits, when those files are present:
 
 ```bash
 python tools/reproduction/check_sgb_freq_inputs.py \
-  --output docs/reproduction/freq/sgb_freq_input_check.json
+  --output reproduction/evidence/freq/sgb_freq_input_check.json
 
 python tools/reproduction/check_tde_official_inputs.py \
-  --output docs/reproduction/tde/tde_official_input_check.json
+  --output reproduction/evidence/tde/tde_official_input_check.json
 
 python tools/reproduction/check_vctree_official_inputs.py \
-  --output docs/reproduction/vctree/vctree_official_input_check.json
+  --output reproduction/evidence/vctree/vctree_official_input_check.json
 ```
 
 Full target-suite evidence gate audit:

@@ -2,10 +2,9 @@
 data/OpenImages/
 data/VisualGenome/
 
-# Local docs and plans (never push to GitHub by default)
+# Local docs and plans. The authoritative tracked workflow lives in
+# `reproduction/`; `docs/` is a local/historical archive.
 docs/*
-!docs/reproduction/
-!docs/reproduction/**
 
 # Local agent/editor configuration
 .claude/
