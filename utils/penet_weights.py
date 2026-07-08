@@ -9,7 +9,8 @@ Matches the official VL-Group/PENET pretraining chain:
   3. Box head fc6/fc7 (4096-dim): requires official pretrained detector
      checkpoint; kaiming_init when unavailable
 
-  The PENet relation predictor is trained from scratch — NOT loaded.
+  The PE-NET relation predictor is loaded from the official model checkpoint
+  through ``PENetContext.remap_external_state_dict`` during evaluation.
 """
 
 from __future__ import annotations
@@ -239,7 +240,8 @@ def load_all_pretrained(
          (overrides step 1 for backbone; loads FPN and box-head which
           otherwise use kaiming_init)
 
-    The PENet relation predictor is always trained from scratch.
+    The PE-NET relation predictor is loaded separately from ``--ckpt_path``
+    when running official checkpoint-backed evaluation.
     """
     counts: Dict[str, int] = {}
 
@@ -280,8 +282,8 @@ def load_all_pretrained(
     print(
         f"[weights]   Box fc6/fc7← {'COCO (detector ckpt)' if have_detector else 'kaiming_init (needs detector ckpt)'}"
     )
-    print("[weights]   Union ext  ← kaiming_init (trained from scratch)")
-    print("[weights]   PENet model← kaiming_init (trained from scratch)")
+    print("[weights]   Union ext  ← kaiming_init unless present in detector/model ckpt")
+    print("[weights]   PENet model← --ckpt_path official model checkpoint")
     if not have_detector:
         print("[weights] ─────────────────────────────────────────────")
         print("[weights] To load FPN + box-head COCO pretrained weights:")

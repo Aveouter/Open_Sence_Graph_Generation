@@ -68,7 +68,9 @@ def dir_check(path: Path) -> dict[str, Any]:
 
 
 def checkpoint_candidates(root: Path, model_dir_name: str) -> list[dict[str, Any]]:
-    search_roots = [root / model_dir_name, root / model_dir_name.lower(), root]
+    search_roots = [root / model_dir_name, root / model_dir_name.lower()]
+    if root.name in {model_dir_name, model_dir_name.lower()}:
+        search_roots.append(root)
     suffixes = {".pth", ".pt", ".pkl", ".ckpt"}
     candidates: list[dict[str, Any]] = []
     seen: set[Path] = set()

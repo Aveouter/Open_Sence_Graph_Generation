@@ -635,6 +635,34 @@ class PENetContext(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
+    def remap_external_state_dict(
+        self, state_dict: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
+        """Extract official ``PrototypeEmbeddingNetwork`` weights.
+
+        Official PE-NET checkpoints are full maskrcnn-benchmark checkpoints.
+        Relation predictor tensors live under
+        ``roi_heads.relation.predictor.``; local ``PENetContext`` stores the
+        same modules at the root. Other detector/RPN/ROI-head tensors are left
+        out here because they belong to the local wrapper modules, not this
+        relation predictor.
+        """
+        if not isinstance(state_dict, dict):
+            return state_dict
+
+        prefixes = (
+            "roi_heads.relation.predictor.",
+            "module.roi_heads.relation.predictor.",
+        )
+        remapped: dict[str, torch.Tensor] = {}
+        for key, value in state_dict.items():
+            for prefix in prefixes:
+                if key.startswith(prefix):
+                    remapped[key[len(prefix) :]] = value
+                    break
+
+        return remapped or state_dict
+
     # ── SGDet per-class NMS — matches official nms_per_cls exactly ──
 
     def nms_per_cls(

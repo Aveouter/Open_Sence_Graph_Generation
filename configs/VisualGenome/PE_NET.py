@@ -12,11 +12,8 @@
 # 训练时自动从 torchvision 加载（无需手动下载）：
 #   1. 主干网络  ← ImageNet 预训练的 ResNeXt-101-32×8d (312 params)
 #
-# 以下模块从 kaiming_uniform_ 随机初始化、从头训练：
-#   2. FPN 横向/平滑卷积    (16 params)
-#   3. Box head fc6/fc7     (4096-dim, 68M params)
-#   4. Union 特征提取器      (rect_conv + fc6/fc7, 68M params)
-#   5. PENet 关系预测器      (118M params)
+# 评估官方 checkpoint 时，关系预测器必须通过 --ckpt_path 加载官方
+# PE-NET_SGDet/model_final.pth；不能使用随机初始化权重报告 baseline。
 #
 # -----------------------------------------------------------------------
 # 如果要与官方完全一致（FPN + box-head 也从 COCO 预训练加载），需要
@@ -25,7 +22,8 @@
 #   penet_detector_ckpt = "checkpoints/pretrained_faster_rcnn/model_final.pth"
 #
 # 该文件来自 Scene-Graph-Benchmark，可从官方 PENet README 链接获取。
-# 不设置此路径不影响训练 — FPN + box-head 会从 kaiming_init 开始学习。
+# SGDet 官方评估还需要 detector proposals 中的 predict_logits/scores_all
+# 和 boxes_per_cls；缺失时本地代码会显式中止，而不是退化为 PredCls。
 # -----------------------------------------------------------------------
 #
 # Official hyperparameters (from configs/e2e_relation_X_101_32_8_FPN_1x.yaml
@@ -114,7 +112,7 @@ penet_nms_thresh = 0.5
 # ===== evaluation =====
 # Supported modes: predcls, sgcls, sgdet
 # Metrics are auto-derived from eval_mode — just change eval_mode above.
-eval_mode = "predcls"
+eval_mode = "sgdet"
 _METRIC_KS = [20, 50, 100]
 metrics = [f"{eval_mode}_R@{k}" for k in _METRIC_KS] + [
     f"{eval_mode}_mR@{k}" for k in _METRIC_KS

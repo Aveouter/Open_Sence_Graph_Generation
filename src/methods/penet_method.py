@@ -5,10 +5,9 @@ Fully aligned with official VL-Group/PENET pipeline:
   Image → ResNeXt-101-32×8d → FPN(P2-P6) → {BoxExtractor, UnionExtractor}
     → PrototypeEmbeddingNetwork → predicate logits + proto losses
 
-Weight loading (matching official pretraining chain):
-  1. Backbone  ← torchvision ImageNet
-  2. FPN + Box head ← official detector checkpoint (if provided), else kaiming_init
-  3. PENet model ← trained from scratch (kaiming_init)
+Weight loading for checkpoint-backed evaluation:
+  1. Backbone / FPN / Box head ← official detector checkpoint when provided
+  2. PrototypeEmbeddingNetwork ← official PE-NET checkpoint via --ckpt_path
 """
 
 from __future__ import annotations
@@ -76,7 +75,7 @@ class PENet_Method(Motifs_Method):
         )
 
         # ── Load pretrained backbone + FPN + box-head (detector) weights ──
-        # PENet model itself is NOT loaded — it is trained from scratch.
+        # The relation predictor is loaded later from --ckpt_path by BaseExperiment.
         counts = load_all_pretrained(
             backbone=self._backbone,
             fpn=self._fpn,
@@ -87,7 +86,6 @@ class PENet_Method(Motifs_Method):
         self._weight_load_counts = counts
 
     def _build_model(self, **args):
-        # PENet model is trained from scratch (kaiming_init)
         return build_penet(self.hparams)
 
     def _build_criterion(self, **args):
@@ -182,7 +180,8 @@ class PENet_Method(Motifs_Method):
 
     def forward(self, images, targets=None, **kwargs):
         is_training = targets is not None
-        return_obj_preds = getattr(self.hparams, "eval_mode", "predcls") == "sgcls"
+        eval_mode = getattr(self.hparams, "eval_mode", "predcls")
+        return_obj_preds = eval_mode in {"sgcls", "sgdet"}
 
         if is_training or targets is not None:
             all_outputs = []
@@ -206,6 +205,20 @@ class PENet_Method(Motifs_Method):
                 roi_feats, fpn_feats = r["roi_feats"], r["fpn_features"]
 
                 extra = self._extra_model_kwargs(targets[i], box, lab, return_obj_preds)
+                if eval_mode == "sgdet":
+                    missing = [
+                        key
+                        for key in ("boxes_per_cls", "obj_dists")
+                        if key not in extra
+                    ]
+                    if missing:
+                        raise ValueError(
+                            "PENet SGDet requires official detector proposal "
+                            f"fields {missing}. Provide boxes_per_cls and "
+                            "predict_logits/scores_all from the detector; "
+                            "otherwise the run is a protocol_mismatch, not an "
+                            "official SGDet evaluation."
+                        )
 
                 # Pass FPN features + extraction callback to model
                 extra["_compute_union_fn"] = self._compute_union_features

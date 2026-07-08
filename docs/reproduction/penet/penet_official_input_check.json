@@ -18,8 +18,14 @@
       "official_google_drive_id": "1uRl-O-yXmpCs__l_V-WTdYtbWPl57M1B"
     },
     "sgdet": {
-      "candidate_count": 0,
-      "candidates": [],
+      "candidate_count": 1,
+      "candidates": [
+        {
+          "path": "outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth",
+          "sha256": "ca7009b404f845ed989f799d1dc426be28a33db89b6b8d16649309d338948183",
+          "size_bytes": 2627548389
+        }
+      ],
       "expected_model_dir": "PE-NET_SGDet",
       "official_google_drive_id": "1Ed6PkATiig0xpFuQYL-G5trFifhPpc0C"
     }
@@ -27,8 +33,7 @@
   "checkpoint_root": "outputs/pretrained/penet_official",
   "missing_checkpoint_protocols": [
     "predcls",
-    "sgcls",
-    "sgdet"
+    "sgcls"
   ],
   "missing_source_paths": [],
   "missing_vg_paths": [
