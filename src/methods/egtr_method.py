@@ -7,12 +7,54 @@ Uses Deformable DETR backbone + lightweight relation extraction head.
 Depends on HuggingFace transformers (DeformableDetrConfig, DeformableDetrFeatureExtractor).
 """
 
-import torch
 import pickle
+import tarfile
+import tempfile
+from pathlib import Path
+
+import torch
 import torch.nn as nn
 from .base_method import Base_method
 
 from utils.misc import NestedTensor, nested_tensor_from_tensor_list
+
+
+def _load_local_egtr_lightning_checkpoint(model: nn.Module, pretrained_path) -> None:
+    """Load official EGTR Lightning checkpoints packaged as .ckpt or .tar.gz."""
+    if not pretrained_path:
+        return
+    path = Path(pretrained_path)
+    if not path.exists() or path.is_dir():
+        return
+
+    def _load_ckpt(ckpt_path: Path):
+        obj = torch.load(str(ckpt_path), map_location="cpu")
+        state = obj.get("state_dict", obj)
+        remapped = {}
+        for key, value in state.items():
+            if key.startswith("model."):
+                remapped[key[len("model."):]] = value
+            else:
+                remapped[key] = value
+        missing, unexpected = model.load_state_dict(remapped, strict=False)
+        print(
+            "[EGTR] loaded local Lightning checkpoint "
+            f"{ckpt_path} (missing={len(missing)}, unexpected={len(unexpected)})"
+        )
+
+    suffixes = "".join(path.suffixes)
+    if path.suffix == ".ckpt":
+        _load_ckpt(path)
+        return
+    if suffixes.endswith(".tar.gz") or path.suffix == ".tar":
+        with tempfile.TemporaryDirectory() as td:
+            with tarfile.open(path) as tf:
+                ckpt_names = sorted(name for name in tf.getnames() if name.endswith(".ckpt"))
+                if not ckpt_names:
+                    return
+                ckpt_name = ckpt_names[-1]
+                tf.extract(ckpt_name, td)
+                _load_ckpt(Path(td) / ckpt_name)
 
 
 def build_egtr(args):
@@ -144,6 +186,7 @@ def build_egtr(args):
         # Offline: instantiate model directly without pretrained weights
         model = DetrForSceneGraphGeneration(config, fg_matrix=fg_matrix)
 
+    _load_local_egtr_lightning_checkpoint(model, pretrained_path)
     model.to(device)
 
     # Load custom checkpoint if provided (handles size mismatches).
@@ -394,8 +437,9 @@ class EGTR_Method(Base_method):
                 rel_scores[r] = pr[sq, oq, :].astype(np.float32)
                 sub_boxes[r] = rescale_bboxes(pred_boxes[sq].unsqueeze(0), orig_wh).squeeze(0).numpy()
                 obj_boxes[r] = rescale_bboxes(pred_boxes[oq].unsqueeze(0), orig_wh).squeeze(0).numpy()
-                sub_labels[r] = int(torch.sigmoid(pred_logits[sq]).argmax()) + 1
-                obj_labels[r] = int(torch.sigmoid(pred_logits[oq]).argmax()) + 1
+                obj_prob = pred_logits.softmax(-1)
+                sub_labels[r] = int(obj_prob[sq].argmax()) + 1
+                obj_labels[r] = int(obj_prob[oq].argmax()) + 1
 
             sgdet_rel = pred_rel.clamp(0.0, 1.0)
             if pred_connectivity is not None:
@@ -413,8 +457,9 @@ class EGTR_Method(Base_method):
                 det_classes = det_indexes % num_classes
             elif postprocess_mode == 'query':
                 # EGTR reproduction mode: one object class per query. This is
-                # the path that matches the observed VisualGenome R@20 target.
-                det_scores, det_classes = torch.max(torch.sigmoid(pred_logits), dim=-1)
+                # the official evaluate_batch path:
+                # pred_logits.softmax(-1)[:, :num_labels].
+                det_scores, det_classes = torch.max(pred_logits.softmax(-1), dim=-1)
                 det_queries = torch.arange(
                     pred_logits.shape[0], device=pred_logits.device, dtype=torch.long)
             else:

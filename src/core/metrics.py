@@ -1073,8 +1073,8 @@ def _evaluate_predcls_batch_compact(
             "rel_scores": rel_scores,
         }
 
-        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1) if rel_scores.size else \
-            np.zeros(0, dtype=np.int64)
+        # pred_rel_labels = 1 + np.argmax(rel_scores, axis=1) if rel_scores.size else \
+        #     np.zeros(0, dtype=np.int64)
         if has_sgdet_cache:
             sgdet_rel_scores = np.asarray(per_key["sgdet_rel_scores"][i], dtype=np.float32)
             if sgdet_rel_scores.ndim == 1:
@@ -1090,8 +1090,8 @@ def _evaluate_predcls_batch_compact(
                 "obj_classes": np.asarray(per_key["sgdet_obj_classes"][i], dtype=np.int64),
                 "rel_scores": sgdet_rel_scores,
             }
-            pred_rel_labels_sgdet = 1 + np.argmax(sgdet_rel_scores, axis=1) \
-                if sgdet_rel_scores.size else np.zeros(0, dtype=np.int64)
+            # pred_rel_labels_sgdet = 1 + np.argmax(sgdet_rel_scores, axis=1) \
+            #     if sgdet_rel_scores.size else np.zeros(0, dtype=np.int64)
         else:
             # Legacy compact cache: use predicted boxes + labels aligned with GT
             # relations. New EGTR runs should provide the sgdet_* top-pair cache.
@@ -1104,7 +1104,7 @@ def _evaluate_predcls_batch_compact(
                 "obj_classes": np.asarray(per_key["obj_classes"][i], dtype=np.int64),
                 "rel_scores": rel_scores,
             }
-            pred_rel_labels_sgdet = pred_rel_labels
+            # pred_rel_labels_sgdet = pred_rel_labels
 
         for task_eval_key in evaluators:
             if "predcls" in task_eval_key:
@@ -1119,27 +1119,23 @@ def _evaluate_predcls_batch_compact(
                     gt_mask = (gt_rel_labels == rel_id)
                     if not gt_mask.any():
                         continue
-                    pred_mask = (pred_rel_labels == rel_id)
                     gt_entry_rel = {
                         "gt_classes": gt_entry["gt_classes"],
                         "gt_relations": gt_entry["gt_relations"][gt_mask],
                         "gt_boxes": gt_entry["gt_boxes"],
                     }
-                    pred_entry_rel = _filter_by_mask(pred_entry_predcls, pred_mask)
-                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_predcls)
             if "sgdet" in task_mr_key:
                 for rel_id in range(1, rel_nums + 1):
                     gt_mask = (gt_rel_labels == rel_id)
                     if not gt_mask.any():
                         continue
-                    pred_mask = (pred_rel_labels_sgdet == rel_id)
                     gt_entry_rel = {
                         "gt_classes": gt_entry["gt_classes"],
                         "gt_relations": gt_entry["gt_relations"][gt_mask],
                         "gt_boxes": gt_entry["gt_boxes"],
                     }
-                    pred_entry_rel = _filter_by_mask(pred_entry_sgdet, pred_mask)
-                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_sgdet)
 
 
 # ===========================================================================
