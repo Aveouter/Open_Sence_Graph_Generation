@@ -6,12 +6,17 @@ from types import SimpleNamespace
 import torch
 
 from src.methods import method_maps
+from src.models.backbone import ResNetBackbone
 from src.models.penet import (
     PENetContext,
     build_penet,
     fusion_func,
     _make_fc,
     _nms_overlaps,
+)
+from utils.penet_weights import (
+    _backbone_key_map_official_to_ours,
+    _box_head_key_map_official_to_ours,
 )
 
 
@@ -71,6 +76,37 @@ class PENetArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(model.mlp_dim, 32)
         self.assertEqual(model.embed_dim, 8)
+
+    def test_official_detector_key_maps(self) -> None:
+        """Official detector keys map to local PE-NET detector modules."""
+        backbone = ResNetBackbone(
+            arch="resnext101_32x8d",
+            pretrained=False,
+            frozen=True,
+        )
+        backbone_map = _backbone_key_map_official_to_ours(backbone)
+        self.assertEqual(
+            backbone_map["backbone.body.stem.conv1.weight"],
+            "conv1.weight",
+        )
+        self.assertEqual(
+            backbone_map["backbone.body.stem.bn1.running_mean"],
+            "bn1.running_mean",
+        )
+        self.assertEqual(
+            backbone_map["backbone.body.layer1.0.conv1.weight"],
+            "layer1.0.conv1.weight",
+        )
+
+        box_map = _box_head_key_map_official_to_ours()
+        self.assertEqual(
+            box_map["roi_heads.box.feature_extractor.fc6.weight"],
+            "_box_extractor.fc6.weight",
+        )
+        self.assertEqual(
+            box_map["roi_heads.box.feature_extractor.fc7.bias"],
+            "_box_extractor.fc7.bias",
+        )
 
     def test_weight_init_is_kaiming_uniform(self) -> None:
         """Linear layers use kaiming_uniform_ (matching make_fc)."""

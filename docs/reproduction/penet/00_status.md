@@ -19,6 +19,11 @@ Alignment audit:
 - OpenSGG `PENetContext` now mirrors the official
   `PrototypeEmbeddingNetwork` relation-predictor modules and can remap
   `roi_heads.relation.predictor.*` weights from the official checkpoint.
+- Official detector checkpoint weights now map into local PE-NET detector
+  feature modules with load counts `backbone=520`, `fpn=16`,
+  `box_extractor=4`; proposal generation remains missing.
+- `--penet_detector_ckpt` can now be supplied at evaluation time instead of
+  hardcoding the local detector path in `configs/VisualGenome/PE_NET.py`.
 - SGDet evaluation is guarded against missing detector proposal fields
   (`boxes_per_cls` and `predict_logits`/`scores_all`) to prevent accidental
   PredCls/SGCls protocol fallback.
@@ -41,6 +46,12 @@ Last result:
   but stopped before metrics because the local VisualGenome targets do not
   contain official SGDet detector proposal fields (`boxes_per_cls` and
   `obj_dists`/`scores_all`).
+- Official detector checkpoint load probe succeeded for local PE-NET detector
+  feature modules: `{'backbone': 520, 'fpn': 16, 'box_extractor': 4}`.
+- Eval-only `train.py --test` probe with `--penet_detector_ckpt` accepted the
+  official detector checkpoint, loaded the detector feature weights, loaded the
+  official SGDet relation checkpoint, and then stopped at the expected SGDet
+  proposal-field guard before metrics.
 - Official PENET evaluator execution is blocked in `conda hsg` because the
   legacy maskrcnn-benchmark extension does not build under the current
   Python/PyTorch/CUDA stack and `apex` is unavailable.

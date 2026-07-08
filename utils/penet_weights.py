@@ -56,17 +56,39 @@ def _fpn_key_map_official_to_ours() -> Dict[str, str]:
     return mapping
 
 
+def _backbone_key_map_official_to_ours(backbone: nn.Module) -> Dict[str, str]:
+    """Map official detector backbone keys to local torchvision-style keys.
+
+    Official maskrcnn-benchmark stores the ResNeXt body under
+    ``backbone.body`` and names the first conv/bn block ``stem``.  The local
+    ``ResNetBackbone`` exposes the same tensors with torchvision names such as
+    ``conv1``, ``bn1`` and ``layer1.*``.
+    """
+    mapping: Dict[str, str] = {}
+    for dst_key in backbone.state_dict().keys():
+        if dst_key.startswith("conv1."):
+            src_key = "backbone.body.stem." + dst_key
+        elif dst_key.startswith("bn1."):
+            src_key = "backbone.body.stem." + dst_key
+        elif dst_key.startswith("layer"):
+            src_key = "backbone.body." + dst_key
+        else:
+            continue
+        mapping[src_key] = dst_key
+    return mapping
+
+
 def _box_head_key_map_official_to_ours() -> Dict[str, str]:
     """Map official box-head keys → our ``PENetBoxFeatureExtractor`` keys.
 
     Official (maskrcnn-benchmark):
-      roi_heads.box_head.fc6.weight  →  _box_extractor.fc6.weight
+      roi_heads.box.feature_extractor.fc6.weight  →  _box_extractor.fc6.weight
     """
     return {
-        "roi_heads.box_head.fc6.weight": "_box_extractor.fc6.weight",
-        "roi_heads.box_head.fc6.bias": "_box_extractor.fc6.bias",
-        "roi_heads.box_head.fc7.weight": "_box_extractor.fc7.weight",
-        "roi_heads.box_head.fc7.bias": "_box_extractor.fc7.bias",
+        "roi_heads.box.feature_extractor.fc6.weight": "_box_extractor.fc6.weight",
+        "roi_heads.box.feature_extractor.fc6.bias": "_box_extractor.fc6.bias",
+        "roi_heads.box.feature_extractor.fc7.weight": "_box_extractor.fc7.weight",
+        "roi_heads.box.feature_extractor.fc7.bias": "_box_extractor.fc7.bias",
     }
 
 
@@ -104,6 +126,9 @@ def _transfer_weights(
         for name, param in mod.named_parameters():
             full = f"{scope}.{name}" if scope else name
             dst_params[full] = param
+        for name, buffer in mod.named_buffers():
+            full = f"{scope}.{name}" if scope else name
+            dst_params[full] = buffer
 
     for src_key, dst_key in key_map.items():
         if src_key not in src:
@@ -199,11 +224,12 @@ def load_detector_checkpoint(
 
     counts = {}
 
-    # 1) Backbone: direct key match (official uses same torchvision resnet keys)
+    # 1) Backbone: official ``backbone.body.*`` naming → local torchvision names
+    backbone_map = _backbone_key_map_official_to_ours(backbone)
     counts["backbone"] = _transfer_weights(
         sd,
         {"": backbone},
-        {},
+        backbone_map,
         strict=False,
     )
 

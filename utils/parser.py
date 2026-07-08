@@ -120,6 +120,12 @@ def create_parser():
     parser.add_argument('--gpus', nargs='+', default=[0], type=int)
     parser.add_argument('--metric_for_bestckpt', default='val_loss', type=str)
     parser.add_argument('--ckpt_path', default=None, type=str)
+    parser.add_argument(
+        '--penet_detector_ckpt',
+        default=None,
+        type=str,
+        help='PE-NET only: official pretrained Faster R-CNN detector checkpoint.',
+    )
 
     # CLIP hierarchical alignment parameters
     parser.add_argument('--use_alignment', action='store_true', default=False,
@@ -194,6 +200,7 @@ def default_parser():
         'accumulate_grad_batches': 1,
         # Lightning parameters
         'gpus': [2,3,4,5],
-        'metric_for_bestckpt': 'val_loss'
+        'metric_for_bestckpt': 'val_loss',
+        'penet_detector_ckpt': None,
     }
     return default_values

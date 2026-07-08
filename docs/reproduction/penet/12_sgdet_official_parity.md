@@ -36,6 +36,14 @@ These numbers are targets from the official README, not local results.
   fields: `boxes_per_cls` plus `predict_logits`/`scores_all`.
 - `src/models/penet.py` can remap official checkpoint keys from
   `roi_heads.relation.predictor.*` into local `PENetContext`.
+- `utils/penet_weights.py` now maps the official detector checkpoint's real
+  key names into local PE-NET detector feature modules:
+  `backbone.body.*` to the local ResNeXt backbone,
+  `backbone.fpn.*` to `FPNNeck`, and
+  `roi_heads.box.feature_extractor.*` to `PENetBoxFeatureExtractor`.
+- `utils/parser.py` exposes `--penet_detector_ckpt` so eval-only runs can
+  point at the official detector checkpoint without hardcoding local absolute
+  paths in the committed config.
 - `tools/reproduction/check_penet_official_inputs.py` now checks checkpoint
   directories per protocol and no longer counts an SGDet checkpoint as a
   PredCls/SGCls checkpoint.
@@ -105,6 +113,8 @@ Official backup inputs now present:
   - Size: `1293168527` bytes
   - SHA256:
     `b2cf9b2b4771a340c5dd02a30a9e4d08d14d032de38704545fec643801feba9e`
+  - Local PE-NET detector-feature weight-load probe:
+    `backbone=520`, `fpn=16`, `box_extractor=4`
 
 The detector archive was retrieved from the official Weiyun backup:
 
@@ -164,16 +174,21 @@ CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n hsg python train.py \
   --method PENet \
   --config_file configs/VisualGenome/PE_NET.py \
   --ckpt_path outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth \
+  --penet_detector_ckpt /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth \
   --test_dataset_size 1 \
   --val_batch_size 1 \
   --num_workers 0 \
-  --ex_name PENet_official_sgdet_probe \
+  --ex_name PENet_official_sgdet_detector_probe \
   --no_display_method_info \
   --gpus 0
 ```
 
 Observed result:
 
+- CLI override was accepted:
+  `penet_detector_ckpt: None -> /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth`.
+- Official detector feature weights loaded:
+  `backbone=520`, `fpn=16`, `box_extractor=4`.
 - Official relation checkpoint loaded through the remapping path:
   `Remapped external checkpoint keys: 642 -> 63`.
 - Missing local-only fallback tensors were limited to:
@@ -184,6 +199,26 @@ Observed result:
 
 This is the intended guard behavior. Producing R@50/mR@50 without those
 proposal fields would be a protocol mismatch.
+
+Detector checkpoint load probe:
+
+```bash
+conda run --no-capture-output -n hsg python - <<'PY'
+from src.models.backbone import ResNetBackbone, FPNNeck, PENetBoxFeatureExtractor
+from utils.penet_weights import load_detector_checkpoint
+ckpt = "/workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth"
+backbone = ResNetBackbone("resnext101_32x8d", pretrained=False, frozen=True)
+fpn = FPNNeck((256, 512, 1024, 2048), 256)
+box = PENetBoxFeatureExtractor()
+print(load_detector_checkpoint(backbone, fpn, box, ckpt))
+PY
+```
+
+Observed result: `{'backbone': 520, 'fpn': 16, 'box_extractor': 4}`.
+This confirms local detector feature modules can consume the official detector
+weights. It does not yet create official SGDet proposals, because the local
+adapter still lacks the official RPN + ROI box predictor + postprocessor path
+that emits `boxes_per_cls` and `predict_logits`.
 
 Official PENET runtime probe in `conda hsg`:
 
