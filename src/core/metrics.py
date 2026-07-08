@@ -1080,8 +1080,8 @@ def _evaluate_predcls_batch_compact(
             "rel_scores": rel_scores,
         }
 
-        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1) if rel_scores.size else \
-            np.zeros(0, dtype=np.int64)
+        # pred_rel_labels = 1 + np.argmax(rel_scores, axis=1) if rel_scores.size else \
+        #     np.zeros(0, dtype=np.int64)
         if has_sgdet_cache:
             sgdet_rel_scores = np.asarray(per_key["sgdet_rel_scores"][i], dtype=np.float32)
             if sgdet_rel_scores.ndim == 1:
