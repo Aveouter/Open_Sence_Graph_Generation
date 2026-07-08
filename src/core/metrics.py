@@ -1126,27 +1126,23 @@ def _evaluate_predcls_batch_compact(
                     gt_mask = (gt_rel_labels == rel_id)
                     if not gt_mask.any():
                         continue
-                    pred_mask = (pred_rel_labels == rel_id)
                     gt_entry_rel = {
                         "gt_classes": gt_entry["gt_classes"],
                         "gt_relations": gt_entry["gt_relations"][gt_mask],
                         "gt_boxes": gt_entry["gt_boxes"],
                     }
-                    pred_entry_rel = _filter_by_mask(pred_entry_predcls, pred_mask)
-                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_predcls)
             if "sgdet" in task_mr_key:
                 for rel_id in range(1, rel_nums + 1):
                     gt_mask = (gt_rel_labels == rel_id)
                     if not gt_mask.any():
                         continue
-                    pred_mask = (pred_rel_labels_sgdet == rel_id)
                     gt_entry_rel = {
                         "gt_classes": gt_entry["gt_classes"],
                         "gt_relations": gt_entry["gt_relations"][gt_mask],
                         "gt_boxes": gt_entry["gt_boxes"],
                     }
-                    pred_entry_rel = _filter_by_mask(pred_entry_sgdet, pred_mask)
-                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_sgdet)
 
 
 # ===========================================================================
