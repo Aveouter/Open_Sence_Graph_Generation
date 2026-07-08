@@ -51,6 +51,10 @@ Last result:
   `sgdet_mR@50 = 0.018936751410365105`. These do not align with the official
   README targets `R@50 = 0.3041` and `mR@50 = 0.1225`, so the result is
   `protocol_mismatch` / `not_reproduction_ready`, not reproduction success.
+- Data gap audit found that local OpenSGG VG JSON uses a zero-relation-filtered
+  subset of the official PENET/SGB H5 split, deduplicates exact test
+  relationship triples, and stores integer COCO-style boxes with up to `1.0`
+  pixel difference from official H5-derived boxes.
 - `python tools/reproduction/check_penet_official_inputs.py --protocol sgdet --output docs/reproduction/penet/penet_official_input_check.json`
   returned `PASS` after retrieving the official-backup VG H5 and pretrained
   Faster R-CNN detector from Weiyun and linking the existing local VG image
@@ -79,9 +83,10 @@ Current SGDet parity report:
 
 - `docs/reproduction/penet/12_sgdet_official_parity.md`
 
-Next action: isolate the full-VG parity gap. Known suspects are the local
-OpenSGG eval resize path (`800/1333`) versus the official PENET
-`600/1000` preprocessing, the local PE-NET-only detector proposal adapter
-versus official maskrcnn-benchmark `GeneralizedRCNN`, and unproven local
-evaluator parity. Official PENET evaluator parity remains blocked in the
-current `hsg` environment by legacy maskrcnn-benchmark/APEX runtime issues.
+Next action: isolate the full-VG parity gap. Known suspects are local VG JSON
+input semantics versus official H5 loader semantics, the local OpenSGG eval
+resize path (`800/1333`) versus the official PENET `600/1000` preprocessing,
+the local PE-NET-only detector proposal adapter versus official
+maskrcnn-benchmark `GeneralizedRCNN`, and unproven local evaluator parity.
+Official PENET evaluator parity remains blocked in the current `hsg`
+environment by legacy maskrcnn-benchmark/APEX runtime issues.

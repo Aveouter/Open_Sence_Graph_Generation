@@ -171,6 +171,61 @@ Network note:
   `boxes_512`, `labels`, `relationships`, `predicates`, `attributes`, and
   `split`; it is not treated as official provenance by this report.
 
+## Data Gap Audit
+
+Local OpenSGG Visual Genome files were compared against the official
+PENET/SGB H5 and metadata files:
+
+- Official H5 image rows: `108073`
+- Official H5 split counts: `split=0 -> 75651`, `split=2 -> 32422`
+- Local OpenSGG JSON image counts:
+  `train=57723`, `val=5000`, `test=26446`
+- Local JSON image filenames are all present in official `image_data.json`.
+- Local JSON does not cover `18904` official H5 image rows:
+  `12928` from official `split=0` and `5976` from official `split=2`.
+- The missing official rows are zero-relation rows:
+  local train/val/test keep only images with at least one relation.
+- For the local test image set, official H5 object count is `325570`; local
+  `test.json` object annotation count is also `325570`.
+- Object class labels match exactly for the sampled full-test alignment check.
+- Local image width/height fields match official `image_data.json`.
+- Object vocabulary matches official `label_to_idx` exactly for 151 entries
+  including background index 0.
+- Predicate foreground vocabulary order matches official `predicate_to_idx`
+  for ids `1..50`; local `rel_categories[0]` explicitly stores
+  `__background__`.
+
+Relation annotation gap:
+
+- For local test images, official H5 contains `183642` relationship rows.
+- Local `rel.json` contains `152226` test relationship rows.
+- The local count equals the number of unique official
+  `(subject_box_idx, object_box_idx, predicate)` triples on those same images.
+- The missing `31416` official rows are exact duplicate relationship triples,
+  not missing predicate classes.
+- Official PENET keeps duplicate `relation_tuple` rows for test/evaluation;
+  duplicate filtering is only enabled for training in the official
+  `VGDataset`.
+
+Box-coordinate gap:
+
+- Local boxes and official boxes have the same per-image object counts and
+  labels, but the coordinate representation is not byte-identical.
+- Official evaluator reconstructs float `xyxy` boxes from `boxes_1024`.
+- Local OpenSGG uses integer COCO-style `xywh` boxes in JSON.
+- On all `325570` local test boxes, the maximum absolute coordinate
+  difference from official H5-derived `xywh` is `1.0` pixel and the mean
+  absolute coordinate difference is approximately `0.681` pixels.
+
+Data-level conclusion:
+
+- The local OpenSGG VG files are derived from the official SGB/PENET data, but
+  they are not an exact evaluator-input clone.
+- Strict official parity still requires either evaluating directly from the
+  official H5 loader semantics or proving that zero-relation filtering,
+  duplicate-relation handling, and integer box rounding do not change the
+  target metric semantics.
+
 ## Eval-Only Probes
 
 Local OpenSGG full-VG eval-only run:
