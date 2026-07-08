@@ -247,9 +247,10 @@ CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n hsg python train.py \
   --config_file configs/VisualGenome/PE_NET.py \
   --ckpt_path outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth \
   --penet_detector_ckpt /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth \
+  --penet_official_vg_root /workspace/external/penet_official/PENET/datasets/vg \
   --val_batch_size 1 \
   --num_workers 4 \
-  --ex_name PENet_official_sgdet_full_vg \
+  --ex_name PENet_official_h5_sgdet_full_vg_union_roi \
   --no_display_method_info \
   --gpus 0
 ```
@@ -257,113 +258,52 @@ CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n hsg python train.py \
 Observed full-test result:
 
 - Run directory:
-  `outputs/runs/penet/2026-07-08_PENet_official_sgdet_full_vg`
-- Recorded git commit: `8f8ff2a`
+  `outputs/runs/penet/2026-07-08_PENet_official_h5_sgdet_full_vg_union_roi`
 - Test split size: `26446/26446` images
-- Runtime shown by Lightning: `2:09:15`
+- Runtime shown by Lightning: `0:40:24`
 - Metrics file:
-  `outputs/runs/penet/2026-07-08_PENet_official_sgdet_full_vg/eval/sgdet/metrics.json`
-- `sgdet_R@20 = 0.0822622999548912`
-- `sgdet_R@50 = 0.08229778707027435`
-- `sgdet_R@100 = 0.08229778707027435`
-- `sgdet_mR@20 = 0.018893053755164146`
-- `sgdet_mR@50 = 0.018936751410365105`
-- `sgdet_mR@100 = 0.018936751410365105`
+  `outputs/runs/penet/2026-07-08_PENet_official_h5_sgdet_full_vg_union_roi/eval/sgdet/metrics.json`
+- `sgdet_R@20 = 0.0`
+- `sgdet_R@50 = 0.0`
+- `sgdet_R@100 = 0.0`
+- `sgdet_mR@20 = 0.0`
+- `sgdet_mR@50 = 0.0`
+- `sgdet_mR@100 = 0.0`
+- The run loaded the official SGDet relation checkpoint, official detector
+  checkpoint, and official relation union feature extractor weights:
+  `Loaded PE-NET union extractor weights: 20`.
+- The run used official H5 eval inputs via
+  `--penet_official_vg_root /workspace/external/penet_official/PENET/datasets/vg`.
+- The run used PE-NET official eval preprocessing:
+  `eval_min_size = 600`, `eval_max_size = 1000`.
 
 Comparison with the official README SGDet row:
 
 - Official target `R@50 = 0.3041`; local full-VG result:
-  `sgdet_R@50 = 0.08229778707027435`.
+  `sgdet_R@50 = 0.0`.
 - Official target `mR@50 = 0.1225`; local full-VG result:
-  `sgdet_mR@50 = 0.018936751410365105`.
+  `sgdet_mR@50 = 0.0`.
 
 This is checkpoint-backed full-VG evaluation evidence, but it is
 `protocol_mismatch` / `not_reproduction_ready`, not a successful reproduction.
-The result is far below the official table target, so the local proposal,
-preprocessing, or evaluator path is still not equivalent to the official
-PENET/Scene-Graph-Benchmark runtime.
+The stricter PE-NET SGDet compact evaluator now consumes detector boxes,
+detector object scores/classes, relation softmax scores, and official-style
+mean-recall semantics. Under that stricter evaluator the local adapter still
+does not match the official runtime.
 
-Preprocessing parity update after the full-VG run:
+Smaller probes after the evaluator and feature-alignment changes:
 
-- The full-VG run above was produced before PE-NET opted into official
-  `600/1000` eval resize.
-- The local default Visual Genome eval transform remains
-  `RandomResize([800], max_size=1333)` for configs that do not request
-  explicit eval resize settings.
-- PE-NET now sets `eval_min_size = 600` and `eval_max_size = 1000`, matching
-  official `INPUT.MIN_SIZE_TEST = 600` and `INPUT.MAX_SIZE_TEST = 1000`.
-- A 1-image eval-only smoke with the updated PE-NET config confirmed
-  `eval_min_size: 600` and `eval_max_size: 1000` in run hparams and reached
-  the SGDet evaluator.
-- A new full-VG run is still required to measure the metric impact of this
-  preprocessing parity fix.
+- `PENet_official_sgdet_compact_64probe`: 64 images, all R/mR values `0.0`.
+- `PENet_official_sgdet_union_64probe`: loaded 18 union extractor weights,
+  64 images, all R/mR values `0.0`.
+- `PENet_official_sgdet_union_all_levels_64probe_v2`: loaded 20 union
+  extractor weights after enabling official all-level union pooling,
+  64 images, all R/mR values `0.0`.
+- `PENet_official_sgdet_roi_align_64probe`: switched local ROIAlign to
+  maskrcnn-benchmark-compatible `aligned=False`, 64 images, all R/mR values
+  `0.0`.
 
-Official H5 eval-path smoke after the data-loader update:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n hsg python train.py \
-  --test \
-  --method PENet \
-  --config_file configs/VisualGenome/PE_NET.py \
-  --ckpt_path outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth \
-  --penet_detector_ckpt /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth \
-  --penet_official_vg_root /workspace/external/penet_official/PENET/datasets/vg \
-  --test_dataset_size 1 \
-  --val_batch_size 1 \
-  --num_workers 0 \
-  --ex_name PENet_official_h5_sgdet_probe \
-  --no_display_method_info \
-  --gpus 0
-```
-
-Observed result:
-
-- Hparams confirmed `penet_use_official_vg_h5_eval: true`.
-- Hparams confirmed
-  `penet_official_vg_root: /workspace/external/penet_official/PENET/datasets/vg`.
-- Hparams confirmed official eval preprocessing:
-  `eval_min_size: 600`, `eval_max_size: 1000`.
-- The run loaded the official detector and official SGDet relation checkpoint,
-  then reached the SGDet evaluator on a 1-image slice.
-- The 1-image metrics were all `0.0`; this remains `pipeline_smoke_only`, not
-  reproduction evidence.
-
-Local OpenSGG eval-only probe:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n hsg python train.py \
-  --test \
-  --method PENet \
-  --config_file configs/VisualGenome/PE_NET.py \
-  --ckpt_path outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth \
-  --penet_detector_ckpt /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth \
-  --test_dataset_size 1 \
-  --val_batch_size 1 \
-  --num_workers 0 \
-  --ex_name PENet_official_sgdet_detector_probe \
-  --no_display_method_info \
-  --gpus 0
-```
-
-Observed result:
-
-- CLI override was accepted:
-  `penet_detector_ckpt: None -> /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth`.
-- Official detector weights loaded:
-  `backbone=520`, `fpn=16`, `box_extractor=4`, `rpn_head=6`,
-  `box_predictor=4`.
-- Official relation checkpoint loaded through the remapping path:
-  `Remapped external checkpoint keys: 642 -> 63`.
-- Missing local-only fallback tensors were limited to:
-  `union_fallback.0.weight` and `union_fallback.0.bias`.
-- The run completed the 1-image eval-only pipeline and produced metric keys:
-  `sgdet_R@20`, `sgdet_R@50`, `sgdet_R@100`,
-  `sgdet_mR@20`, `sgdet_mR@50`, `sgdet_mR@100`.
-- All 1-image smoke metrics were `0.0`.
-
-This is `pipeline_smoke_only`, not reproduction evidence. It only proves the
-local official-checkpoint path now creates detector proposals and reaches the
-SGDet evaluator without falling back to GT boxes or GT labels.
+These probes are `pipeline_smoke_only`; they are not reproduction evidence.
 
 Detector checkpoint load probe:
 
@@ -383,6 +323,17 @@ Observed result:
 `{'backbone': 520, 'fpn': 16, 'box_extractor': 4, 'rpn_head': 6, 'box_predictor': 4}`.
 This confirms local detector feature modules can consume the official detector
 weights needed for SGDet proposal generation.
+
+Union feature extractor checkpoint load:
+
+- Official SGDet checkpoint contains 20 tensors under
+  `roi_heads.relation.union_feature_extractor.*`.
+- Local PE-NET now maps all 20 tensors into `PENetUnionFeatureExtractor`,
+  including `rect_conv`, `fc6`, `fc7`, and
+  `feature_extractor.pooler.reduce_channel.0.*`.
+- Local PE-NET union pooling now uses official relation-head semantics:
+  P2-P5 all-level ROI pooling, channel concatenation, `reduce_channel`, and
+  legacy maskrcnn-benchmark-style ROIAlign (`aligned=False`).
 
 Official PENET runtime probe in `conda hsg`:
 
@@ -412,22 +363,22 @@ The full-VG checkpoint-backed SGDet run completed, but it does not align with
 the official table. The current status is:
 
 - official input provenance: `PASS`
-- local OpenSGG SGDet evaluation: full VG completed, but local
-  `sgdet_R@50 = 0.08229778707027435` and
-  `sgdet_mR@50 = 0.018936751410365105` do not align with official targets
-  `0.3041` and `0.1225`
+- local OpenSGG SGDet evaluation: full VG completed on official H5 inputs and
+  official `600/1000` preprocessing, but local `sgdet_R@50 = 0.0` and
+  `sgdet_mR@50 = 0.0` do not align with official targets `0.3041` and
+  `0.1225`
 - official PENET evaluator: `runtime_blocked` in the current `hsg` environment
 - paper table targets only:
   `R@50 = 30.41` and `mR@50 = 12.25`
 
 Known parity gaps to resolve before this can be counted as reproduction:
 
-- Full-VG metric after the PE-NET official H5 eval path and `600/1000` eval
-  resize opt-in has not yet been rerun.
 - Detector proposal path mismatch risk: local SGDet proposals are generated by
   a PE-NET-only adapter that loads official detector weights, but it is not the
   official maskrcnn-benchmark `GeneralizedRCNN` runtime.
-- Evaluator parity remains unproven because the official PENET evaluator cannot
-  currently run in `conda hsg` due to the legacy maskrcnn-benchmark/APEX stack.
-- The local evaluator metric semantics may differ from official
-  Scene-Graph-Benchmark until official-runtime parity is established.
+- Feature/runtime parity remains unproven at the full detector stack level:
+  even after loading official detector, relation predictor, and union extractor
+  weights, local proposals/features produce zero strict SGDet recall.
+- Official PENET evaluator remains blocked in `conda hsg` by the legacy
+  maskrcnn-benchmark/APEX stack; a compatible official runtime is still needed
+  as the parity oracle.

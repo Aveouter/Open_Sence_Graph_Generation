@@ -13,8 +13,10 @@ from PIL import Image
 
 from data.dataloaders.coco import make_coco_transforms
 from data.dataloaders.vg_official_h5 import OfficialVGH5EvalDataset
+from src.core.metrics import metric
 from src.methods import method_maps
 from src.models.backbone import ResNetBackbone
+from src.models.backbone import PENetUnionFeatureExtractor
 from src.models.penet import (
     PENetContext,
     build_penet,
@@ -28,6 +30,8 @@ from utils.penet_weights import (
     _box_head_key_map_official_to_ours,
     _box_predictor_key_map_official_to_ours,
     _rpn_head_key_map_official_to_ours,
+    _union_feature_extractor_key_map_official_to_ours,
+    load_union_feature_extractor_from_state_dict,
 )
 
 
@@ -139,6 +143,34 @@ class PENetArchitectureTest(unittest.TestCase):
             "box_predictor.bbox_pred.bias",
         )
 
+        union_map = _union_feature_extractor_key_map_official_to_ours()
+        self.assertEqual(
+            union_map[
+                "roi_heads.relation.union_feature_extractor.feature_extractor.fc6.weight"
+            ],
+            "fc6.weight",
+        )
+        self.assertEqual(
+            union_map["roi_heads.relation.union_feature_extractor.rect_conv.0.bias"],
+            "rect_conv.0.bias",
+        )
+
+    def test_union_feature_extractor_loads_official_relation_weights(self) -> None:
+        """Official PE-NET relation checkpoint includes union extractor weights."""
+        union = PENetUnionFeatureExtractor()
+        state = {}
+        for src_key, dst_key in _union_feature_extractor_key_map_official_to_ours().items():
+            state[src_key] = torch.ones_like(union.state_dict()[dst_key])
+        count = load_union_feature_extractor_from_state_dict(union, state)
+        self.assertEqual(count, len(state))
+        self.assertTrue(torch.allclose(union.fc6.weight, torch.ones_like(union.fc6.weight)))
+        self.assertTrue(
+            torch.allclose(
+                union.rect_conv[0].bias,
+                torch.ones_like(union.rect_conv[0].bias),
+            )
+        )
+
     def test_sgdet_proposal_generator_module_shapes(self) -> None:
         """Local SGDet proposal modules match official detector tensor shapes."""
         proposal = PENetSGDetProposalGenerator(num_classes=151)
@@ -148,6 +180,18 @@ class PENetArchitectureTest(unittest.TestCase):
         self.assertEqual(proposal.box_predictor.cls_score.weight.shape, (151, 4096))
         self.assertEqual(proposal.box_predictor.bbox_pred.weight.shape, (604, 4096))
         self.assertEqual(proposal._cell_anchor(0).shape, (4, 4))
+
+    def test_sgdet_proposal_postprocessing_matches_official_config(self) -> None:
+        """Local SGDet proposal post-processing uses official PE-NET thresholds."""
+        proposal = PENetSGDetProposalGenerator(num_classes=151)
+        self.assertEqual(proposal.rpn_pre_nms_top_n, 6000)
+        self.assertEqual(proposal.rpn_post_nms_top_n, 1000)
+        self.assertEqual(proposal.rpn_nms_thresh, 0.7)
+        self.assertEqual(proposal.rpn_min_size, 0)
+        self.assertEqual(proposal.box_score_thresh, 0.01)
+        self.assertEqual(proposal.box_nms_thresh, 0.3)
+        self.assertEqual(proposal.post_nms_per_cls_topn, 300)
+        self.assertEqual(proposal.detections_per_img, 80)
 
     def test_penet_eval_resize_matches_official_without_changing_default(self) -> None:
         """PE-NET opts into official 600/1000 eval resize without moving defaults."""
@@ -442,6 +486,78 @@ class PENetForwardTest(unittest.TestCase):
             boxes_per_cls=boxes_per_cls,
         )
         self.assertEqual(outputs["obj_logits"].shape, (5, 151))
+        for key in (
+            "sgdet_rel_scores",
+            "sgdet_sub_boxes",
+            "sgdet_obj_boxes",
+            "sgdet_sub_scores",
+            "sgdet_obj_scores",
+            "sgdet_sub_classes",
+            "sgdet_obj_classes",
+        ):
+            self.assertIn(key, outputs)
+        self.assertEqual(outputs["sgdet_rel_scores"].shape[-1], 51)
+        self.assertEqual(outputs["sgdet_box_space"], "resized_xyxy")
+
+    def test_penet_sgdet_metric_uses_official_compact_fields(self) -> None:
+        """PE-NET SGDet evaluator consumes detector boxes instead of GT pair indices."""
+        pred = {
+            "model_family": "penet_sgdet",
+            "sgdet_rel_scores": [
+                torch.tensor([[0.01, 0.01, 0.01, 0.90] + [0.01] * 47])
+            ],
+            "sgdet_sub_boxes": [torch.tensor([[7.5, 7.5, 17.5, 17.5]])],
+            "sgdet_obj_boxes": [torch.tensor([[32.5, 32.5, 42.5, 42.5]])],
+            "sgdet_sub_scores": [torch.tensor([0.95])],
+            "sgdet_obj_scores": [torch.tensor([0.96])],
+            "sgdet_sub_classes": [torch.tensor([5])],
+            "sgdet_obj_classes": [torch.tensor([6])],
+            "sgdet_box_space": ["resized_xyxy"],
+        }
+        target = {
+            "boxes": torch.tensor(
+                [
+                    [0.25, 0.25, 0.20, 0.20],
+                    [0.75, 0.75, 0.20, 0.20],
+                ],
+                dtype=torch.float32,
+            ),
+            "labels": torch.tensor([5, 6], dtype=torch.int64),
+            "rel_annotations": torch.tensor([[0, 1, 3]], dtype=torch.int64),
+            "orig_size": torch.tensor([100, 100], dtype=torch.int64),
+            "size": torch.tensor([50, 50], dtype=torch.int64),
+        }
+        res, _ = metric(
+            pred,
+            [target],
+            ["sgdet_R@50", "sgdet_mR@50"],
+            rel_nums=51,
+            entity_nums=151,
+        )
+        self.assertAlmostEqual(res["sgdet_R@50"], 1.0)
+        self.assertAlmostEqual(res["sgdet_mR@50"], 1.0 / 50.0)
+
+    def test_sgdet_no_pair_output_keeps_compact_keys(self) -> None:
+        """Images with fewer than two proposals still aggregate SGDet fields."""
+        torch.manual_seed(42)
+        model = self._make_model()
+        model.eval()
+        visual_feats = torch.randn(1, 64)
+        boxes = torch.rand(1, 4)
+        labels = torch.randint(1, 151, (1,))
+        obj_dists = torch.randn(1, 151)
+        boxes_per_cls = torch.rand(1, 151, 4) * 100
+        outputs = model(
+            visual_feats,
+            boxes,
+            labels,
+            return_obj_preds=True,
+            obj_dists=obj_dists,
+            boxes_per_cls=boxes_per_cls,
+        )
+        self.assertEqual(outputs["sgdet_rel_scores"].shape, (0, 51))
+        self.assertEqual(outputs["sgdet_sub_boxes"].shape, (0, 4))
+        self.assertEqual(outputs["sgdet_sub_scores"].shape, (0,))
 
     def test_model_with_freq_bias(self) -> None:
         """Frequency bias should not crash."""

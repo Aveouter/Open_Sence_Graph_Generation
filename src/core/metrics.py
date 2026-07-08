@@ -15,13 +15,14 @@ Architecture:
 """
 
 import re
+from functools import reduce
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
 
 from utils.box_ops import rescale_bboxes
-from lib.evaluation.sg_eval import SceneGraphEvaluator
+from lib.evaluation.sg_eval import SceneGraphEvaluator, evaluate_recall
 
 
 # ===========================================================================
@@ -97,7 +98,19 @@ def metric(
             for task in supported_tasks
         }
 
+    direct_results = {}
+
     # Dispatch to model-specific evaluation
+    if matched_family == "penet_sgdet" and "sgdet" in supported_tasks:
+        direct_results.update(
+            _evaluate_penet_sgdet_official_batch(
+                outputs=pred,
+                targets=true,
+                evaluators=evaluators,
+                rel_nums=rel_nums,
+                need_mr=need_mr,
+            )
+        )
     if matched_family == "usg" and "sgdet" in supported_tasks:
         _evaluate_sgdet_batch(
             outputs=pred,
@@ -184,6 +197,7 @@ def metric(
     all_results = {}
     all_results.update(_collect_main_recall(evaluators))
     all_results.update(_collect_mean_recall(mr_evaluators))
+    all_results.update(direct_results)
     if need_mr:
         all_results.update(compute_head_body_tail_mr(mr_evaluators))
 
@@ -237,6 +251,11 @@ _MODEL_SCHEMAS = {
     "flowsg": {"sub_boxes", "obj_boxes", "sub_logits", "obj_logits", "rel_logits"},
     "hstrnet": {"final_predicate_logits", "object_logits", "relation_pair_indices"},
     "egtr_compact": {"rel_scores", "sub_boxes", "obj_boxes", "sub_scores", "obj_scores", "sub_classes", "obj_classes"},
+    "penet_sgdet": {
+        "sgdet_rel_scores", "sgdet_sub_boxes", "sgdet_obj_boxes",
+        "sgdet_sub_scores", "sgdet_obj_scores",
+        "sgdet_sub_classes", "sgdet_obj_classes",
+    },
     "egtr": {"pred_logits", "pred_boxes", "pred_rel"},
     "motifs": {"rel_logits", "pair_indices", "sub_boxes", "obj_boxes", "obj_labels"},
     "cvc": {"pred_logits", "pair_indices", "sub_boxes", "obj_boxes"},
@@ -249,6 +268,7 @@ _MODEL_TASKS = {
     "flowsg": {"sgdet", "predcls", "sgcls"},
     "hstrnet": {"predcls"},
     "egtr_compact": {"predcls", "sgdet"},
+    "penet_sgdet": {"sgdet"},
     "egtr": {"predcls"},
     "motifs": {"predcls", "sgcls", "sgdet"},
     "cvc": {"predcls"},
@@ -1140,6 +1160,127 @@ def _evaluate_predcls_batch_compact(
 
 # ===========================================================================
 
+def _evaluate_penet_sgdet_official_batch(
+    outputs: Dict[str, Any],
+    targets: List[Dict[str, Any]],
+    evaluators: Dict[str, SceneGraphEvaluator],
+    rel_nums: int,
+    need_mr: bool,
+) -> Dict[str, float]:
+    """PE-NET SGDet evaluator path matching the official SGB/PENET protocol.
+
+    Official relation inference emits all detector pairs sorted by
+    ``rel_score * subj_score * obj_score`` and ``SGMeanRecall`` collects
+    per-class image-level recall from that same global top-K list. This adapter
+    keeps those semantics local to PE-NET so other model families retain their
+    existing evaluator behavior.
+    """
+    sgdet_keys = [
+        "sgdet_rel_scores", "sgdet_sub_boxes", "sgdet_obj_boxes",
+        "sgdet_sub_scores", "sgdet_obj_scores",
+        "sgdet_sub_classes", "sgdet_obj_classes",
+    ]
+    for key in sgdet_keys:
+        if key not in outputs:
+            raise KeyError(f"PE-NET SGDet output missing key: {key}")
+
+    per_key = {key: _per_image_values(outputs[key]) for key in sgdet_keys}
+    box_spaces = _per_image_values(outputs.get("sgdet_box_space", "orig_xyxy"))
+    foreground_rel_nums = rel_nums - 1 if rel_nums > 1 else rel_nums
+    mr_collect = {
+        k: [[] for _ in range(foreground_rel_nums + 1)]
+        for k in (10, 20, 50, 100)
+    }
+
+    for i, target in enumerate(targets):
+        if i >= len(per_key["sgdet_rel_scores"]):
+            break
+        _validate_target(target)
+
+        gt_rels = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        if gt_rels.ndim == 1:
+            gt_rels = gt_rels.reshape(-1, 3) if gt_rels.size > 0 else \
+                np.zeros((0, 3), dtype=np.int64)
+        if gt_rels.shape[0] == 0:
+            continue
+
+        gt_classes = _to_numpy(target["labels"]).astype(np.int64)
+        gt_boxes = _rescale_boxes(target["boxes"], target["orig_size"])
+
+        rel_scores = np.asarray(per_key["sgdet_rel_scores"][i], dtype=np.float32)
+        if rel_scores.ndim == 1:
+            rel_scores = rel_scores.reshape(1, -1)
+        if rel_scores.shape[-1] == rel_nums:
+            rel_scores = rel_scores[:, 1:rel_nums]
+        elif rel_scores.shape[-1] > foreground_rel_nums:
+            rel_scores = rel_scores[:, :foreground_rel_nums]
+
+        sub_boxes = np.asarray(per_key["sgdet_sub_boxes"][i], dtype=np.float32)
+        obj_boxes = np.asarray(per_key["sgdet_obj_boxes"][i], dtype=np.float32)
+        box_space = box_spaces[i] if i < len(box_spaces) else box_spaces[0]
+        if isinstance(box_space, (list, tuple)) and box_space:
+            box_space = box_space[0]
+        if box_space == "resized_xyxy":
+            sub_boxes = _rescale_xyxy_from_size(sub_boxes, target["size"], target["orig_size"])
+            obj_boxes = _rescale_xyxy_from_size(obj_boxes, target["size"], target["orig_size"])
+
+        pred_rel_labels = 1 + rel_scores.argmax(axis=1)
+        pred_rel_scores = rel_scores.max(axis=1)
+        pred_to_gt, _, _ = evaluate_recall(
+            gt_rels=gt_rels,
+            gt_boxes=gt_boxes,
+            gt_classes=gt_classes,
+            pred_rels=pred_rel_labels,
+            sub_boxes=sub_boxes,
+            obj_boxes=obj_boxes,
+            sub_scores=np.asarray(per_key["sgdet_sub_scores"][i], dtype=np.float32),
+            obj_scores=np.asarray(per_key["sgdet_obj_scores"][i], dtype=np.float32),
+            pred_scores=pred_rel_scores,
+            sub_labels=np.asarray(per_key["sgdet_sub_classes"][i], dtype=np.int64),
+            obj_labels=np.asarray(per_key["sgdet_obj_classes"][i], dtype=np.int64),
+            iou_thresh=0.5,
+            phrdet=False,
+        )
+
+        recall_bucket = evaluators["sgdet"].result_dict["sgdet_recall"]
+        for k in recall_bucket:
+            top_k = pred_to_gt[:k]
+            matched = np.array([], dtype=np.int64) if len(top_k) == 0 else reduce(np.union1d, top_k)
+            recall_bucket[k].append(float(len(matched)) / gt_rels.shape[0])
+
+        if need_mr:
+            for k in mr_collect:
+                top_k = pred_to_gt[:k]
+                matched = np.array([], dtype=np.int64) if len(top_k) == 0 else reduce(np.union1d, top_k)
+                recall_hit = [0] * (foreground_rel_nums + 1)
+                recall_count = [0] * (foreground_rel_nums + 1)
+                for rel_idx in range(gt_rels.shape[0]):
+                    rel_label = int(gt_rels[rel_idx, 2])
+                    if 0 <= rel_label <= foreground_rel_nums:
+                        recall_count[rel_label] += 1
+                for rel_idx in matched:
+                    rel_label = int(gt_rels[int(rel_idx), 2])
+                    if 0 <= rel_label <= foreground_rel_nums:
+                        recall_hit[rel_label] += 1
+                for rel_label in range(1, foreground_rel_nums + 1):
+                    if recall_count[rel_label] > 0:
+                        mr_collect[k][rel_label].append(
+                            float(recall_hit[rel_label] / recall_count[rel_label])
+                        )
+
+    results = {}
+    if need_mr:
+        for k, per_rel in mr_collect.items():
+            rel_recalls = [
+                float(np.mean(values)) if values else 0.0
+                for values in per_rel[1:]
+            ]
+            results[f"sgdet_mR@{k}"] = float(np.mean(rel_recalls)) if rel_recalls else 0.0
+    return results
+
+
+# ===========================================================================
+
 def _evaluate_predcls_batch_pair_indices(
     outputs: Dict[str, Any],
     targets: List[Dict[str, Any]],
@@ -1492,6 +1633,20 @@ def _rescale_boxes(boxes, orig_size) -> np.ndarray:
     orig_wh = torch.flip(orig_t, dims=[0])
     scaled = rescale_bboxes(boxes_t, orig_wh)
     return scaled.detach().cpu().numpy().astype(np.float32)
+
+
+def _rescale_xyxy_from_size(boxes, current_size, orig_size) -> np.ndarray:
+    """Convert absolute xyxy boxes from resized image space to original image space."""
+    boxes_np = np.asarray(boxes, dtype=np.float32).copy()
+    cur = torch.as_tensor(current_size).cpu().float()
+    orig = torch.as_tensor(orig_size).cpu().float()
+    if cur.numel() != 2 or orig.numel() != 2:
+        raise ValueError("current_size and orig_size must each have 2 elements")
+    scale_y = float(orig[0].item() / cur[0].item())
+    scale_x = float(orig[1].item() / cur[1].item())
+    boxes_np[:, [0, 2]] *= scale_x
+    boxes_np[:, [1, 3]] *= scale_y
+    return boxes_np.astype(np.float32)
 
 
 def _rescale_bboxes_tensor(boxes: torch.Tensor, orig_size) -> torch.Tensor:

@@ -232,12 +232,15 @@ class BaseExperiment(object):
         # need to be loaded via _adapt_state_dict first.
         if ckpt_path is not None and (ckpt_path.endswith('.pth') or ckpt_path.endswith('.pt')):
             state_dict = self._load_checkpoint_state_dict(ckpt_path)
+            raw_state_dict = state_dict
             # External checkpoint remapping — also loads backbone weights
             # into _visual_extractor if present (RA-SGG)
             if hasattr(self.method.model, 'remap_external_state_dict'):
                 ve = getattr(self.method, '_visual_extractor', None)
                 state_dict = self.method.model.remap_external_state_dict(state_dict, visual_extractor=ve)
             self._adapt_state_dict(state_dict, self.method.model)
+            if hasattr(self.method, 'load_external_state_dict_extras'):
+                self.method.load_external_state_dict_extras(raw_state_dict)
             ckpt_path = None  # Lightning does not need to load it again
 
         self.trainer.fit(
@@ -284,6 +287,8 @@ class BaseExperiment(object):
         print(f'[Info] Loading checkpoint: {ckpt_path}')
         state_dict = self._load_checkpoint_state_dict(ckpt_path)
         self._adapt_state_dict(state_dict, self.method.model)
+        if hasattr(self.method, 'load_external_state_dict_extras'):
+            self.method.load_external_state_dict_extras(state_dict)
         result = self.trainer.test(self.method, self.data)
         self._save_test_results(result)
         return result

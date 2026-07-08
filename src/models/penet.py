@@ -931,7 +931,7 @@ class PENetContext(nn.Module):
         # ── 4. Generate all directed pairs ──
         pairs = generate_object_pairs(N, device)
         if pairs.numel() == 0:
-            return {
+            out = {
                 "rel_logits": visual_feats.new_zeros(0, self.num_predicates),
                 "pair_indices": pairs,
                 "sub_boxes": boxes.new_zeros(0, 4),
@@ -941,6 +941,26 @@ class PENetContext(nn.Module):
                 "predicate_bg_index": "first",
                 "add_losses": {},
             }
+            if return_obj_preds and boxes_per_cls is not None:
+                out.update(
+                    {
+                        "sgdet_rel_scores": visual_feats.new_zeros(
+                            0, self.num_predicates
+                        ),
+                        "sgdet_sub_boxes": boxes.new_zeros(0, 4),
+                        "sgdet_obj_boxes": boxes.new_zeros(0, 4),
+                        "sgdet_sub_scores": visual_feats.new_zeros(0),
+                        "sgdet_obj_scores": visual_feats.new_zeros(0),
+                        "sgdet_sub_classes": torch.zeros(
+                            0, dtype=torch.long, device=device
+                        ),
+                        "sgdet_obj_classes": torch.zeros(
+                            0, dtype=torch.long, device=device
+                        ),
+                        "sgdet_box_space": "resized_xyxy",
+                    }
+                )
+            return out
 
         # ── 5. Determine which pairs to use ──
         if is_training and rel_annotations is not None:
@@ -1066,7 +1086,7 @@ class PENetContext(nn.Module):
         else:
             out_pairs = pairs
 
-        return {
+        out = {
             "rel_logits": rel_dists,
             "pair_indices": out_pairs,
             "obj_labels": entity_preds,
@@ -1076,6 +1096,39 @@ class PENetContext(nn.Module):
             "predicate_bg_index": "first",
             "add_losses": add_losses,
         }
+        if return_obj_preds and boxes_per_cls is not None and out_pairs.numel() > 0:
+            obj_prob = F.softmax(entity_dists, dim=-1)
+            obj_prob[:, 0] = 0
+            obj_scores = obj_prob[
+                torch.arange(entity_preds.numel(), device=device),
+                entity_preds,
+            ]
+            selected_boxes = boxes_per_cls[
+                torch.arange(entity_preds.numel(), device=device),
+                entity_preds,
+            ]
+            rel_prob = F.softmax(rel_dists, dim=-1)
+            rel_scores = rel_prob[:, 1:].max(dim=1).values
+            triple_scores = (
+                rel_scores
+                * obj_scores[out_pairs[:, 0]]
+                * obj_scores[out_pairs[:, 1]]
+            )
+            order = torch.argsort(triple_scores, descending=True)
+            sorted_pairs = out_pairs[order]
+            out.update(
+                {
+                    "sgdet_rel_scores": rel_prob[order],
+                    "sgdet_sub_boxes": selected_boxes[sorted_pairs[:, 0]],
+                    "sgdet_obj_boxes": selected_boxes[sorted_pairs[:, 1]],
+                    "sgdet_sub_scores": obj_scores[sorted_pairs[:, 0]],
+                    "sgdet_obj_scores": obj_scores[sorted_pairs[:, 1]],
+                    "sgdet_sub_classes": entity_preds[sorted_pairs[:, 0]],
+                    "sgdet_obj_classes": entity_preds[sorted_pairs[:, 1]],
+                    "sgdet_box_space": "resized_xyxy",
+                }
+            )
+        return out
 
 
 # =========================================================================

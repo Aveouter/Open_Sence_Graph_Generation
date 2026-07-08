@@ -276,21 +276,36 @@ class FPNPooler(nn.Module):
     def __init__(
         self,
         output_size=7,
-        scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+        scales=(0.25, 0.125, 0.0625, 0.03125),
         sampling_ratio=2,
+        cat_all_levels=False,
+        in_channels=256,
     ):
         super().__init__()
         self.output_size = output_size
         self.scales = scales
         self.sampling_ratio = sampling_ratio
+        self.cat_all_levels = cat_all_levels
         lvl_min = int(-math.log2(scales[0]))
         lvl_max = int(-math.log2(scales[-1]))
         self.map_levels = LevelMapper(lvl_min, lvl_max)
+        if cat_all_levels:
+            self.reduce_channel = nn.Sequential(
+                nn.Conv2d(
+                    in_channels * len(scales),
+                    in_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=True,
+                ),
+                nn.ReLU(inplace=True),
+            )
 
     def forward(self, fpn_features, boxes_xyxy_list):
         """fpn_features: tuple of [C, H_i, W_i]  (P2, P3, P4, P5, ...).
         boxes_xyxy_list: list of [N_i, 4] absolute (x1,y1,x2,y2)."""
-        num_levels = len(fpn_features)
+        num_levels = min(len(fpn_features), len(self.scales))
         C = fpn_features[0].size(0)
         out_s = self.output_size
         device, dtype = fpn_features[0].device, fpn_features[0].dtype
@@ -306,6 +321,28 @@ class FPNPooler(nn.Module):
         rois = torch.cat(rois_list, dim=0)
         total_N = rois.size(0)
 
+        if self.cat_all_levels:
+            result = torch.zeros(
+                total_N,
+                C * num_levels,
+                out_s,
+                out_s,
+                device=device,
+                dtype=dtype,
+            )
+            for lvl in range(num_levels):
+                feat = fpn_features[lvl].unsqueeze(0)
+                pooled = roi_align(
+                    feat,
+                    rois,
+                    output_size=(out_s, out_s),
+                    spatial_scale=self.scales[lvl],
+                    sampling_ratio=self.sampling_ratio,
+                    aligned=False,
+                )
+                result[:, lvl * C : (lvl + 1) * C] = pooled
+            return self.reduce_channel(result)
+
         levels = self.map_levels(boxes_xyxy_list).clamp(0, num_levels - 1)
         result = torch.zeros(total_N, C, out_s, out_s, device=device, dtype=dtype)
         for lvl in range(num_levels):
@@ -320,7 +357,7 @@ class FPNPooler(nn.Module):
                 output_size=(out_s, out_s),
                 spatial_scale=self.scales[lvl],
                 sampling_ratio=self.sampling_ratio,
-                aligned=True,
+                aligned=False,
             )
             result[mask] = pooled
         return result
@@ -341,7 +378,7 @@ class PENetBoxFeatureExtractor(nn.Module):
         super().__init__()
         self.pooler = FPNPooler(
             output_size=roi_output_size,
-            scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+            scales=(0.25, 0.125, 0.0625, 0.03125),
             sampling_ratio=2,
         )
         input_size = 256 * roi_output_size * roi_output_size  # 12544
@@ -382,8 +419,10 @@ class PENetUnionFeatureExtractor(nn.Module):
         self.rect_size = roi_output_size * 4 - 1  # 27
         self.pooler = FPNPooler(
             output_size=roi_output_size,
-            scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+            scales=(0.25, 0.125, 0.0625, 0.03125),
             sampling_ratio=2,
+            cat_all_levels=True,
+            in_channels=256,
         )
         self.rect_conv = nn.Sequential(
             nn.Conv2d(2, 128, 7, stride=2, padding=3, bias=True),

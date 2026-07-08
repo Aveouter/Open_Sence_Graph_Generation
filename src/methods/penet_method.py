@@ -24,7 +24,10 @@ from src.models.backbone import (
     FPNNeck,
 )
 from src.models.penet import build_penet
-from utils.penet_weights import load_all_pretrained
+from utils.penet_weights import (
+    load_all_pretrained,
+    load_union_feature_extractor_from_state_dict,
+)
 
 
 class PENetCriterion(MotifsCriterion):
@@ -100,6 +103,17 @@ class PENet_Method(Motifs_Method):
 
     def _build_criterion(self, **args):
         return PENetCriterion(num_predicates=args.get("rel_nums", 51))
+
+    def load_external_state_dict_extras(self, state_dict):
+        if not hasattr(self, "_union_extractor") or self._union_extractor is None:
+            return {}
+        count = load_union_feature_extractor_from_state_dict(
+            self._union_extractor,
+            state_dict,
+        )
+        if count:
+            print(f"[Info] Loaded PE-NET union extractor weights: {count}")
+        return {"penet_union_extractor": count}
 
     # ── Feature extraction ─────────────────────────────────────────
 
@@ -293,6 +307,7 @@ class PENet_Method(Motifs_Method):
                 all_outputs.append(out)
 
             batched = {
+                "model_family": "penet_sgdet" if eval_mode == "sgdet" else "motifs",
                 "rel_logits": [o["rel_logits"] for o in all_outputs],
                 "pair_indices": [o["pair_indices"] for o in all_outputs],
                 "sub_boxes": [o["sub_boxes"] for o in all_outputs],
@@ -305,6 +320,21 @@ class PENet_Method(Motifs_Method):
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]
+            sgdet_keys = (
+                "sgdet_rel_scores",
+                "sgdet_sub_boxes",
+                "sgdet_obj_boxes",
+                "sgdet_sub_scores",
+                "sgdet_obj_scores",
+                "sgdet_sub_classes",
+                "sgdet_obj_classes",
+            )
+            if eval_mode == "sgdet":
+                for key in sgdet_keys:
+                    if all(key in o for o in all_outputs):
+                        batched[key] = [o[key] for o in all_outputs]
+                if all("sgdet_box_space" in o for o in all_outputs):
+                    batched["sgdet_box_space"] = [o["sgdet_box_space"] for o in all_outputs]
 
             add_losses = {}
             for o in all_outputs:

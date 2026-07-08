@@ -114,6 +114,27 @@ def _box_predictor_key_map_official_to_ours() -> Dict[str, str]:
     }
 
 
+def _union_feature_extractor_key_map_official_to_ours() -> Dict[str, str]:
+    """Map official relation union extractor keys to local PE-NET union extractor."""
+    mapping = {
+        "roi_heads.relation.union_feature_extractor.feature_extractor.fc6.weight": "fc6.weight",
+        "roi_heads.relation.union_feature_extractor.feature_extractor.fc6.bias": "fc6.bias",
+        "roi_heads.relation.union_feature_extractor.feature_extractor.fc7.weight": "fc7.weight",
+        "roi_heads.relation.union_feature_extractor.feature_extractor.fc7.bias": "fc7.bias",
+        "roi_heads.relation.union_feature_extractor.feature_extractor.pooler.reduce_channel.0.weight": "pooler.reduce_channel.0.weight",
+        "roi_heads.relation.union_feature_extractor.feature_extractor.pooler.reduce_channel.0.bias": "pooler.reduce_channel.0.bias",
+    }
+    prefix = "roi_heads.relation.union_feature_extractor.rect_conv."
+    for suffix in (
+        "0.weight", "0.bias",
+        "2.weight", "2.bias", "2.running_mean", "2.running_var", "2.num_batches_tracked",
+        "4.weight", "4.bias",
+        "6.weight", "6.bias", "6.running_mean", "6.running_var", "6.num_batches_tracked",
+    ):
+        mapping[prefix + suffix] = "rect_conv." + suffix
+    return mapping
+
+
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -286,6 +307,25 @@ def load_detector_checkpoint(
         )
 
     return counts
+
+
+def load_union_feature_extractor_from_state_dict(
+    union_extractor: nn.Module,
+    state_dict: Dict[str, torch.Tensor],
+) -> int:
+    """Load official PE-NET relation union extractor weights when available."""
+    sd = _strip_module_prefix(state_dict)
+    key_map = _union_feature_extractor_key_map_official_to_ours()
+    own_state = union_extractor.state_dict()
+    loadable = {}
+    for src_key, dst_key in key_map.items():
+        if src_key not in sd or dst_key not in own_state:
+            continue
+        if sd[src_key].shape != own_state[dst_key].shape:
+            continue
+        loadable[dst_key] = sd[src_key]
+    union_extractor.load_state_dict(loadable, strict=False)
+    return len(loadable)
 
 
 def load_all_pretrained(

@@ -182,8 +182,8 @@ class PENetSGDetProposalGenerator(nn.Module):
         self.rpn_post_nms_top_n = rpn_post_nms_top_n
         self.rpn_nms_thresh = 0.7
         self.rpn_min_size = 0
-        self.box_score_thresh = 0.05
-        self.box_nms_thresh = 0.5
+        self.box_score_thresh = 0.01
+        self.box_nms_thresh = 0.3
         self.post_nms_per_cls_topn = 300
         self.detections_per_img = detections_per_img
         self.strides = (4, 8, 16, 32, 64)
