@@ -18,7 +18,7 @@ from pathlib import Path
 DEFAULT_CLAIM_PATHS = (
     "AGENTS.md",
     "reproduction",
-    "docs/reproduction",
+    "reproduction/evidence",
     "tools/reproduction",
 )
 

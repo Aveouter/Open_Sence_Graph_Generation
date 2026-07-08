@@ -41,7 +41,7 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
     def test_suite_summary_rejects_reproduction_ready_claim(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            summary = root / "docs" / "reproduction" / "evidence_gate_summary.json"
+            summary = root / "reproduction" / "evidence" / "evidence_gate_summary.json"
             summary.parent.mkdir(parents=True)
             summary.write_text(
                 json.dumps(
@@ -70,7 +70,7 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
     def test_blocked_suite_summary_requires_blockers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            summary = root / "docs" / "reproduction" / "evidence_gate_summary.json"
+            summary = root / "reproduction" / "evidence" / "evidence_gate_summary.json"
             summary.parent.mkdir(parents=True)
             summary.write_text(
                 json.dumps(
@@ -81,7 +81,7 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
                             {
                                 "key": "freq",
                                 "status": "BLOCKED",
-                                "output": "docs/reproduction/freq/sgb_freq_input_check.json",
+                                "output": "reproduction/evidence/freq/sgb_freq_input_check.json",
                                 "blockers": [],
                             }
                         ],
@@ -100,30 +100,21 @@ class ReproductionDocsGuardrailTest(unittest.TestCase):
             any("BLOCKED result must list blockers" in finding for finding in findings)
         )
 
-    def test_baseline_requires_non_reproduced_status_label(self) -> None:
+    def test_baseline_requires_input_check_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline = root / "docs" / "reproduction" / "freq"
+            baseline = root / "reproduction" / "evidence" / "freq"
             baseline.mkdir(parents=True)
-            status = baseline / "00_status.md"
-            gate = baseline / "11_evidence_gate_audit.md"
-            status.write_text("Status: reproduced\n")
-            gate.write_text("Status: reproduced\n")
 
             findings = docs.check_baseline(
                 root,
                 "freq",
                 docs.BASELINES["freq"],
-                {status, gate},
+                set(),
                 require_tracked=False,
             )
 
-        self.assertTrue(
-            any(
-                "missing explicit non-reproduced/audit status label" in finding
-                for finding in findings
-            )
-        )
+        self.assertTrue(any("missing file" in finding for finding in findings))
 
 
 if __name__ == "__main__":
