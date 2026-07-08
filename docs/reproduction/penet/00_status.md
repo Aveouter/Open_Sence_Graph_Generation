@@ -1,6 +1,6 @@
 # PENet Status
 
-Current status: `IMPLEMENTATION_AUDIT` / `PIPELINE_SMOKE_ONLY` /
+Current status: `IMPLEMENTATION_AUDIT` / `PROTOCOL_MISMATCH` /
 `NOT_REPRODUCTION_READY`
 
 PR status: `PR_OPEN_AUDIT` ([#81](https://github.com/Aveouter/Open_Sence_Graph_Generation/pull/81))
@@ -26,6 +26,9 @@ Alignment audit:
 - Local PE-NET SGDet eval now has an eval-only detector proposal path that
   emits `boxes_per_cls` and `obj_dists`/`predict_logits` from the official
   detector checkpoint.
+- Full local OpenSGG SGDet evaluation completed on the full Visual Genome test
+  split, but the checkpoint-backed result does not align with the official
+  PE-NET SGDet table.
 - `--penet_detector_ckpt` can now be supplied at evaluation time instead of
   hardcoding the local detector path in `configs/VisualGenome/PE_NET.py`.
 - SGDet evaluation is guarded against missing detector proposal fields
@@ -42,6 +45,12 @@ Environment:
 
 Last result:
 
+- Full local OpenSGG SGDet eval-only run completed with the official relation
+  checkpoint and official-backup Faster R-CNN detector checkpoint:
+  `26446/26446` test images, `sgdet_R@50 = 0.08229778707027435`,
+  `sgdet_mR@50 = 0.018936751410365105`. These do not align with the official
+  README targets `R@50 = 0.3041` and `mR@50 = 0.1225`, so the result is
+  `protocol_mismatch` / `not_reproduction_ready`, not reproduction success.
 - `python tools/reproduction/check_penet_official_inputs.py --protocol sgdet --output docs/reproduction/penet/penet_official_input_check.json`
   returned `PASS` after retrieving the official-backup VG H5 and pretrained
   Faster R-CNN detector from Weiyun and linking the existing local VG image
@@ -70,7 +79,9 @@ Current SGDet parity report:
 
 - `docs/reproduction/penet/12_sgdet_official_parity.md`
 
-Next action: run full VG SGDet evaluation with the official detector and
-relation checkpoint, then compare local R@50/mR@50 against the official paper
-targets. Official PENET evaluator parity remains blocked in the current `hsg`
-environment by legacy maskrcnn-benchmark/APEX runtime issues.
+Next action: isolate the full-VG parity gap. Known suspects are the local
+OpenSGG eval resize path (`800/1333`) versus the official PENET
+`600/1000` preprocessing, the local PE-NET-only detector proposal adapter
+versus official maskrcnn-benchmark `GeneralizedRCNN`, and unproven local
+evaluator parity. Official PENET evaluator parity remains blocked in the
+current `hsg` environment by legacy maskrcnn-benchmark/APEX runtime issues.
