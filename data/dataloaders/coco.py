@@ -195,5 +195,26 @@ def build(image_set, args):
         else:
             ann_file = ann_path + 'val.json'
 
+    if (
+        image_set == 'val'
+        and getattr(args, 'eval', False)
+        and getattr(args, 'penet_use_official_vg_h5_eval', False)
+    ):
+        from data.dataloaders.vg_official_h5 import OfficialVGH5EvalDataset
+
+        vg_root = getattr(args, 'penet_official_vg_root', None)
+        if vg_root is None:
+            raise ValueError(
+                "penet_use_official_vg_h5_eval=True requires "
+                "--penet_official_vg_root pointing to official PENET datasets/vg"
+            )
+        return OfficialVGH5EvalDataset(
+            img_folder=img_folder,
+            vg_root=vg_root,
+            split='test',
+            transforms=make_coco_transforms(image_set, args=args),
+            filter_empty_rels=True,
+        )
+
     dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set, args=args), return_masks=False)
     return dataset

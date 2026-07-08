@@ -126,6 +126,12 @@ def create_parser():
         type=str,
         help='PE-NET only: official pretrained Faster R-CNN detector checkpoint.',
     )
+    parser.add_argument(
+        '--penet_official_vg_root',
+        default=None,
+        type=str,
+        help='PE-NET only: official PENET/SGB datasets/vg root for H5 eval.',
+    )
 
     # CLIP hierarchical alignment parameters
     parser.add_argument('--use_alignment', action='store_true', default=False,
@@ -202,5 +208,6 @@ def default_parser():
         'gpus': [2,3,4,5],
         'metric_for_bestckpt': 'val_loss',
         'penet_detector_ckpt': None,
+        'penet_official_vg_root': None,
     }
     return default_values

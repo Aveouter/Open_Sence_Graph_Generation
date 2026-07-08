@@ -114,6 +114,11 @@ penet_nms_thresh = 0.5
 # Official PENET config: INPUT.MIN_SIZE_TEST=600, INPUT.MAX_SIZE_TEST=1000.
 eval_min_size = 600
 eval_max_size = 1000
+
+# Use official PENET/SGB H5 eval semantics when --penet_official_vg_root is
+# supplied. This preserves duplicate test relation rows and H5-derived boxes.
+penet_use_official_vg_h5_eval = True
+penet_official_vg_root = None
 # Metrics are auto-derived from eval_mode — just change eval_mode above.
 eval_mode = "sgdet"
 _METRIC_KS = [20, 50, 100]

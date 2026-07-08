@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import unittest
+import json
+import tempfile
 from types import SimpleNamespace
+from pathlib import Path
 
+import h5py
+import numpy as np
 import torch
+from PIL import Image
 
 from data.dataloaders.coco import make_coco_transforms
+from data.dataloaders.vg_official_h5 import OfficialVGH5EvalDataset
 from src.methods import method_maps
 from src.models.backbone import ResNetBackbone
 from src.models.penet import (
@@ -154,6 +161,62 @@ class PENetArchitectureTest(unittest.TestCase):
         ).transforms[0]
         self.assertEqual(penet_resize.sizes, [600])
         self.assertEqual(penet_resize.max_size, 1000)
+
+    def test_official_vg_h5_eval_dataset_preserves_duplicate_relations(self) -> None:
+        """Official H5 eval path keeps duplicate relation rows for test parity."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            img_dir = root / "images"
+            vg_root = root / "vg"
+            img_dir.mkdir()
+            vg_root.mkdir()
+            Image.new("RGB", (100, 80), color=(255, 255, 255)).save(img_dir / "10.jpg")
+            Image.new("RGB", (100, 80), color=(255, 255, 255)).save(img_dir / "11.jpg")
+
+            with (vg_root / "image_data.json").open("w") as f:
+                json.dump(
+                    [
+                        {"image_id": 10, "width": 100, "height": 80},
+                        {"image_id": 11, "width": 100, "height": 80},
+                    ],
+                    f,
+                )
+
+            with h5py.File(vg_root / "VG-SGG-with-attri.h5", "w") as h5:
+                h5.create_dataset("split", data=np.array([2, 2], dtype=np.int32))
+                h5.create_dataset("img_to_first_box", data=np.array([0, 2], dtype=np.int32))
+                h5.create_dataset("img_to_last_box", data=np.array([1, 3], dtype=np.int32))
+                h5.create_dataset("img_to_first_rel", data=np.array([0, -1], dtype=np.int32))
+                h5.create_dataset("img_to_last_rel", data=np.array([1, -1], dtype=np.int32))
+                h5.create_dataset("labels", data=np.array([[5], [6], [7], [8]], dtype=np.int64))
+                h5.create_dataset(
+                    "boxes_1024",
+                    data=np.array(
+                        [
+                            [512, 512, 512, 512],
+                            [256, 256, 128, 128],
+                            [512, 512, 512, 512],
+                            [256, 256, 128, 128],
+                        ],
+                        dtype=np.int32,
+                    ),
+                )
+                h5.create_dataset("relationships", data=np.array([[0, 1], [0, 1]], dtype=np.int32))
+                h5.create_dataset("predicates", data=np.array([[20], [20]], dtype=np.int64))
+
+            dataset = OfficialVGH5EvalDataset(
+                img_folder=img_dir,
+                vg_root=vg_root,
+                split="test",
+                transforms=None,
+                filter_empty_rels=True,
+            )
+            self.assertEqual(len(dataset), 1)
+            _, target = dataset[0]
+            self.assertEqual(target["labels"].tolist(), [5, 6])
+            self.assertEqual(target["rel_annotations"].tolist(), [[0, 1, 20], [0, 1, 20]])
+            self.assertTrue(torch.is_floating_point(target["boxes"]))
+            self.assertEqual(target["boxes"][0].tolist(), [25.0, 25.0, 75.0, 75.0])
 
     def test_weight_init_is_kaiming_uniform(self) -> None:
         """Linear layers use kaiming_uniform_ (matching make_fc)."""

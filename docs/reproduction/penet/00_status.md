@@ -28,6 +28,9 @@ Alignment audit:
   detector checkpoint.
 - PE-NET eval preprocessing now opts into official `600/1000` resize while the
   default Visual Genome eval transform remains `800/1333` for other configs.
+- PE-NET eval can now opt into official PENET/SGB H5 input semantics via
+  `--penet_official_vg_root`, preserving duplicate test relation rows and
+  H5-derived float boxes.
 - Full local OpenSGG SGDet evaluation completed on the full Visual Genome test
   split, but the checkpoint-backed result does not align with the official
   PE-NET SGDet table.
@@ -61,6 +64,11 @@ Last result:
   confirmed `eval_min_size = 600` and `eval_max_size = 1000` in run hparams
   and reached the SGDet evaluator. Full VG metrics with this preprocessing
   update have not yet been rerun.
+- A 1-image eval-only smoke after the official H5 eval-loader opt-in confirmed
+  `penet_use_official_vg_h5_eval = true`,
+  `penet_official_vg_root = /workspace/external/penet_official/PENET/datasets/vg`,
+  and reached the SGDet evaluator. Full VG metrics with official H5 inputs have
+  not yet been rerun.
 - `python tools/reproduction/check_penet_official_inputs.py --protocol sgdet --output docs/reproduction/penet/penet_official_input_check.json`
   returned `PASS` after retrieving the official-backup VG H5 and pretrained
   Faster R-CNN detector from Weiyun and linking the existing local VG image
@@ -89,10 +97,9 @@ Current SGDet parity report:
 
 - `docs/reproduction/penet/12_sgdet_official_parity.md`
 
-Next action: rerun full VG SGDet after the PE-NET official `600/1000`
-preprocessing opt-in, then isolate the remaining parity gap. Known remaining
-suspects are local VG JSON input semantics versus official H5 loader semantics,
-the local PE-NET-only detector proposal adapter versus official
-maskrcnn-benchmark `GeneralizedRCNN`, and unproven local evaluator parity.
-Official PENET evaluator parity remains blocked in the current `hsg`
-environment by legacy maskrcnn-benchmark/APEX runtime issues.
+Next action: rerun full VG SGDet after the PE-NET official H5 input path and
+official `600/1000` preprocessing opt-in, then isolate the remaining parity
+gap. Known remaining suspects are the local PE-NET-only detector proposal
+adapter versus official maskrcnn-benchmark `GeneralizedRCNN`, and unproven
+local evaluator parity. Official PENET evaluator parity remains blocked in the
+current `hsg` environment by legacy maskrcnn-benchmark/APEX runtime issues.
