@@ -111,6 +111,9 @@ penet_nms_thresh = 0.5
 
 # ===== evaluation =====
 # Supported modes: predcls, sgcls, sgdet
+# Official PENET config: INPUT.MIN_SIZE_TEST=600, INPUT.MAX_SIZE_TEST=1000.
+eval_min_size = 600
+eval_max_size = 1000
 # Metrics are auto-derived from eval_mode — just change eval_mode above.
 eval_mode = "sgdet"
 _METRIC_KS = [20, 50, 100]

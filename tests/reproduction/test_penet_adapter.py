@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import torch
 
+from data.dataloaders.coco import make_coco_transforms
 from src.methods import method_maps
 from src.models.backbone import ResNetBackbone
 from src.models.penet import (
@@ -140,6 +141,19 @@ class PENetArchitectureTest(unittest.TestCase):
         self.assertEqual(proposal.box_predictor.cls_score.weight.shape, (151, 4096))
         self.assertEqual(proposal.box_predictor.bbox_pred.weight.shape, (604, 4096))
         self.assertEqual(proposal._cell_anchor(0).shape, (4, 4))
+
+    def test_penet_eval_resize_matches_official_without_changing_default(self) -> None:
+        """PE-NET opts into official 600/1000 eval resize without moving defaults."""
+        default_resize = make_coco_transforms("val").transforms[0]
+        self.assertEqual(default_resize.sizes, [800])
+        self.assertEqual(default_resize.max_size, 1333)
+
+        penet_resize = make_coco_transforms(
+            "val",
+            args=SimpleNamespace(eval_min_size=600, eval_max_size=1000),
+        ).transforms[0]
+        self.assertEqual(penet_resize.sizes, [600])
+        self.assertEqual(penet_resize.max_size, 1000)
 
     def test_weight_init_is_kaiming_uniform(self) -> None:
         """Linear layers use kaiming_uniform_ (matching make_fc)."""

@@ -145,7 +145,7 @@ class ConvertCocoPolysToMask(object):
         return image, target
 
 
-def make_coco_transforms(image_set):
+def make_coco_transforms(image_set, args=None):
 
     normalize = T.Compose([
         T.ToTensor(),
@@ -168,8 +168,14 @@ def make_coco_transforms(image_set):
             normalize])
 
     if image_set == 'val':
+        eval_min_size = getattr(args, 'eval_min_size', None) if args is not None else None
+        eval_max_size = getattr(args, 'eval_max_size', None) if args is not None else None
+        if eval_min_size is None:
+            eval_min_size = 800
+        if eval_max_size is None:
+            eval_max_size = 1333
         return T.Compose([
-            T.RandomResize([800], max_size=1333),
+            T.RandomResize([int(eval_min_size)], max_size=int(eval_max_size)),
             normalize,
         ])
 
@@ -189,5 +195,5 @@ def build(image_set, args):
         else:
             ann_file = ann_path + 'val.json'
 
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=False)
+    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set, args=args), return_masks=False)
     return dataset
