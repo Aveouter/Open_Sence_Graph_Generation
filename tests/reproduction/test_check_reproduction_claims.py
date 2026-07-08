@@ -50,7 +50,7 @@ class ReproductionClaimGuardrailTest(unittest.TestCase):
                 "origin/main",
                 "../../AGENTS.md",
                 "../../reproduction",
-                "../../reproduction/evidence",
+                "../../docs/reproduction",
             ],
             cwd=REPO_ROOT / "tools" / "reproduction",
             capture_output=True,

@@ -21,32 +21,32 @@ CHECKS: dict[str, dict[str, str]] = {
     "freq": {
         "label": "FREQ",
         "script": "tools/reproduction/check_sgb_freq_inputs.py",
-        "output": "reproduction/evidence/freq/sgb_freq_input_check.json",
+        "output": "docs/reproduction/freq/sgb_freq_input_check.json",
     },
     "tde": {
         "label": "TDE",
         "script": "tools/reproduction/check_tde_official_inputs.py",
-        "output": "reproduction/evidence/tde/tde_official_input_check.json",
+        "output": "docs/reproduction/tde/tde_official_input_check.json",
     },
     "vctree": {
         "label": "VCTree",
         "script": "tools/reproduction/check_vctree_official_inputs.py",
-        "output": "reproduction/evidence/vctree/vctree_official_input_check.json",
+        "output": "docs/reproduction/vctree/vctree_official_input_check.json",
     },
     "penet": {
         "label": "PENet",
         "script": "tools/reproduction/check_penet_official_inputs.py",
-        "output": "reproduction/evidence/penet/penet_official_input_check.json",
+        "output": "docs/reproduction/penet/penet_official_input_check.json",
     },
     "shagcl": {
         "label": "SHA-GCL",
         "script": "tools/reproduction/check_shagcl_official_inputs.py",
-        "output": "reproduction/evidence/shagcl/shagcl_official_input_check.json",
+        "output": "docs/reproduction/shagcl/shagcl_official_input_check.json",
     },
     "ra_sgg": {
         "label": "RA-SGG",
         "script": "tools/reproduction/check_rasgg_official_inputs.py",
-        "output": "reproduction/evidence/ra_sgg/rasgg_official_input_check.json",
+        "output": "docs/reproduction/ra_sgg/rasgg_official_input_check.json",
     },
 }
 
@@ -143,7 +143,7 @@ def main() -> int:
     parser.add_argument(
         "--summary",
         type=Path,
-        default=Path("reproduction/evidence/evidence_gate_summary.json"),
+        default=Path("docs/reproduction/evidence_gate_summary.json"),
         help="Suite summary JSON path, relative to repo root unless absolute",
     )
     args = parser.parse_args()

@@ -42,13 +42,6 @@ Use one of these outcomes for every baseline:
 - `agents/`: agent-specific operating notes.
 - `baselines/`: per-baseline status files created from templates.
 
-## Documentation Boundary
-
-The tracked reproduction source of truth is this `reproduction/` directory.
-Historical notes that may exist under local `docs/` directories are evidence
-archives only and must not override the workflow, templates, ADRs, or baseline
-status files here.
-
 ## Minimal Baseline Flow
 
 1. Open an issue using `issues/baseline_reproduction_issue.md`.
