@@ -14,9 +14,12 @@ from src.models.penet import (
     _make_fc,
     _nms_overlaps,
 )
+from src.models.penet_detector import PENetSGDetProposalGenerator
 from utils.penet_weights import (
     _backbone_key_map_official_to_ours,
     _box_head_key_map_official_to_ours,
+    _box_predictor_key_map_official_to_ours,
+    _rpn_head_key_map_official_to_ours,
 )
 
 
@@ -107,6 +110,36 @@ class PENetArchitectureTest(unittest.TestCase):
             box_map["roi_heads.box.feature_extractor.fc7.bias"],
             "_box_extractor.fc7.bias",
         )
+
+        rpn_map = _rpn_head_key_map_official_to_ours()
+        self.assertEqual(
+            rpn_map["rpn.head.conv.weight"],
+            "rpn_head.conv.weight",
+        )
+        self.assertEqual(
+            rpn_map["rpn.head.bbox_pred.bias"],
+            "rpn_head.bbox_pred.bias",
+        )
+
+        predictor_map = _box_predictor_key_map_official_to_ours()
+        self.assertEqual(
+            predictor_map["roi_heads.box.predictor.cls_score.weight"],
+            "box_predictor.cls_score.weight",
+        )
+        self.assertEqual(
+            predictor_map["roi_heads.box.predictor.bbox_pred.bias"],
+            "box_predictor.bbox_pred.bias",
+        )
+
+    def test_sgdet_proposal_generator_module_shapes(self) -> None:
+        """Local SGDet proposal modules match official detector tensor shapes."""
+        proposal = PENetSGDetProposalGenerator(num_classes=151)
+        self.assertEqual(proposal.rpn_head.conv.weight.shape, (256, 256, 3, 3))
+        self.assertEqual(proposal.rpn_head.cls_logits.weight.shape, (4, 256, 1, 1))
+        self.assertEqual(proposal.rpn_head.bbox_pred.weight.shape, (16, 256, 1, 1))
+        self.assertEqual(proposal.box_predictor.cls_score.weight.shape, (151, 4096))
+        self.assertEqual(proposal.box_predictor.bbox_pred.weight.shape, (604, 4096))
+        self.assertEqual(proposal._cell_anchor(0).shape, (4, 4))
 
     def test_weight_init_is_kaiming_uniform(self) -> None:
         """Linear layers use kaiming_uniform_ (matching make_fc)."""

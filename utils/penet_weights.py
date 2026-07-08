@@ -92,6 +92,28 @@ def _box_head_key_map_official_to_ours() -> Dict[str, str]:
     }
 
 
+def _rpn_head_key_map_official_to_ours() -> Dict[str, str]:
+    """Map official RPN head keys to ``PENetRPNHead`` keys."""
+    return {
+        "rpn.head.conv.weight": "rpn_head.conv.weight",
+        "rpn.head.conv.bias": "rpn_head.conv.bias",
+        "rpn.head.cls_logits.weight": "rpn_head.cls_logits.weight",
+        "rpn.head.cls_logits.bias": "rpn_head.cls_logits.bias",
+        "rpn.head.bbox_pred.weight": "rpn_head.bbox_pred.weight",
+        "rpn.head.bbox_pred.bias": "rpn_head.bbox_pred.bias",
+    }
+
+
+def _box_predictor_key_map_official_to_ours() -> Dict[str, str]:
+    """Map official box predictor keys to ``PENetBoxPredictor`` keys."""
+    return {
+        "roi_heads.box.predictor.cls_score.weight": "box_predictor.cls_score.weight",
+        "roi_heads.box.predictor.cls_score.bias": "box_predictor.cls_score.bias",
+        "roi_heads.box.predictor.bbox_pred.weight": "box_predictor.bbox_pred.weight",
+        "roi_heads.box.predictor.bbox_pred.bias": "box_predictor.bbox_pred.bias",
+    }
+
+
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -201,6 +223,7 @@ def load_detector_checkpoint(
     fpn: nn.Module,
     box_extractor: nn.Module,
     checkpoint_path: str,
+    proposal_generator: Optional[nn.Module] = None,
 ) -> Dict[str, int]:
     """Load pretrained detector weights from an official ``model_final.pth``.
 
@@ -246,6 +269,22 @@ def load_detector_checkpoint(
         strict=False,
     )
 
+    if proposal_generator is not None:
+        rpn_map = _rpn_head_key_map_official_to_ours()
+        counts["rpn_head"] = _transfer_weights(
+            sd,
+            {"": proposal_generator},
+            rpn_map,
+            strict=False,
+        )
+        predictor_map = _box_predictor_key_map_official_to_ours()
+        counts["box_predictor"] = _transfer_weights(
+            sd,
+            {"": proposal_generator},
+            predictor_map,
+            strict=False,
+        )
+
     return counts
 
 
@@ -255,6 +294,7 @@ def load_all_pretrained(
     box_extractor: nn.Module,
     arch: str = "resnext101_32x8d",
     detector_ckpt: Optional[str] = None,
+    proposal_generator: Optional[nn.Module] = None,
 ) -> Dict[str, int]:
     """Load pretrained backbone weights.  FPN and box-head require the official
     detector checkpoint for COCO pretraining (torchvision does not provide
@@ -287,6 +327,7 @@ def load_all_pretrained(
             fpn,
             box_extractor,
             detector_ckpt,
+            proposal_generator=proposal_generator,
         )
         for k, v in det_counts.items():
             counts[f"detector_{k}"] = v

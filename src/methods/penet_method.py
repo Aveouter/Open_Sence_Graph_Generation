@@ -16,6 +16,7 @@ from __future__ import annotations
 import torch
 
 from .motifs_method import Motifs_Method, MotifsCriterion
+from src.models.penet_detector import PENetSGDetProposalGenerator
 from src.models.backbone import (
     PENetBoxFeatureExtractor,
     PENetUnionFeatureExtractor,
@@ -67,6 +68,9 @@ class PENet_Method(Motifs_Method):
             roi_output_size=roi_size,
             representation_size=4096,
         )
+        self._proposal_generator = PENetSGDetProposalGenerator(
+            num_classes=args.get("entity_nums", 151),
+        )
 
         # 4) Union extractor (always trained from scratch)
         self._union_extractor = PENetUnionFeatureExtractor(
@@ -82,8 +86,14 @@ class PENet_Method(Motifs_Method):
             box_extractor=self._box_extractor,
             arch=arch,
             detector_ckpt=detector_ckpt,
+            proposal_generator=self._proposal_generator,
         )
         self._weight_load_counts = counts
+        self._has_official_sgdet_detector = (
+            detector_ckpt is not None
+            and counts.get("detector_rpn_head", 0) > 0
+            and counts.get("detector_box_predictor", 0) > 0
+        )
 
     def _build_model(self, **args):
         return build_penet(self.hparams)
@@ -160,6 +170,49 @@ class PENet_Method(Motifs_Method):
             return None
         return self._union_extractor(fpn_features, boxes, pairs, img_size)
 
+    def _detect_sgdet_features(self, images, image_sizes):
+        """Run the official-checkpoint detector path for SGDet proposals."""
+        if not getattr(self, "_has_official_sgdet_detector", False):
+            raise ValueError(
+                "PENet SGDet requires the official pretrained Faster R-CNN "
+                "detector checkpoint with RPN and box predictor weights. "
+                "Provide --penet_detector_ckpt; otherwise the run is a "
+                "protocol_mismatch, not an official SGDet evaluation."
+            )
+        images = self._image_list_from_batch(images)
+        device = next(self._backbone.parameters()).device
+        images = [img.to(device) for img in images]
+        results = []
+        for img, size in zip(images, image_sizes):
+            if size is None:
+                size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
+            elif torch.is_tensor(size):
+                size = size.to(device)
+            else:
+                size = torch.as_tensor(size, dtype=torch.float32, device=device)
+            h, w = int(size[0].item()), int(size[1].item())
+            cropped = img[..., :h, :w]
+            with torch.no_grad():
+                raw = self._backbone(cropped, return_all_scales=True)
+                fpn_features = self._fpn((raw[4], raw[8], raw[16], raw[32]))
+                proposals = self._proposal_generator(
+                    fpn_features,
+                    self._box_extractor,
+                    size,
+                )
+            results.append(
+                {
+                    "roi_feats": proposals.roi_feats,
+                    "boxes": proposals.boxes,
+                    "labels": proposals.labels,
+                    "obj_dists": proposals.obj_dists,
+                    "boxes_per_cls": proposals.boxes_per_cls,
+                    "fpn_features": fpn_features,
+                    "image_size": size,
+                }
+            )
+        return results
+
     def _extra_model_kwargs(self, target, boxes, labels, return_obj_preds):
         extra = super()._extra_model_kwargs(target, boxes, labels, return_obj_preds)
         if "rel_annotations" in target:
@@ -179,7 +232,7 @@ class PENet_Method(Motifs_Method):
     # ── Forward ──────────────────────────────────────────────────
 
     def forward(self, images, targets=None, **kwargs):
-        is_training = targets is not None
+        is_training = self.training
         eval_mode = getattr(self.hparams, "eval_mode", "predcls")
         return_obj_preds = eval_mode in {"sgcls", "sgdet"}
 
@@ -194,9 +247,14 @@ class PENet_Method(Motifs_Method):
             labels_list = [t["labels"] for t in targets]
             image_sizes = [t.get("size", t.get("orig_size")) for t in targets]
 
-            vis_results = self._extract_features(
-                images, boxes_list, labels_list, image_sizes
-            )
+            if eval_mode == "sgdet" and not self.training:
+                vis_results = self._detect_sgdet_features(images, image_sizes)
+                boxes_list = [r["boxes"] for r in vis_results]
+                labels_list = [r["labels"] for r in vis_results]
+            else:
+                vis_results = self._extract_features(
+                    images, boxes_list, labels_list, image_sizes
+                )
 
             for i, (box, lab, sz) in enumerate(
                 zip(boxes_list, labels_list, image_sizes)
@@ -205,6 +263,10 @@ class PENet_Method(Motifs_Method):
                 roi_feats, fpn_feats = r["roi_feats"], r["fpn_features"]
 
                 extra = self._extra_model_kwargs(targets[i], box, lab, return_obj_preds)
+                if eval_mode == "sgdet" and not self.training:
+                    extra["obj_dists"] = r["obj_dists"]
+                    extra["boxes_per_cls"] = r["boxes_per_cls"]
+                    sz = r["image_size"]
                 if eval_mode == "sgdet":
                     missing = [
                         key

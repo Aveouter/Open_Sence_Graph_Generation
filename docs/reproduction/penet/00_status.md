@@ -1,8 +1,9 @@
 # PENet Status
 
-Current status: `IMPLEMENTATION_AUDIT` / `PROTOCOL_MISMATCH`
+Current status: `IMPLEMENTATION_AUDIT` / `PIPELINE_SMOKE_ONLY` /
+`NOT_REPRODUCTION_READY`
 
-PR status: `PR_CLOSED_DEFERRED` ([#63](https://github.com/Aveouter/Open_Sence_Graph_Generation/pull/63))
+PR status: `PR_OPEN_AUDIT` ([#81](https://github.com/Aveouter/Open_Sence_Graph_Generation/pull/81))
 
 Alignment audit:
 
@@ -21,7 +22,10 @@ Alignment audit:
   `roi_heads.relation.predictor.*` weights from the official checkpoint.
 - Official detector checkpoint weights now map into local PE-NET detector
   feature modules with load counts `backbone=520`, `fpn=16`,
-  `box_extractor=4`; proposal generation remains missing.
+  `box_extractor=4`, `rpn_head=6`, `box_predictor=4`.
+- Local PE-NET SGDet eval now has an eval-only detector proposal path that
+  emits `boxes_per_cls` and `obj_dists`/`predict_logits` from the official
+  detector checkpoint.
 - `--penet_detector_ckpt` can now be supplied at evaluation time instead of
   hardcoding the local detector path in `configs/VisualGenome/PE_NET.py`.
 - SGDet evaluation is guarded against missing detector proposal fields
@@ -42,16 +46,13 @@ Last result:
   returned `PASS` after retrieving the official-backup VG H5 and pretrained
   Faster R-CNN detector from Weiyun and linking the existing local VG image
   pack used by RELTR.
-- Local OpenSGG eval-only probe loaded the official SGDet relation checkpoint
-  but stopped before metrics because the local VisualGenome targets do not
-  contain official SGDet detector proposal fields (`boxes_per_cls` and
-  `obj_dists`/`scores_all`).
+- Local OpenSGG eval-only probe loaded the official detector checkpoint and
+  official SGDet relation checkpoint, generated SGDet proposals, reached the
+  evaluator, and produced a 1-image `pipeline_smoke_only` metric table with
+  all R/mR values equal to `0.0`.
 - Official detector checkpoint load probe succeeded for local PE-NET detector
-  feature modules: `{'backbone': 520, 'fpn': 16, 'box_extractor': 4}`.
-- Eval-only `train.py --test` probe with `--penet_detector_ckpt` accepted the
-  official detector checkpoint, loaded the detector feature weights, loaded the
-  official SGDet relation checkpoint, and then stopped at the expected SGDet
-  proposal-field guard before metrics.
+  modules:
+  `{'backbone': 520, 'fpn': 16, 'box_extractor': 4, 'rpn_head': 6, 'box_predictor': 4}`.
 - Official PENET evaluator execution is blocked in `conda hsg` because the
   legacy maskrcnn-benchmark extension does not build under the current
   Python/PyTorch/CUDA stack and `apex` is unavailable.
@@ -69,7 +70,7 @@ Current SGDet parity report:
 
 - `docs/reproduction/penet/12_sgdet_official_parity.md`
 
-Next action: provide or generate official SGDet detector proposal fields for
-the local OpenSGG adapter, or run the official PENET evaluator in a legacy
-maskrcnn-benchmark/APEX environment, before attempting checkpoint-backed
-R@50/mR@50 reporting.
+Next action: run full VG SGDet evaluation with the official detector and
+relation checkpoint, then compare local R@50/mR@50 against the official paper
+targets. Official PENET evaluator parity remains blocked in the current `hsg`
+environment by legacy maskrcnn-benchmark/APEX runtime issues.

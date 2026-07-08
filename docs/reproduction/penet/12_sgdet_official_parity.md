@@ -40,7 +40,13 @@ These numbers are targets from the official README, not local results.
   key names into local PE-NET detector feature modules:
   `backbone.body.*` to the local ResNeXt backbone,
   `backbone.fpn.*` to `FPNNeck`, and
-  `roi_heads.box.feature_extractor.*` to `PENetBoxFeatureExtractor`.
+  `roi_heads.box.feature_extractor.*` to `PENetBoxFeatureExtractor`,
+  plus `rpn.head.*` and `roi_heads.box.predictor.*` to the local SGDet
+  proposal generator.
+- `src/models/penet_detector.py` adds a PE-NET-only eval detector proposal
+  path for SGDet: official-style RPN anchors, box coder, RPN postprocessing,
+  box predictor, and relation proposal fields (`boxes_per_cls`,
+  `predict_logits`/`obj_dists`).
 - `utils/parser.py` exposes `--penet_detector_ckpt` so eval-only runs can
   point at the official detector checkpoint without hardcoding local absolute
   paths in the committed config.
@@ -114,7 +120,8 @@ Official backup inputs now present:
   - SHA256:
     `b2cf9b2b4771a340c5dd02a30a9e4d08d14d032de38704545fec643801feba9e`
   - Local PE-NET detector-feature weight-load probe:
-    `backbone=520`, `fpn=16`, `box_extractor=4`
+    `backbone=520`, `fpn=16`, `box_extractor=4`,
+    `rpn_head=6`, `box_predictor=4`
 
 The detector archive was retrieved from the official Weiyun backup:
 
@@ -187,18 +194,21 @@ Observed result:
 
 - CLI override was accepted:
   `penet_detector_ckpt: None -> /workspace/external/penet_official/PENET/checkpoints/pretrained_faster_rcnn/model_final.pth`.
-- Official detector feature weights loaded:
-  `backbone=520`, `fpn=16`, `box_extractor=4`.
+- Official detector weights loaded:
+  `backbone=520`, `fpn=16`, `box_extractor=4`, `rpn_head=6`,
+  `box_predictor=4`.
 - Official relation checkpoint loaded through the remapping path:
   `Remapped external checkpoint keys: 642 -> 63`.
 - Missing local-only fallback tensors were limited to:
   `union_fallback.0.weight` and `union_fallback.0.bias`.
-- The run stopped before metric reporting because the local VisualGenome eval
-  target does not provide official SGDet detector proposal fields:
-  `boxes_per_cls` and `obj_dists`/`scores_all`.
+- The run completed the 1-image eval-only pipeline and produced metric keys:
+  `sgdet_R@20`, `sgdet_R@50`, `sgdet_R@100`,
+  `sgdet_mR@20`, `sgdet_mR@50`, `sgdet_mR@100`.
+- All 1-image smoke metrics were `0.0`.
 
-This is the intended guard behavior. Producing R@50/mR@50 without those
-proposal fields would be a protocol mismatch.
+This is `pipeline_smoke_only`, not reproduction evidence. It only proves the
+local official-checkpoint path now creates detector proposals and reaches the
+SGDet evaluator without falling back to GT boxes or GT labels.
 
 Detector checkpoint load probe:
 
@@ -214,11 +224,10 @@ print(load_detector_checkpoint(backbone, fpn, box, ckpt))
 PY
 ```
 
-Observed result: `{'backbone': 520, 'fpn': 16, 'box_extractor': 4}`.
+Observed result:
+`{'backbone': 520, 'fpn': 16, 'box_extractor': 4, 'rpn_head': 6, 'box_predictor': 4}`.
 This confirms local detector feature modules can consume the official detector
-weights. It does not yet create official SGDet proposals, because the local
-adapter still lacks the official RPN + ROI box predictor + postprocessor path
-that emits `boxes_per_cls` and `predict_logits`.
+weights needed for SGDet proposal generation.
 
 Official PENET runtime probe in `conda hsg`:
 
@@ -244,12 +253,12 @@ as the parity oracle.
 
 ## Evaluation Boundary
 
-No checkpoint-backed SGDet R@50/mR@50 result has been produced from local
-OpenSGG. The current status is:
+No full-VG checkpoint-backed SGDet R@50/mR@50 result has been produced from
+local OpenSGG. The current status is:
 
 - official input provenance: `PASS`
-- local OpenSGG SGDet evaluation: `protocol_mismatch` until detector proposal
-  fields are provided
+- local OpenSGG SGDet evaluation: `pipeline_smoke_only` on a 1-image slice;
+  full VG R@50/mR@50 has not been run
 - official PENET evaluator: `runtime_blocked` in the current `hsg` environment
 - paper table targets only:
   `R@50 = 30.41` and `mR@50 = 12.25`
