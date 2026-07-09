@@ -49,7 +49,7 @@ class HSTRCriterion(nn.Module):
         self.loss_predicate_weight = 1.0
         self.loss_proto_align_weight = 0.2
         self.loss_hier_consistency_weight = 0.2
-        self.loss_energy_weight = 0.2
+        self.loss_energy_weight = 0.1
 
     def object_loss(self, object_logits, targets):
         gt = _stack_targets_if_needed(targets, "object_labels", object_logits)
