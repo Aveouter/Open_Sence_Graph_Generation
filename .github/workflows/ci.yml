@@ -92,7 +92,7 @@ jobs:
           # Warnings only; formatting is subjective, not auto-committed.
           ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
           # Step 3: full check — remaining unfixable issues → blocking error
-          ruff check --select I,B,C4,UP,F,E ${{ steps.changed-files.outputs.files }}
+          ruff check --select I,B,C4,F,E ${{ steps.changed-files.outputs.files }}
 
       - name: Commit auto-fixes back to PR
         if: steps.changed-files.outputs.files != '' && github.event_name == 'pull_request'

@@ -703,7 +703,7 @@ def main() -> int:
                 # test.py failure is a warning, not blocking
                 print(f"    [WARN] test phase failed (non-blocking): {err[:200]}")
             else:
-                print(f"    ✓ Test phase OK")
+                print("    ✓ Test phase OK")
 
     # ---- Report ----
     print("\n" + "=" * 60)
