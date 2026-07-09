@@ -1,13 +1,12 @@
-from typing import Dict, Tuple, List
-from pathlib import Path
-import re
-import pandas as pd
+import os
 
 dataset_parameters = {
     'VisualGenome': {
         'eval': True,
         'distributed': False,
-        'data_root': './data/VisualGenome/',
+        'data_root': './data/VisualGenome_sample/'
+                     if os.environ.get('CI_SMOKE_TEST') == '1'
+                     else './data/VisualGenome/',
         'in_shape': (1, 3, 224, 224),     # (T, C, H, W) 单帧输入
         'pre_seq_length': 1,
         'aft_seq_length': 1,

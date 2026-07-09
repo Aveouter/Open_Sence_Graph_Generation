@@ -17,7 +17,6 @@ Exit code 0 on all passes, 1 on any failure.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import subprocess
@@ -27,7 +26,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import torch
 
 # Ensure the project root is on sys.path
@@ -39,89 +37,17 @@ sys.path.insert(0, str(ROOT))
 # CI synthetic data generator
 # ---------------------------------------------------------------------------
 
-def _setup_ci_data(data_root: Path) -> None:
-    """Ensure minimal VisualGenome data exists for CI smoke tests.
+def _verify_ci_data() -> bool:
+    """Check that the committed VG sample dataset is present.
 
-    Prefers the committed sample dataset (data/VisualGenome_sample/),
-    falling back to synthetic data when that is also absent.
-    Only runs when real data is missing — never overwrites.
+    When CI_SMOKE_TEST=1, dataset_constant.py automatically switches
+    data_root to ./data/VisualGenome_sample/ — no copying needed.
     """
-    images_dir = data_root / "images"
-    train_json = data_root / "train.json"
-    rel_json = data_root / "rel.json"
-
-    if images_dir.exists() and train_json.exists() and rel_json.exists():
-        return  # real data present — nothing to do
-
-    # ---- Prefer committed sample dataset ----
     sample_dir = ROOT / "data" / "VisualGenome_sample"
-    if sample_dir.exists() and (sample_dir / "train.json").exists():
+    ok = sample_dir.exists() and (sample_dir / "train.json").exists()
+    if ok:
         print("    Using committed VG sample dataset for CI")
-        # Copy sample files into place (data_root must contain the data directly)
-        import shutil
-        for item in os.listdir(str(sample_dir)):
-            src = sample_dir / item
-            dst = data_root / item
-            if src.is_dir():
-                if not dst.exists():
-                    shutil.copytree(src, dst)
-            else:
-                if not dst.exists():
-                    shutil.copy2(src, dst)
-        return
-
-    # ---- Fallback: synthetic data (only if sample also missing) ----
-    print("    Generating synthetic CI dataset (2 images, 2 samples) ...")
-
-    from PIL import Image
-
-    images_dir.mkdir(parents=True, exist_ok=True)
-
-    img_ids = [1, 2]
-    for img_id in img_ids:
-        img_path = images_dir / f"{img_id}.jpg"
-        if not img_path.exists():
-            arr = np.random.randint(0, 256, (224, 224, 3), dtype=np.uint8)
-            Image.fromarray(arr).save(img_path)
-
-    categories = [{"supercategory": "", "id": i, "name": str(i)}
-                  for i in range(1, 151)]
-    images = [{"file_name": f"{iid}.jpg", "height": 224, "width": 224, "id": iid}
-              for iid in img_ids]
-
-    ann_id = 1
-    annotations: list = []
-    for iid in img_ids:
-        for obj_i in range(5):
-            x = 10 + obj_i * 40
-            y = 10 + obj_i * 30
-            annotations.append({
-                "segmentation": None, "area": 2000,
-                "bbox": [x, y, 50, 50], "iscrowd": 0,
-                "image_id": iid, "id": ann_id,
-                "category_id": (ann_id % 150) + 1,
-            })
-            ann_id += 1
-
-    coco_data = {"images": images, "annotations": annotations,
-                 "categories": categories}
-    for fname in ("train.json", "val.json", "test.json"):
-        path = data_root / fname
-        if not path.exists():
-            path.write_text(json.dumps(coco_data))
-
-    if not rel_json.exists():
-        rel_categories = ["__background__"] + [f"predicate_{i}" for i in range(1, 51)]
-        default_rels = [[0, 1, 10], [2, 3, 20], [1, 4, 30]]
-        rel_data = {
-            "rel_categories": rel_categories,
-            "train": {"1": default_rels, "2": default_rels},
-            "val": {"1": default_rels, "2": default_rels},
-            "test": {"1": default_rels, "2": default_rels},
-        }
-        rel_json.write_text(json.dumps(rel_data))
-
-    print(f"    ✓ Synthetic dataset ready at {data_root}")
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -826,8 +752,9 @@ def main() -> int:
         print("Phase 2: Minimal train.py subprocess")
         print(f"{'=' * 40}")
 
-        # Ensure minimal dataset exists for CI runners
-        _setup_ci_data(ROOT / "data" / "VisualGenome")
+        # Verify sample dataset is present
+        if not _verify_ci_data():
+            print("    [WARN] VG sample dataset missing — train/test may fail")
 
         for method_name in methods_to_test:
             print(f"\n  [{method_name}]")
@@ -835,7 +762,17 @@ def main() -> int:
             if not ok:
                 # train.py failure is a warning, not blocking
                 # (data may not exist in CI, pretrained weights may be missing)
-                print(f"    [WARN] train.py failed (non-blocking): {err[:200]}")
+                print("    [WARN] train.py failed (non-blocking)")
+                # Print first error line and last meaningful part of traceback
+                for line in err.split('\n'):
+                    if line.strip():
+                        print(f"           {line[:250]}")
+                        break
+                # Find the last Traceback-or-Error section
+                tb_start = err.rfind('Traceback')
+                if tb_start > 0:
+                    for line in err[tb_start:].split('\n')[-6:]:
+                        print(f"           {line[:250]}")
                 train_warnings[method_name] = err
             elif ckpt_path:
                 train_ckpts[method_name] = ckpt_path
@@ -855,7 +792,15 @@ def main() -> int:
             ok, err = run_minimal_test(method_name, ckpt_path)
             if not ok:
                 # test.py failure is a warning, not blocking
-                print(f"    [WARN] test phase failed (non-blocking): {err[:200]}")
+                print("    [WARN] test phase failed (non-blocking)")
+                for line in err.split('\n'):
+                    if line.strip():
+                        print(f"           {line[:250]}")
+                        break
+                tb_start = err.rfind('Traceback')
+                if tb_start > 0:
+                    for line in err[tb_start:].split('\n')[-6:]:
+                        print(f"           {line[:250]}")
                 test_warnings[method_name] = err
             else:
                 print("    ✓ Test phase OK")
