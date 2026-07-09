@@ -77,6 +77,21 @@ Earlier smoke/full runs with overlap filtering or without the official union
 reduce ReLU are superseded diagnostics and are not used as the current
 comparison row.
 
+### Additional Gap Probes Not Adopted
+
+After the full run, two 64-image probes were run on 5 RTX 2080 Ti GPUs to test
+visible low-level parity hypotheses. Both probes were reverted from the worktree
+after measurement and are not part of this PR's implementation.
+
+| Probe | Metrics path | R@20/50/100 | mR@20/50/100 | Decision |
+|---|---|---:|---:|---|
+| Pass official absolute `xyxy` proposal boxes through detector/relation ROI pooling, union pooling, and PE-NET box-info encoding instead of round-tripping through normalized `cxcywh` | `/workspace/Item_code/OpenSGG/outputs/runs/penet/2026-07-09_PENet_pr84base_official_sgdet_smoke64_xyxy_parity_006/eval/sgdet/metrics.json` | `20.77 / 24.96 / 28.72` | `6.05 / 6.46 / 8.59` | Mixed: R@K rose slightly on smoke, but mR@50/mR@100 dropped vs the current smoke. Not adopted. |
+| Same `xyxy` probe plus torchvision ROIAlign `aligned=False`, matching the official C++ ROIAlign coordinate formula more closely | `/workspace/Item_code/OpenSGG/outputs/runs/penet/2026-07-09_PENet_pr84base_official_sgdet_smoke64_xyxy_roi_align_false/eval/sgdet/metrics.json` | `19.16 / 24.41 / 27.07` | `5.96 / 6.57 / 7.65` | Worse R@K and mR@100 on smoke. Not adopted. |
+
+These probe results narrow the remaining gap but do not justify another full VG
+run. They also reinforce that smoke slices are diagnostic only and must not be
+reported as PE-NET SGDet baseline table results.
+
 ## Full Visual Genome Result
 
 Full SGDet evaluation on the complete OpenSGG Visual Genome test split completed
@@ -112,8 +127,14 @@ Raw fractional metrics:
   official h5 test split both contain `26446` relation-bearing test images.
 - Detector anchors, detector config, box NMS, and relation postprocessor
   semantics have been checked against the official repository.
-- The next likely sources are lower-level ROIAlign/FPN numeric parity or a
-  side-by-side run of the original PENET/SGB process from the same local inputs.
+- The checked low-level coordinate probes did not produce a clear smoke
+  improvement, so they are not included in the PR.
+- The next useful diagnostic is a side-by-side run of the original PENET/SGB
+  process from the same local images/checkpoint, comparing detector proposals,
+  ROI features, relation scores, and evaluator matches image by image.
+- Lower-level ROIAlign/FPN numeric parity remains possible, but it should be
+  tested with tensor-level parity against the official compiled op rather than
+  guessed from torchvision flags.
 - The local run still uses an OpenSGG runtime wrapper rather than the original
   PENET/SGB process.
 - Smoke metrics must not be reported as PE-NET baseline table results.

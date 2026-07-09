@@ -28,8 +28,13 @@ checkpoint-backed evaluation rather than reproduced.
 - Full Visual Genome SGDet R@50 is about `1.59` points below the official table.
 - Full Visual Genome SGDet mR@50 is about `0.31` points below the official table.
 - Official PENET process has not been run side-by-side from the same local inputs.
+- Two post-full 64-image smoke probes were measured and not adopted:
+  absolute-`xyxy` proposal propagation produced mixed R/mR movement, while
+  `xyxy` plus ROIAlign `aligned=False` was worse on R@K and mR@100.
 
 ## Next Action
 
-- Continue with ROIAlign/FPN numeric parity and official-process side-by-side
-  diagnostics before upgrading this baseline to a reproduction claim.
+- Prefer official-process side-by-side diagnostics before another full run:
+  compare detector proposals, ROI features, relation scores, and evaluator
+  matches from the same local images/checkpoint. Treat ROIAlign/FPN numeric
+  parity as a tensor-level test target rather than a smoke-only code change.

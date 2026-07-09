@@ -41,3 +41,18 @@ parity gap, not as a successful reproduction.
 | Dataset interface | PENET/SGB h5/json dataset | OpenSGG VG dataloader; h5 test split parity checked for `26446` test images | Residual image-file/path preprocessing parity still needs official-process comparison |
 | Detector implementation | Original maskrcnn-benchmark detector modules | Eval-only local adapter with official tensors, official anchors/config/NMS, and pad32 preprocessing | Remaining risk is lower-level ROIAlign/FPN numeric parity |
 | Evaluator implementation | Official PENET/SGB evaluator | Local compact evaluator | Semantic parity must be validated by outputs or official process |
+
+## Latest Gap Probes
+
+Two additional 64-image probes were run after the full result and then reverted:
+
+- Absolute-`xyxy` propagation through detector/relation/union box paths:
+  R@20/50/100 `20.77 / 24.96 / 28.72`, mR@20/50/100
+  `6.05 / 6.46 / 8.59`. This was mixed versus the current smoke row and was
+  not adopted.
+- Absolute-`xyxy` plus ROIAlign `aligned=False`: R@20/50/100
+  `19.16 / 24.41 / 27.07`, mR@20/50/100 `5.96 / 6.57 / 7.65`.
+  This was worse on R@K and mR@100 and was not adopted.
+
+These are protocol diagnostics only. The remaining full-run gap is still
+R@50 `-1.59` points and mR@50 `-0.31` points versus the official table.

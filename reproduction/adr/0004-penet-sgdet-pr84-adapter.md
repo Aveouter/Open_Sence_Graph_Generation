@@ -34,6 +34,9 @@ separate from relation prediction:
 - The smoke metric is no longer near zero after fixing extractor separation and relation-score background handling.
 - Full Visual Genome metrics are close to, but still below, the official table:
   R@50 `28.82` vs `30.41` and mR@50 `11.94` vs `12.25`.
+- Post-full 64-image probes for absolute-`xyxy` propagation and ROIAlign
+  `aligned=False` did not clearly reduce the gap, so they are documented as
+  diagnostics and excluded from the accepted adapter scope.
 - This remains a checkpoint-backed evaluation until detector proposal,
   ROIAlign/FPN numeric, data-interface, and evaluator parity gaps are resolved
   or explicitly deferred.
