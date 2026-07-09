@@ -18,6 +18,9 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           REPO: ${{ github.repository }}
         run: |
+          API="https://api.github.com"
+          AUTH="Authorization: Bearer $GH_TOKEN"
+
           TITLE="$PR_TITLE"
           echo "PR title: $TITLE"
 
@@ -31,11 +34,15 @@ jobs:
 
           # Remove old tracked labels first to prevent accumulation
           for lbl in bug documentation enhancement; do
-            gh api "repos/$REPO/issues/$PR_NUM/labels/$lbl" \
-              -X DELETE --silent 2>/dev/null || true
+            curl -fsS -X DELETE \
+              -H "$AUTH" \
+              "$API/repos/$REPO/issues/$PR_NUM/labels/$lbl" 2>/dev/null || true
           done
 
-          # Add the correct label via REST API (no git checkout needed)
+          # Add the correct label via REST API (no git / gh CLI needed)
           echo "Applying label: $LABEL"
-          gh api "repos/$REPO/issues/$PR_NUM/labels" \
-            -f "labels[]=$LABEL" --silent
+          curl -fsS -X POST \
+            -H "$AUTH" \
+            -H "Content-Type: application/json" \
+            -d "{\"labels\":[\"$LABEL\"]}" \
+            "$API/repos/$REPO/issues/$PR_NUM/labels"
