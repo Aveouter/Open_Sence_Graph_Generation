@@ -17,6 +17,7 @@ on:
       - 'environment.yml'
       - '.github/workflows/**'
       - 'tools/**'
+      - 'tests/**'
   push:
     branches: [main]
     paths:
@@ -29,6 +30,7 @@ on:
       - 'environment.yml'
       - '.github/workflows/**'
       - 'tools/**'
+      - 'tests/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -36,7 +38,7 @@ concurrency:
 
 jobs:
   # ============================================================
-  # Job 1: Lint — fast (~1 min), only on changed Python files
+  # Job 1: Lint — fast (~20s), only on changed Python files
   # ============================================================
   lint:
     if: github.event_name == 'pull_request'
@@ -56,39 +58,30 @@ jobs:
       - name: Get changed Python files
         id: changed-files
         run: |
-          # PR events: always diff against the base branch, never github.event.before
-          # (github.event.before on a PR synchronize event is the previous PR HEAD,
-          #  not a commit on the base branch — using it picks up unrelated changes
-          #  that landed on the base branch between pushes).
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
-          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"
-          else
-            BASE="origin/main"
-          fi
-          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.py' | tr '\n' ' ')
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "BASE=$BASE"
+          echo "HEAD_SHA=$HEAD_SHA"
+          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE..$HEAD_SHA" -- '*.py' | tr '\n' ' ' | xargs)
           echo "files=$FILES" >> $GITHUB_OUTPUT
           echo "Changed files: $FILES"
 
-      - name: Lint + format (ruff — fix dead code, check style)
+      - name: Lint + format (ruff — fix dead code, sort imports, check style)
         if: steps.changed-files.outputs.files != ''
         run: |
           echo "Changed files: ${{ steps.changed-files.outputs.files }}"
-          # Step 1: auto-remove dead code (unused imports etc.)
-          # These are objectively bugs — always safe to fix.
-          ruff check --fix ${{ steps.changed-files.outputs.files }}
-          # Step 2: check style — non-blocking, author decides.
-          # Warnings only; formatting is subjective, not auto-committed.
+          # Step 1: auto-fix dead code and sort imports
+          ruff check --fix --select F401,F811,I ${{ steps.changed-files.outputs.files }}
+          # Step 2: check formatting (non-blocking)
           ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
-          # Step 3: remaining unfixable issues → blocking error
-          ruff check ${{ steps.changed-files.outputs.files }}
+          # Step 3: full check (blocking)
+          ruff check --select I,B,C4,F ${{ steps.changed-files.outputs.files }}
 
-      - name: Commit dead-code fixes back to PR
-        if: steps.changed-files.outputs.files != '' && github.event_name == 'pull_request'
+      - name: Commit auto-fixes back to PR
+        if: steps.changed-files.outputs.files != ''
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: auto-remove unused imports [skip ci]"
+          commit_message: "chore: auto-fix unused imports and import order [skip ci]"
           file_pattern: "*.py"
 
   # ============================================================
@@ -129,7 +122,7 @@ jobs:
           fi
 
   # ============================================================
-  # Job 3: Validate — medium (~2 min), checks registration integrity
+  # Job 3: Validate — AST-based integrity checks + unit tests
   # ============================================================
   validate:
     runs-on: ubuntu-latest
@@ -143,8 +136,38 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Check if validation needed
+        id: check-changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
+          else
+            BASE="origin/main"
+          fi
+          FILES=$(git diff --name-only --diff-filter=ACMRD "$BASE...HEAD" 2>/dev/null || true)
+          NEEDS_VALIDATE="false"
+          for f in $FILES; do
+            case "$f" in
+              src/*|configs/*|utils/*|tools/*|train.py|data/*|lib/*|tests/*)
+                NEEDS_VALIDATE="true"; break ;;
+            esac
+          done
+          echo "needs_validate=$NEEDS_VALIDATE" >> $GITHUB_OUTPUT
+          echo "Changed files: $(echo "$FILES" | tr '\n' ' ')"
+
+      - name: Skip validation (no relevant changes)
+        if: steps.check-changes.outputs.needs_validate != 'true'
+        run: echo "Skipping validation — no src/config/utils/tools changes."
+
       - name: Run validation script
+        if: steps.check-changes.outputs.needs_validate == 'true'
         run: python tools/ci_validate.py
+
+      - name: Run unit tests
+        if: steps.check-changes.outputs.needs_validate == 'true'
+        run: python -m unittest discover -s tests -v
 
   # ============================================================
   # Job 4: Smoke Test — slow (~15 min), only on model/config changes
@@ -159,7 +182,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if model/config code changed
+      - name: Check if model/method/config code changed
         id: check-changes
         run: |
           # PR events: always diff against the base branch (see lint job for rationale).
@@ -174,9 +197,8 @@ jobs:
           NEEDS_SMOKE="false"
           for f in $FILES; do
             case "$f" in
-              src/models/*|src/methods/*|src/core/*|src/losses/*|configs/*)
-                NEEDS_SMOKE="true"; break ;;
-              src/exp.py|train.py|data/*|lib/*)
+              src/models/*|src/methods/*|src/core/*|src/losses/*|src/modules/*|\
+              configs/*|src/exp.py|train.py|data/*|lib/*|utils/*)
                 NEEDS_SMOKE="true"; break ;;
             esac
           done
@@ -184,10 +206,29 @@ jobs:
           SINGLE_LINE=$(echo "$FILES" | tr '\n' ' ')
           echo "changed_files=$SINGLE_LINE" >> $GITHUB_OUTPUT
           echo "Changed files: $FILES"
+          echo "Needs smoke: $NEEDS_SMOKE"
 
       - name: Skip smoke test (no model/config changes)
         if: steps.check-changes.outputs.needs_smoke != 'true'
         run: echo "Skipping smoke test — no model/config files changed."
+
+      - name: Cache conda packages
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/conda_pkgs
+          key: conda-pkgs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('environment.yml') }}
+          restore-keys: |
+            conda-pkgs-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache pip packages
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-smoke-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('environment.yml') }}
+          restore-keys: |
+            pip-smoke-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Restore HuggingFace model cache
         if: steps.check-changes.outputs.needs_smoke == 'true'
@@ -257,4 +298,14 @@ jobs:
         run: |
           conda activate hsg
           export HF_HUB_OFFLINE=1
-          python tools/ci_smoke_test.py --skip-train --changed-models "${{ steps.check-changes.outputs.changed_files }}"
+          python tools/ci_smoke_test.py \
+            --changed-models "${{ steps.check-changes.outputs.changed_files }}" \
+            2>&1 | tee /tmp/smoke_test.log
+
+      - name: Upload smoke test log
+        if: always() && steps.check-changes.outputs.needs_smoke == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-log
+          path: /tmp/smoke_test.log
+          retention-days: 7

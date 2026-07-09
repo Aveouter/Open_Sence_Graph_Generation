@@ -21,8 +21,9 @@ import os
 import re
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -283,7 +284,53 @@ def _smart_truncate(diff: str, max_chars: int) -> str:
     return result
 
 
-def get_pr_diff() -> Optional[str]:
+def _call_with_retry(
+    fn: Callable[[str], str | None],
+    diff: str,
+    max_retries: int = 2,
+) -> str | None:
+    """Call an API function with retry on transient failures.
+
+    Retries on: TimeoutError, urllib HTTP 5xx/429, ConnectionError.
+    Immediate return on: HTTP 4xx (except 429), JSON parse errors.
+    """
+    last_error: str | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = fn(diff)
+            if result is not None:
+                if attempt > 1:
+                    print(f"[review] Succeeded on attempt {attempt}")
+                return result
+            # result is None means the API returned empty content —
+            # this is a model problem, not a network problem. Don't retry.
+            return None
+        except Exception as e:
+            last_error = str(e)
+            msg = str(e).lower()
+            # Only retry on network/timeout errors, not on bad requests
+            retryable = any(
+                kw in msg
+                for kw in (
+                    "timeout", "timed out", "connection",
+                    "503", "502", "429", "urllib3", "max retries",
+                )
+            )
+            if not retryable or attempt >= max_retries:
+                break
+            delay = 2 ** attempt  # 2s, 4s
+            print(
+                f"[review] Attempt {attempt}/{max_retries} failed "
+                f"({e.__class__.__name__}), retrying in {delay}s..."
+            )
+            time.sleep(delay)
+
+    print(f"[review] All {max_retries} attempts failed: {last_error}")
+    return None
+
+
+def get_pr_diff() -> str | None:
     """Get the git diff for this PR."""
     base_ref = os.environ.get("GITHUB_BASE_REF", "origin/main")
     try:
@@ -320,7 +367,7 @@ def get_pr_diff() -> Optional[str]:
 # ================================================================
 
 
-def call_deepseek(diff: str) -> Optional[str]:
+def call_deepseek(diff: str) -> str | None:
     """Call DeepSeek API (OpenAI-compatible)."""
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
@@ -340,7 +387,7 @@ def call_deepseek(diff: str) -> Optional[str]:
 # ================================================================
 
 
-def call_anthropic(diff: str) -> Optional[str]:
+def call_anthropic(diff: str) -> str | None:
     """Call Anthropic Claude API."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -357,10 +404,10 @@ def call_anthropic(diff: str) -> Optional[str]:
 
 def _call_openai_compatible(
     api_key: str, model: str, endpoint: str, diff: str
-) -> Optional[str]:
+) -> str | None:
     """Call any OpenAI-compatible chat completions API."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     if len(diff) > MAX_DIFF_CHARS:
         diff = _smart_truncate(diff, MAX_DIFF_CHARS)
@@ -378,8 +425,12 @@ def _call_openai_compatible(
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a code reviewer. Return only valid JSON with a 'findings' key. "
-                    "Do NOT use reasoning or thinking. Output the JSON directly.",
+                    "content": (
+                        "You are a code reviewer. Return only valid JSON "
+                        "with a 'findings' key. "
+                        "Do NOT use reasoning or thinking. "
+                        "Output the JSON directly."
+                    ),
                 },
                 {"role": "user", "content": payload},
             ],
@@ -419,10 +470,10 @@ def _call_openai_compatible(
     return None
 
 
-def _call_anthropic_http(api_key: str, model: str, diff: str) -> Optional[str]:
+def _call_anthropic_http(api_key: str, model: str, diff: str) -> str | None:
     """Call Anthropic API via raw HTTP."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     if len(diff) > MAX_DIFF_CHARS:
         diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
@@ -465,7 +516,7 @@ def _call_anthropic_http(api_key: str, model: str, diff: str) -> Optional[str]:
 # ================================================================
 
 
-def parse_findings(text: str) -> Optional[list[dict]]:
+def parse_findings(text: str) -> list[dict] | None:
     """Extract findings JSON from the LLM response text.
 
     Returns:
@@ -515,27 +566,31 @@ def parse_findings(text: str) -> Optional[list[dict]]:
 
 
 def format_markdown(
-    findings: Optional[list[dict]], diff_stats: str, backend: str
+    findings: list[dict] | None, diff_stats: str, backend: str,
+    duration_s: float = 0.0,
 ) -> str:
     """Format findings as a nice markdown PR comment.
 
     Args:
         findings: list of finding dicts, empty list (no bugs), or
                   None (JSON parsing failed).
+        duration_s: API call duration in seconds.
     """
+    timing = f" in {duration_s:.1f}s" if duration_s > 0 else ""
+
     if findings is None:
         return (
             f"## :warning: LLM Code Review ({backend})\n\n"
             "**Unable to parse the review response.** The LLM returned "
             "malformed output. Check the CI logs for the raw response.\n\n"
-            f"<sub>Reviewed {diff_stats}.</sub>"
+            f"<sub>Reviewed {diff_stats}{timing}.</sub>"
         )
 
     if not findings:
         return (
             f"## :robot: LLM Code Review ({backend})\n\n"
             "**No bugs found** in the changed code. :white_check_mark:\n\n"
-            f"<sub>Reviewed {diff_stats}.</sub>"
+            f"<sub>Reviewed {diff_stats}{timing}.</sub>"
         )
 
     sev_emoji = {
@@ -560,7 +615,8 @@ def format_markdown(
         line = f.get("line", "?")
         summary = f.get("summary", "")[:100]
         lines.append(
-            f"| {emoji} | **{f.get('severity', 'low')}** | `{file}` | {line} | {summary} |"
+            f"| {emoji} | **{f.get('severity', 'low')}** "
+            f"| `{file}` | {line} | {summary} |"
         )
 
     lines.append("")
@@ -582,7 +638,8 @@ def format_markdown(
 
     lines.append("---")
     lines.append(
-        f"<sub>:robot: Automated review of {diff_stats}. Powered by {backend}.</sub>"
+        f"<sub>:robot: Automated review of {diff_stats}{timing}. "
+        f"Powered by {backend}.</sub>"
     )
 
     return "\n".join(lines)
@@ -612,21 +669,21 @@ def main() -> int:
 
     # 2. Pick backend and call LLM
     # Priority: DeepSeek → Anthropic
+    t0 = time.monotonic()
     response = None
     backend = "unknown"
 
     if os.environ.get("DEEPSEEK_API_KEY"):
-        backend = "DeepSeek"
-        print(
-            f"[review] Using DeepSeek ({os.environ.get('DEEPSEEK_MODEL', 'deepseek-v4-pro')})"
-        )
-        response = call_deepseek(diff)
+        backend = f"DeepSeek ({os.environ.get('DEEPSEEK_MODEL', 'deepseek-v4-pro')})"
+        print(f"[review] Using {backend}")
+        response = _call_with_retry(call_deepseek, diff)
     elif os.environ.get("ANTHROPIC_API_KEY"):
-        backend = "Anthropic Claude"
-        print(
-            f"[review] Using Anthropic ({os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514')})"
+        anthro_model = os.environ.get(
+            'ANTHROPIC_MODEL', 'claude-sonnet-4-20250514'
         )
-        response = call_anthropic(diff)
+        backend = f"Anthropic Claude ({anthro_model})"
+        print(f"[review] Using {backend}")
+        response = _call_with_retry(call_anthropic, diff)
     else:
         print(
             "[review] No API key set. "
@@ -634,9 +691,13 @@ def main() -> int:
         )
         return 0
 
+    elapsed = time.monotonic() - t0
+
     if response is None:
-        print(f"[review] {backend} API call failed")
+        print(f"[review] {backend} API call failed after {elapsed:.1f}s")
         return 1
+
+    print(f"[review] API call completed in {elapsed:.1f}s")
 
     # 3. Parse findings
     findings = parse_findings(response)
@@ -645,10 +706,10 @@ def main() -> int:
         print("[review] Raw response (first 500 chars):")
         print(response[:500])
         # Write a failure comment so the PR knows the review broke
-        markdown = format_markdown(None, diff_stats, backend)
+        markdown = format_markdown(None, diff_stats, backend, elapsed)
     else:
         print(f"[review] {backend} found {len(findings)} finding(s)")
-        markdown = format_markdown(findings, diff_stats, backend)
+        markdown = format_markdown(findings, diff_stats, backend, elapsed)
 
     output_path = Path("/tmp/review_findings.md")
     output_path.write_text(markdown, encoding="utf-8")

@@ -456,8 +456,22 @@ def detect_changed_methods(changed_files_str: str) -> List[str]:
     return sorted(methods)
 
 
-def run_minimal_train(method_name: str) -> Tuple[bool, str]:
-    """Run train.py with minimal settings on CPU as a subprocess."""
+def _find_ckpt(method_name: str) -> Optional[str]:
+    """Find the checkpoint file produced by train.py Phase 2."""
+    output_dir = ROOT / "outputs" / f"CI_Smoke_{method_name}"
+    if not output_dir.exists():
+        return None
+    ckpts = sorted(output_dir.rglob("*.ckpt"))
+    if ckpts:
+        return str(ckpts[-1])  # newest
+    return None
+
+
+def run_minimal_train(method_name: str) -> Tuple[bool, str, Optional[str]]:
+    """Run train.py with minimal settings on CPU as a subprocess.
+
+    Returns (success, error_message, ckpt_path).
+    """
     # Map lowercase method_maps key to train.py argparse choice
     parser_name = METHOD_PARSER_CHOICES.get(method_name, method_name)
 
@@ -512,12 +526,81 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str]:
                 f"train.py exit code {result.returncode}\n"
                 f"STDERR (last 30 lines):\n{stderr_tail}\n"
                 f"STDOUT (last 30 lines):\n{stdout_tail}"
+            ), None
+        ckpt_path = _find_ckpt(method_name)
+        if ckpt_path:
+            print(f"    ✓ Checkpoint: {ckpt_path}")
+        else:
+            print("    ⚠ No checkpoint found (train may not have saved one)")
+        return True, "", ckpt_path
+    except subprocess.TimeoutExpired:
+        return False, f"train.py timed out after 300s for {method_name}", None
+    except Exception as e:
+        return False, f"train.py failed: {e}", None
+
+
+def run_minimal_test(
+    method_name: str, ckpt_path: str
+) -> Tuple[bool, str]:
+    """Run train.py --test with the checkpoint from Phase 2.
+
+    Returns (success, error_message).
+    """
+    parser_name = METHOD_PARSER_CHOICES.get(method_name, method_name)
+
+    cmd = [
+        sys.executable,
+        str(ROOT / "train.py"),
+        "--method",
+        parser_name,
+        "--dataname",
+        "VisualGenome",
+        "--test",
+        "--ckpt_path",
+        ckpt_path,
+        "--dataset_size",
+        "2",
+        "--test_dataset_size",
+        "2",
+        "--batch_size",
+        "1",
+        "--val_batch_size",
+        "1",
+        "--num_workers",
+        "0",
+        "--device",
+        "cpu",
+        "--gpus",
+        "0",
+        "--overwrite",
+        "--no_display_method_info",
+        "--ex_name",
+        f"CI_Smoke_{method_name}",
+    ]
+
+    print(f"    Running: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+            timeout=300,
+        )
+        if result.returncode != 0:
+            stderr_tail = "\n".join(result.stderr.splitlines()[-30:])
+            stdout_tail = "\n".join(result.stdout.splitlines()[-30:])
+            return False, (
+                f"train.py --test exit code {result.returncode}\n"
+                f"STDERR (last 30 lines):\n{stderr_tail}\n"
+                f"STDOUT (last 30 lines):\n{stdout_tail}"
             )
         return True, ""
     except subprocess.TimeoutExpired:
-        return False, f"train.py timed out after 300s for {method_name}"
+        return False, f"train.py --test timed out after 300s for {method_name}"
     except Exception as e:
-        return False, f"train.py failed: {e}"
+        return False, f"train.py --test failed: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +674,7 @@ def main() -> int:
             print(f"    [FAIL] {err.split(chr(10))[0]}")  # first line only
 
     # ---- Phase 2: Minimal train.py subprocess ----
+    train_ckpts: Dict[str, str] = {}
     if not args.skip_train and not failures:
         print(f"\n{'=' * 40}")
         print("Phase 2: Minimal train.py subprocess")
@@ -598,11 +682,28 @@ def main() -> int:
 
         for method_name in methods_to_test:
             print(f"\n  [{method_name}]")
-            ok, err = run_minimal_train(method_name)
+            ok, err, ckpt_path = run_minimal_train(method_name)
             if not ok:
                 # train.py failure is a warning, not blocking
                 # (data may not exist in CI, pretrained weights may be missing)
                 print(f"    [WARN] train.py failed (non-blocking): {err[:200]}")
+            elif ckpt_path:
+                train_ckpts[method_name] = ckpt_path
+
+    # ---- Phase 3: Minimal inference (test) ----
+    if not args.skip_train and train_ckpts:
+        print(f"\n{'=' * 40}")
+        print("Phase 3: Minimal inference (train.py --test)")
+        print(f"{'=' * 40}")
+
+        for method_name, ckpt_path in train_ckpts.items():
+            print(f"\n  [{method_name}]")
+            ok, err = run_minimal_test(method_name, ckpt_path)
+            if not ok:
+                # test.py failure is a warning, not blocking
+                print(f"    [WARN] test phase failed (non-blocking): {err[:200]}")
+            else:
+                print("    ✓ Test phase OK")
 
     # ---- Report ----
     print("\n" + "=" * 60)
