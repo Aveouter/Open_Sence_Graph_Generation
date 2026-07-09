@@ -139,14 +139,9 @@ jobs:
       - name: Check if validation needed
         id: check-changes
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
-          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"
-          else
-            BASE="origin/main"
-          fi
-          FILES=$(git diff --name-only --diff-filter=ACMRD "$BASE...HEAD" 2>/dev/null || true)
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          FILES=$(git diff --name-only --diff-filter=ACMRD "$BASE..$HEAD_SHA" 2>/dev/null || true)
           NEEDS_VALIDATE="false"
           for f in $FILES; do
             case "$f" in
@@ -185,15 +180,9 @@ jobs:
       - name: Check if model/method/config code changed
         id: check-changes
         run: |
-          # PR events: always diff against the base branch (see lint job for rationale).
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
-          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"
-          else
-            BASE="origin/main"
-          fi
-          FILES=$(git diff --name-only "$BASE...HEAD" 2>/dev/null || true)
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          FILES=$(git diff --name-only "$BASE..$HEAD_SHA" 2>/dev/null || true)
           NEEDS_SMOKE="false"
           for f in $FILES; do
             case "$f" in
