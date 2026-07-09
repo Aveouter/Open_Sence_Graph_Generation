@@ -57,8 +57,8 @@ def _setup_ci_data(data_root: Path) -> None:
     sample_dir = ROOT / "data" / "VisualGenome_sample"
     if sample_dir.exists() and (sample_dir / "train.json").exists():
         print("    Using committed VG sample dataset for CI")
-        # Copy sample files into place (data_root must contain the data directly)
         import shutil
+        data_root.mkdir(parents=True, exist_ok=True)
         for item in os.listdir(str(sample_dir)):
             src = sample_dir / item
             dst = data_root / item
@@ -835,7 +835,17 @@ def main() -> int:
             if not ok:
                 # train.py failure is a warning, not blocking
                 # (data may not exist in CI, pretrained weights may be missing)
-                print(f"    [WARN] train.py failed (non-blocking): {err[:200]}")
+                print(f"    [WARN] train.py failed (non-blocking)")
+                # Print first error line and last meaningful part of traceback
+                for line in err.split('\n'):
+                    if line.strip():
+                        print(f"           {line[:250]}")
+                        break
+                # Find the last Traceback-or-Error section
+                tb_start = err.rfind('Traceback')
+                if tb_start > 0:
+                    for line in err[tb_start:].split('\n')[-6:]:
+                        print(f"           {line[:250]}")
                 train_warnings[method_name] = err
             elif ckpt_path:
                 train_ckpts[method_name] = ckpt_path
@@ -855,7 +865,15 @@ def main() -> int:
             ok, err = run_minimal_test(method_name, ckpt_path)
             if not ok:
                 # test.py failure is a warning, not blocking
-                print(f"    [WARN] test phase failed (non-blocking): {err[:200]}")
+                print(f"    [WARN] test phase failed (non-blocking)")
+                for line in err.split('\n'):
+                    if line.strip():
+                        print(f"           {line[:250]}")
+                        break
+                tb_start = err.rfind('Traceback')
+                if tb_start > 0:
+                    for line in err[tb_start:].split('\n')[-6:]:
+                        print(f"           {line[:250]}")
                 test_warnings[method_name] = err
             else:
                 print("    ✓ Test phase OK")
