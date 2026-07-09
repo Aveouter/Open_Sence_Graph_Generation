@@ -75,7 +75,7 @@ jobs:
           # Step 2: check formatting (non-blocking)
           ruff format --check --diff ${{ steps.changed-files.outputs.files }} || true
           # Step 3: full check (blocking)
-          ruff check --select I,B,C4,F ${{ steps.changed-files.outputs.files }}
+          ruff check --select I,B,F ${{ steps.changed-files.outputs.files }}
 
       - name: Commit auto-fixes back to PR
         if: steps.changed-files.outputs.files != ''

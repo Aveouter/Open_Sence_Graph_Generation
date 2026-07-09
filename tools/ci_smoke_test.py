@@ -17,7 +17,9 @@ Exit code 0 on all passes, 1 on any failure.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import subprocess
 import sys
 import traceback
@@ -25,11 +27,101 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 
 # Ensure the project root is on sys.path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+
+# ---------------------------------------------------------------------------
+# CI synthetic data generator
+# ---------------------------------------------------------------------------
+
+def _setup_ci_data(data_root: Path) -> None:
+    """Ensure minimal VisualGenome data exists for CI smoke tests.
+
+    Prefers the committed sample dataset (data/VisualGenome_sample/),
+    falling back to synthetic data when that is also absent.
+    Only runs when real data is missing — never overwrites.
+    """
+    images_dir = data_root / "images"
+    train_json = data_root / "train.json"
+    rel_json = data_root / "rel.json"
+
+    if images_dir.exists() and train_json.exists() and rel_json.exists():
+        return  # real data present — nothing to do
+
+    # ---- Prefer committed sample dataset ----
+    sample_dir = ROOT / "data" / "VisualGenome_sample"
+    if sample_dir.exists() and (sample_dir / "train.json").exists():
+        print("    Using committed VG sample dataset for CI")
+        # Copy sample files into place (data_root must contain the data directly)
+        import shutil
+        for item in os.listdir(str(sample_dir)):
+            src = sample_dir / item
+            dst = data_root / item
+            if src.is_dir():
+                if not dst.exists():
+                    shutil.copytree(src, dst)
+            else:
+                if not dst.exists():
+                    shutil.copy2(src, dst)
+        return
+
+    # ---- Fallback: synthetic data (only if sample also missing) ----
+    print("    Generating synthetic CI dataset (2 images, 2 samples) ...")
+
+    from PIL import Image
+
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    img_ids = [1, 2]
+    for img_id in img_ids:
+        img_path = images_dir / f"{img_id}.jpg"
+        if not img_path.exists():
+            arr = np.random.randint(0, 256, (224, 224, 3), dtype=np.uint8)
+            Image.fromarray(arr).save(img_path)
+
+    categories = [{"supercategory": "", "id": i, "name": str(i)}
+                  for i in range(1, 151)]
+    images = [{"file_name": f"{iid}.jpg", "height": 224, "width": 224, "id": iid}
+              for iid in img_ids]
+
+    ann_id = 1
+    annotations: list = []
+    for iid in img_ids:
+        for obj_i in range(5):
+            x = 10 + obj_i * 40
+            y = 10 + obj_i * 30
+            annotations.append({
+                "segmentation": None, "area": 2000,
+                "bbox": [x, y, 50, 50], "iscrowd": 0,
+                "image_id": iid, "id": ann_id,
+                "category_id": (ann_id % 150) + 1,
+            })
+            ann_id += 1
+
+    coco_data = {"images": images, "annotations": annotations,
+                 "categories": categories}
+    for fname in ("train.json", "val.json", "test.json"):
+        path = data_root / fname
+        if not path.exists():
+            path.write_text(json.dumps(coco_data))
+
+    if not rel_json.exists():
+        rel_categories = ["__background__"] + [f"predicate_{i}" for i in range(1, 51)]
+        default_rels = [[0, 1, 10], [2, 3, 20], [1, 4, 30]]
+        rel_data = {
+            "rel_categories": rel_categories,
+            "train": {"1": default_rels, "2": default_rels},
+            "val": {"1": default_rels, "2": default_rels},
+            "test": {"1": default_rels, "2": default_rels},
+        }
+        rel_json.write_text(json.dumps(rel_data))
+
+    print(f"    ✓ Synthetic dataset ready at {data_root}")
 
 
 # ---------------------------------------------------------------------------
@@ -456,14 +548,57 @@ def detect_changed_methods(changed_files_str: str) -> List[str]:
     return sorted(methods)
 
 
+def _print_results(stdout: str) -> None:
+    """Extract and print key metrics from train/test stdout."""
+    # Look for the rich table (Lightning CSVLogger output)
+    table_start = None
+    table_lines = stdout.splitlines()
+    for i, line in enumerate(table_lines):
+        if "┏" in line and "Test metric" in " ".join(table_lines[i : i + 3]):
+            table_start = i
+            break
+    if table_start is not None:
+        print("    " + "-" * 48)
+        for line in table_lines[table_start:]:
+            if line.strip():
+                print(f"    {line}")
+        print("    " + "-" * 48)
+        return
+
+    # Fallback: scan for R@ lines
+    metrics = re.findall(r"^(R@\d+.*|mR@\d+.*)$", stdout, re.MULTILINE)
+    if metrics:
+        print("    Results:")
+        for m in metrics[:8]:
+            print(f"      {m.strip()}")
+        return
+
+    # Fallback: scan for loss lines
+    losses = re.findall(r"^\S*loss\S*\s*[=:]\s*[\d.]+.*$", stdout, re.MULTILINE)
+    if losses:
+        print("    Losses:")
+        for lo in losses[:4]:
+            print(f"      {lo.strip()}")
+
+
 def _find_ckpt(method_name: str) -> Optional[str]:
-    """Find the checkpoint file produced by train.py Phase 2."""
-    output_dir = ROOT / "outputs" / f"CI_Smoke_{method_name}"
-    if not output_dir.exists():
+    """Find the checkpoint file produced by train.py Phase 2.
+
+    Searches outputs/runs/{method}/YYYY-MM-DD_CI_Smoke_{method}/checkpoints/.
+    """
+    runs_dir = ROOT / "outputs" / "runs" / method_name
+    if not runs_dir.exists():
         return None
-    ckpts = sorted(output_dir.rglob("*.ckpt"))
+    # Find the most recent CI_Smoke_* run directory
+    smoke_dirs = sorted(runs_dir.glob(f"*_CI_Smoke_{method_name}"), reverse=True)
+    if not smoke_dirs:
+        return None
+    ckpt_dir = smoke_dirs[0] / "checkpoints"
+    ckpts = sorted(ckpt_dir.glob("*.ckpt"))
     if ckpts:
-        return str(ckpts[-1])  # newest
+        # Prefer last.ckpt, fall back to newest
+        last = ckpt_dir / "last.ckpt"
+        return str(last) if last.exists() else str(ckpts[-1])
     return None
 
 
@@ -515,7 +650,11 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str, Optional[str]]:
             capture_output=True,
             text=True,
             cwd=ROOT,
-            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+            env={
+                **os.environ,
+                "CUDA_VISIBLE_DEVICES": "",
+                "CI_SMOKE_TEST": "1",
+            },
             timeout=300,  # 5 min max per method
         )
         if result.returncode != 0:
@@ -532,6 +671,7 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str, Optional[str]]:
             print(f"    ✓ Checkpoint: {ckpt_path}")
         else:
             print("    ⚠ No checkpoint found (train may not have saved one)")
+        _print_results(result.stdout)
         return True, "", ckpt_path
     except subprocess.TimeoutExpired:
         return False, f"train.py timed out after 300s for {method_name}", None
@@ -585,7 +725,11 @@ def run_minimal_test(
             capture_output=True,
             text=True,
             cwd=ROOT,
-            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+            env={
+                **os.environ,
+                "CUDA_VISIBLE_DEVICES": "",
+                "CI_SMOKE_TEST": "1",
+            },
             timeout=300,
         )
         if result.returncode != 0:
@@ -596,6 +740,7 @@ def run_minimal_test(
                 f"STDERR (last 30 lines):\n{stderr_tail}\n"
                 f"STDOUT (last 30 lines):\n{stdout_tail}"
             )
+        _print_results(result.stdout)
         return True, ""
     except subprocess.TimeoutExpired:
         return False, f"train.py --test timed out after 300s for {method_name}"
@@ -675,10 +820,14 @@ def main() -> int:
 
     # ---- Phase 2: Minimal train.py subprocess ----
     train_ckpts: Dict[str, str] = {}
+    train_warnings: Dict[str, str] = {}
     if not args.skip_train and not failures:
         print(f"\n{'=' * 40}")
         print("Phase 2: Minimal train.py subprocess")
         print(f"{'=' * 40}")
+
+        # Ensure minimal dataset exists for CI runners
+        _setup_ci_data(ROOT / "data" / "VisualGenome")
 
         for method_name in methods_to_test:
             print(f"\n  [{method_name}]")
@@ -687,10 +836,15 @@ def main() -> int:
                 # train.py failure is a warning, not blocking
                 # (data may not exist in CI, pretrained weights may be missing)
                 print(f"    [WARN] train.py failed (non-blocking): {err[:200]}")
+                train_warnings[method_name] = err
             elif ckpt_path:
                 train_ckpts[method_name] = ckpt_path
+            else:
+                print("    [WARN] train.py ran but produced no checkpoint")
+                train_warnings[method_name] = "no checkpoint produced"
 
     # ---- Phase 3: Minimal inference (test) ----
+    test_warnings: Dict[str, str] = {}
     if not args.skip_train and train_ckpts:
         print(f"\n{'=' * 40}")
         print("Phase 3: Minimal inference (train.py --test)")
@@ -702,23 +856,45 @@ def main() -> int:
             if not ok:
                 # test.py failure is a warning, not blocking
                 print(f"    [WARN] test phase failed (non-blocking): {err[:200]}")
+                test_warnings[method_name] = err
             else:
                 print("    ✓ Test phase OK")
 
     # ---- Report ----
     print("\n" + "=" * 60)
+    exit_code = 0
+
     if failures:
-        print(f"SMOKE TEST FAILED — {len(failures)} method(s) failed instantiation:")
+        print(f"PHASE 1 FAILED — {len(failures)} method(s) failed instantiation:")
         for name, err in failures.items():
             print(f"\n  [{name}]")
-            # Print first 5 lines of traceback
             lines = err.splitlines()[:8]
             for line in lines:
                 print(f"    {line}")
-        return 1
+        exit_code = 1
     else:
-        print(f"ALL SMOKE TESTS PASSED ({len(methods_to_test)} method(s))")
-        return 0
+        print(f"Phase 1 OK ({len(methods_to_test)} method(s))")
+
+    if train_warnings:
+        print(f"\nPhase 2 warnings ({len(train_warnings)} method(s)):")
+        for name, err in train_warnings.items():
+            print(f"  [{name}] {err.split(chr(10))[0][:120]}")
+
+    if test_warnings:
+        print(f"\nPhase 3 warnings ({len(test_warnings)} method(s)):")
+        for name, err in test_warnings.items():
+            print(f"  [{name}] {err.split(chr(10))[0][:120]}")
+
+    if exit_code == 0 and not train_warnings and not test_warnings:
+        print(f"\nALL SMOKE TESTS PASSED ({len(methods_to_test)} method(s))")
+    elif exit_code == 0:
+        skipped = len(methods_to_test) - len(train_ckpts)
+        print(f"\nSmoke test completed with warnings "
+              f"(train: {len(train_warnings)} warnings, "
+              f"test: {len(test_warnings)} warnings, "
+              f"skipped: {skipped})")
+
+    return exit_code
 
 
 def _import_check_only() -> int:

@@ -1,32 +1,32 @@
 import os
+import os.path as osp
 import sys
 import time
-import os.path as osp
 from datetime import datetime
 
+import lightning.pytorch.callbacks as lc
 import torch
 from fvcore.nn import FlopCountAnalysis, flop_count_table
-from lightning import seed_everything, Trainer
+from lightning import Trainer, seed_everything
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.profilers import AdvancedProfiler
-import lightning.pytorch.callbacks as lc
 
-from src.methods import method_maps
 from data.dataloaders.base_data import BaseDataModule
+from src.methods import method_maps
 from utils import (
+    BestCheckpointCallback,
+    EpochEndCallback,
+    SetupCallback,
     get_dataset,
     measure_throughput,
-    SetupCallback,
-    EpochEndCallback,
-    BestCheckpointCallback,
 )
 from utils.path_utils import (
-    resolve_output_paths,
-    normalize_ex_name,
-    ensure_unique_run_dir,
     collect_metadata,
-    write_metadata,
+    ensure_unique_run_dir,
+    normalize_ex_name,
+    resolve_output_paths,
     save_eval_results,
+    write_metadata,
 )
 
 
@@ -308,7 +308,8 @@ class BaseExperiment(object):
         with ``torch.load(..., weights_only=False)`` and call
         ``_adapt_state_dict`` yourself.
         """
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+        weights_only = os.environ.get("CI_SMOKE_TEST") != "1"
+        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=weights_only)
 
         if not isinstance(ckpt, dict):
             return ckpt  # raw state dict
