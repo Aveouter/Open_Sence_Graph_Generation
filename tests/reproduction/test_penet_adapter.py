@@ -8,7 +8,7 @@ import torch
 
 from src.core.metrics import metric
 from src.methods import method_maps
-from src.models.backbone import PENetBoxFeatureExtractor
+from src.models.backbone import PENetBoxFeatureExtractor, PENetUnionFeatureExtractor
 from src.models.penet_detector import PENetSGDetProposalGenerator
 from src.models.penet import (
     PENetContext,
@@ -22,6 +22,7 @@ from utils.penet_weights import (
     load_detector_box_feature_extractor_from_state_dict,
     load_relation_box_feature_extractor_from_state_dict,
 )
+from utils.parser import create_parser
 
 
 OFFICIAL_PENET_SGDET_CKPT = (
@@ -36,6 +37,11 @@ class PENetArchitectureTest(unittest.TestCase):
     def test_method_is_registered(self) -> None:
         self.assertIn("penet", method_maps)
         self.assertEqual(method_maps["penet"].__name__, "PENet_Method")
+
+    def test_penet_overlap_cli_parses_false(self) -> None:
+        parser = create_parser()
+        args = parser.parse_args(["--penet_sgdet_require_overlap", "False"])
+        self.assertFalse(args.penet_sgdet_require_overlap)
 
     def test_builder_official_defaults(self) -> None:
         """Builder defaults to official hyperparameters."""
@@ -55,7 +61,7 @@ class PENetArchitectureTest(unittest.TestCase):
                 penet_train_pairs=512,
                 penet_pos_frac=0.25,
                 penet_sgdet_eval_topk=100,
-                penet_sgdet_require_overlap=True,
+                penet_sgdet_require_overlap=False,
             )
         )
         self.assertIsInstance(model, PENetContext)
@@ -65,6 +71,7 @@ class PENetArchitectureTest(unittest.TestCase):
         self.assertEqual(model.context_hidden_dim, 512)
         self.assertEqual(model.embed_dim, 300)
         self.assertIsNone(model.freq_bias)
+        self.assertFalse(model.sgdet_require_overlap)
         # post_emb should be Linear(4096, 4096)
         self.assertEqual(model.post_emb.weight.shape, (4096, 4096))
 
@@ -386,6 +393,12 @@ class PENetForwardTest(unittest.TestCase):
         self.assertEqual(proposal.rpn_head.bbox_pred.weight.shape, (16, 256, 1, 1))
         self.assertEqual(proposal.box_predictor.cls_score.weight.shape, (151, 4096))
         self.assertEqual(proposal.box_predictor.bbox_pred.weight.shape, (604, 4096))
+
+    def test_union_pooler_reduce_channel_has_official_relu(self) -> None:
+        union = PENetUnionFeatureExtractor()
+        reduce_channel = union.pooler.reduce_channel
+        self.assertIsInstance(reduce_channel[0], torch.nn.Conv2d)
+        self.assertIsInstance(reduce_channel[1], torch.nn.ReLU)
 
     @unittest.skipUnless(
         os.path.isfile(OFFICIAL_PENET_SGDET_CKPT),

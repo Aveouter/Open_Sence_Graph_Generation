@@ -47,6 +47,9 @@
   - Remap official `roi_heads.relation.predictor.*` tensors into the local PE-NET predictor.
   - Guard relation-score background column handling when epoch-end passes `rel_nums=50`.
   - Add tensor parity tests for official relation/detector extractor keys.
+  - Align official X-101 `TEST.RELATION.REQUIRE_OVERLAP=False`.
+  - Align official BGR255 size-divisible image-list preprocessing.
+  - Align official union feature reduce-channel `Conv2d + ReLU`.
 
 ## Decision Records
 
@@ -56,7 +59,7 @@
 
 ## Protocol Alignment Checklist
 
-- [ ] dataset split matches official protocol
+- [x] dataset split matches official protocol
 - [x] object labels/classes match official protocol
 - [x] predicate labels/classes match official protocol
 - [x] preprocessing matches official detector BGR mean/std flow inside PE-NET method
@@ -83,7 +86,8 @@
 ## Notes
 
 - The 64-image smoke run is diagnostic only and is not baseline evidence.
-- Full VG SGDet eval with official overlap-pair filtering completed with
-  R@50 `28.40` and mR@50 `11.50`, below the official `30.41` and `12.25`.
+- Full VG SGDet eval with official no-overlap config, BGR255 pad32
+  preprocessing, and union reduce-channel ReLU completed with R@50 `28.82`
+  and mR@50 `11.94`, below the official `30.41` and `12.25`.
 - The result is close enough to continue parity diagnostics, but this issue does
   not mark PE-NET SGDet as reproduced.

@@ -3,6 +3,17 @@
 import argparse
 
 
+def _str2bool(value):
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in ("yes", "true", "t", "1", "y"):
+        return True
+    if value in ("no", "false", "f", "0", "n"):
+        return False
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got {value!r}")
+
+
 def create_parser():
     parser = argparse.ArgumentParser(
         description='OpenSTL train/test a model')
@@ -135,7 +146,7 @@ def create_parser():
     parser.add_argument(
         '--penet_sgdet_require_overlap',
         default=None,
-        type=bool,
+        type=_str2bool,
         help='Whether PENet SGDet test pairs require overlapping boxes.',
     )
 

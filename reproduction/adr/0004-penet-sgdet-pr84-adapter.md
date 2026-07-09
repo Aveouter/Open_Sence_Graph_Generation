@@ -21,12 +21,19 @@ separate from relation prediction:
 - The detector RPN and detector box predictor load from the official SGDet checkpoint.
 - Relation ROI features are re-extracted with the relation extractor after detector proposals.
 - PE-NET SGDet outputs use a model-family-specific evaluator path.
+- The official X-101 SGDet test setting `TEST.RELATION.REQUIRE_OVERLAP=False`
+  is used, including a CLI boolean parser guard for `False`.
+- OpenSGG eval images are converted back to official BGR255 detector space and
+  padded to the official size-divisible-by-32 image list shape.
+- The union feature extractor includes the official reduce-channel ReLU after
+  concatenating all FPN levels.
 
 ## Consequences
 
 - The change is scoped to PE-NET SGDet and should not affect other model families.
 - The smoke metric is no longer near zero after fixing extractor separation and relation-score background handling.
 - Full Visual Genome metrics are close to, but still below, the official table:
-  R@50 `28.40` vs `30.41` and mR@50 `11.50` vs `12.25`.
+  R@50 `28.82` vs `30.41` and mR@50 `11.94` vs `12.25`.
 - This remains a checkpoint-backed evaluation until detector proposal,
-  data-interface, and evaluator parity gaps are resolved or explicitly deferred.
+  ROIAlign/FPN numeric, data-interface, and evaluator parity gaps are resolved
+  or explicitly deferred.

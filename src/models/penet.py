@@ -568,7 +568,7 @@ class PENetContext(nn.Module):
         train_pairs_per_image: int = 512,
         train_positive_fraction: float = 0.25,
         sgdet_eval_topk: int = 100,
-        sgdet_require_overlap: bool = True,
+        sgdet_require_overlap: bool = False,
     ):
         super().__init__()
 
@@ -1274,6 +1274,6 @@ def build_penet(args) -> PENetContext:
         train_pairs_per_image=getattr(args, "penet_train_pairs", 512),
         train_positive_fraction=getattr(args, "penet_pos_frac", 0.25),
         sgdet_eval_topk=getattr(args, "penet_sgdet_eval_topk", 100),
-        sgdet_require_overlap=getattr(args, "penet_sgdet_require_overlap", True),
+        sgdet_require_overlap=getattr(args, "penet_sgdet_require_overlap", False),
     )
     return model

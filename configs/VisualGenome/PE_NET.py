@@ -117,7 +117,7 @@ penet_detector_ckpt = None
 # ===== SGDet NMS (official LATER_NMS_PREDICTION_THRES) =====
 penet_nms_thresh = 0.5
 penet_sgdet_eval_topk = 100
-penet_sgdet_require_overlap = True
+penet_sgdet_require_overlap = False
 
 # ===== evaluation =====
 # Supported modes: predcls, sgcls, sgdet

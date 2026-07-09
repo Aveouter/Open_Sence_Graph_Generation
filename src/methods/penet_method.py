@@ -15,6 +15,7 @@ from __future__ import annotations
 
 
 import torch
+import torch.nn.functional as F
 
 from .motifs_method import Motifs_Method, MotifsCriterion
 from src.models.penet_detector import PENetSGDetProposalGenerator
@@ -267,6 +268,34 @@ class PENet_Method(Motifs_Method):
 
     # ── Feature extraction ─────────────────────────────────────────
 
+    def _to_official_padded_image(self, img, size, size_divisible=32):
+        """Convert OpenSGG RGB-normalized image to official padded input.
+
+        Official maskrcnn_benchmark applies BGR255 mean subtraction before
+        ImageList padding; padded pixels are therefore zeros in that official
+        normalized space.
+        """
+        device = img.device
+        if size is None:
+            size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
+        elif torch.is_tensor(size):
+            size = size.to(device)
+        else:
+            size = torch.as_tensor(size, dtype=torch.float32, device=device)
+
+        h, w = int(size[0].item()), int(size[1].item())
+        cropped = img[..., :h, :w]
+        official = cropped.flip(0) * self._norm_scale + self._norm_bias
+
+        if size_divisible > 0:
+            padded_h = ((h + size_divisible - 1) // size_divisible) * size_divisible
+            padded_w = ((w + size_divisible - 1) // size_divisible) * size_divisible
+            pad_h = padded_h - h
+            pad_w = padded_w - w
+            if pad_h > 0 or pad_w > 0:
+                official = F.pad(official, (0, pad_w, 0, pad_h), value=0.0)
+        return official, size
+
     def _extract_features(self, images, boxes_list, labels_list, image_sizes):
         """Per-image: backbone → FPN → box features + FPN tuple."""
 
@@ -288,27 +317,16 @@ class PENet_Method(Motifs_Method):
         images = [img.to(device) for img in images]
         box_dev = [b.to(device) for b in boxes_list]
         sz_dev = []
-        cropped = []
+        official_images = []
         for img, size in zip(images, image_sizes):
-            if size is None:
-                size = torch.as_tensor(
-                    img.shape[-2:], dtype=torch.float32, device=device
-                )
-            elif torch.is_tensor(size):
-                size = size.to(device)
-            else:
-                size = torch.as_tensor(size, dtype=torch.float32, device=device)
-            h, w = int(size[0].item()), int(size[1].item())
+            official_img, size = self._to_official_padded_image(img, size)
             sz_dev.append(size)
-            cropped.append(img[..., :h, :w])
+            official_images.append(official_img)
 
         results = []
-        for img, boxes, sz in zip(cropped, box_dev, sz_dev):
+        for img, boxes, sz in zip(official_images, box_dev, sz_dev):
             boxes = boxes.to(device)
             sz = sz.to(device)
-
-            # Convert ImageNet RGB → maskrcnn_benchmark BGR pixel-mean
-            img = img.flip(0) * self._norm_scale + self._norm_bias
 
             with torch.set_grad_enabled(
                 not all(not p.requires_grad for p in self._backbone.parameters())
@@ -351,17 +369,9 @@ class PENet_Method(Motifs_Method):
         images = [img.to(device) for img in images]
         results = []
         for img, size in zip(images, image_sizes):
-            if size is None:
-                size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
-            elif torch.is_tensor(size):
-                size = size.to(device)
-            else:
-                size = torch.as_tensor(size, dtype=torch.float32, device=device)
-            h, w = int(size[0].item()), int(size[1].item())
-            cropped = img[..., :h, :w]
-            cropped = cropped.flip(0) * self._norm_scale + self._norm_bias
+            official_img, size = self._to_official_padded_image(img, size)
             with torch.no_grad():
-                raw = self._backbone(cropped, return_all_scales=True)
+                raw = self._backbone(official_img, return_all_scales=True)
                 fpn_features = self._fpn((raw[4], raw[8], raw[16], raw[32]))
                 proposals = self._proposal_generator(
                     fpn_features,

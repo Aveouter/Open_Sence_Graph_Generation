@@ -225,11 +225,7 @@ class FPNNeck(nn.Module):
         for feat, ib, lb in zip(
             x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1]
         ):
-            inner_top_down = F.interpolate(
-                last_inner,
-                size=feat.shape[-2:],
-                mode="nearest",
-            )
+            inner_top_down = F.interpolate(last_inner, scale_factor=2, mode="nearest")
             last_inner = ib(feat) + inner_top_down
             results.insert(0, lb(last_inner))
         if self.top_blocks is not None:
@@ -296,6 +292,7 @@ class FPNPooler(nn.Module):
             num_scales = len(scales)
             self.reduce_channel = nn.Sequential(
                 nn.Conv2d(in_channels * num_scales, in_channels, 3, padding=1),
+                nn.ReLU(inplace=True),
             )
         else:
             lvl_min = int(-math.log2(scales[0]))
