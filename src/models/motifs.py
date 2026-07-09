@@ -1488,7 +1488,7 @@ def build_motifs(args) -> MotifsModel:
         edge_lstm_layers=getattr(args, "edge_lstm_layers", 1),
         use_freq_bias=getattr(args, "use_freq_bias", True),
         freq_bias_eps=getattr(args, "freq_bias_eps", 1e-3),
-        dropout=getattr(args, "dropout", 0.2),
+        dropout=getattr(args, "dropout", 0.1),
         order=getattr(args, "motifs_order", "leftright"),
         data_root=getattr(args, "data_root", None),
         use_tanh=getattr(args, "use_tanh", False),
