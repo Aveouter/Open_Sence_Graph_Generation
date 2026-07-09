@@ -1031,10 +1031,12 @@ class MotifsModel(nn.Module):
             clean = name[7:] if name.startswith("module.") else name
             candidates = [clean]
             for prefix in self.EXTERNAL_PREFIXES:
+                # Normalise "module." prefix (Python 3.8 compat — no removeprefix)
+                norm_prefix = prefix[7:] if prefix.startswith("module.") else prefix
                 if name.startswith(prefix):
                     candidates.append(name[len(prefix):])
-                if clean.startswith(prefix.removeprefix("module.")):
-                    candidates.append(clean[len(prefix.removeprefix("module.")):])
+                if clean.startswith(norm_prefix):
+                    candidates.append(clean[len(norm_prefix):])
 
             for candidate in candidates:
                 if candidate in model_state:
