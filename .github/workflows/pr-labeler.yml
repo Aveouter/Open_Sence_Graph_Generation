@@ -4,22 +4,17 @@ on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
 
-permissions:
-  issues: write
-
 jobs:
   label:
     runs-on: ubuntu-latest
     steps:
       - name: Label PR by title prefix
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOKEN: ${{ secrets.LABELER_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
-
           TITLE="$PR_TITLE"
           echo "PR title: $TITLE"
 
@@ -32,26 +27,17 @@ jobs:
           fi
 
           API="https://api.github.com/repos/$REPO/issues/$PR_NUM/labels"
-          AUTH="Authorization: Bearer $GH_TOKEN"
+          AUTH="Authorization: Bearer $TOKEN"
 
-          # Remove old tracked labels (404 = not present = OK)
+          # Remove old labels
           for lbl in bug documentation enhancement; do
-            echo "  Removing $lbl ..."
-            curl -fsS -X DELETE -H "$AUTH" "$API/$lbl" 2>&1 || echo "  (not present, OK)"
+            curl -fsS -X DELETE -H "$AUTH" "$API/$lbl" 2>/dev/null || true
           done
 
           # Add the correct label
           echo "Applying label: $LABEL"
-          RESP=$(curl -w "\n%{http_code}" -sS -X POST \
+          curl -fsS -X POST \
             -H "$AUTH" \
             -H "Content-Type: application/json" \
             -d "{\"labels\":[\"$LABEL\"]}" \
-            "$API" 2>&1)
-          HTTP_CODE=$(echo "$RESP" | tail -1)
-          echo "HTTP $HTTP_CODE"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::Label API returned HTTP $HTTP_CODE"
-            echo "$RESP"
-            exit 1
-          fi
-          echo "Label applied: $LABEL"
+            "$API"
