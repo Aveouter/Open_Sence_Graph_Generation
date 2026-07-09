@@ -31,6 +31,10 @@ def create_parser():
     parser.add_argument('--test', action='store_true', default=False, help='Only performs testing')
     parser.add_argument('--profile', action='store_true', default=False,
                         help='Enable PyTorch Lightning AdvancedProfiler (single-GPU only)')
+    parser.add_argument('--no_progress_bar', action='store_true', default=False,
+                        help='Disable Lightning train/validation/test progress bars')
+    parser.add_argument('--progress_bar_refresh_rate', default=1, type=int,
+                        help='Refresh interval for Lightning progress bars')
     parser.add_argument('--deterministic', action='store_true', default=False,
                         help='whether to set deterministic options for CUDNN backend (reproducable)')
 
@@ -154,6 +158,8 @@ def default_parser():
         'seed': 42,
         'fps': False,
         'test': False,
+        'no_progress_bar': False,
+        'progress_bar_refresh_rate': 1,
         'deterministic': False,
         # dataset parameters
         'num_workers': 2,

@@ -163,6 +163,7 @@ Configs use a two-layer system: **CLI arguments** override **per-method config f
 | `batch_size` | Training batch size | `4` |
 | `dataset_size` | Train subset size (smoke tests) | `None` |
 | `epoch` | Max training epochs | `200` |
+| `no_progress_bar` | Disable train/validation/test progress bars | `False` |
 | `lr` / `lr_backbone` | Learning rate (model / backbone) | `1e-4` / `1e-5` |
 | `backbone` | CNN backbone | `resnet50` |
 | `hidden_dim` | Transformer hidden dim | `256` |

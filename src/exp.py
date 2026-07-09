@@ -156,6 +156,7 @@ class BaseExperiment(object):
             callbacks=callbacks,
             logger=logger,
             log_every_n_steps=1,
+            enable_progress_bar=not getattr(args, 'no_progress_bar', False),
         )
 
         # Gradient accumulation: simulate larger batch size for small-GPU training
@@ -209,6 +210,12 @@ class BaseExperiment(object):
         epochend_callback = EpochEndCallback()
 
         callbacks = [setup_callback, ckpt_callback, epochend_callback]
+        if not getattr(args, 'no_progress_bar', False):
+            callbacks.append(
+                lc.TQDMProgressBar(
+                    refresh_rate=getattr(args, 'progress_bar_refresh_rate', 1)
+                )
+            )
         if args.sched:
             callbacks.append(lc.LearningRateMonitor(logging_interval=None))
 
