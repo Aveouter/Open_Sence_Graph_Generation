@@ -2,17 +2,31 @@ name: PR Labeler
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
-  contents: read
   pull-requests: write
 
 jobs:
   label:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/labeler@v5
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          sync-labels: true
+      - name: Label PR by title prefix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          TITLE="$PR_TITLE"
+          echo "PR title: $TITLE"
+
+          if echo "$TITLE" | grep -qiE '^(fix|bug)'; then
+            LABEL="bug"
+          elif echo "$TITLE" | grep -qiE '^docs'; then
+            LABEL="documentation"
+          else
+            LABEL="enhancement"
+          fi
+
+          echo "Applying label: $LABEL"
+          gh pr edit "$PR_NUM" --add-label "$LABEL"
