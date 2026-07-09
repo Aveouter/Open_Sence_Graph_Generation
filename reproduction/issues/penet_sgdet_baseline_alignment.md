@@ -85,13 +85,10 @@
 
 ## Notes
 
-- The 64-image smoke run is diagnostic only and is not baseline evidence.
-- Full VG SGDet eval with official no-overlap config, BGR255 pad32
-  preprocessing, and union reduce-channel ReLU completed with R@50 `28.82`
-  and mR@50 `11.94`, below the official `30.41` and `12.25`.
-- Follow-up 64-image coordinate/ROIAlign probes did not provide a clear
-  improvement: absolute-`xyxy` propagation was mixed, and `xyxy` plus
-  ROIAlign `aligned=False` was worse on R@K and mR@100. These experiments were
-  not adopted.
-- The result is close enough to continue parity diagnostics, but this issue does
-  not mark PE-NET SGDet as reproduced.
+| Topic | Evidence | Decision |
+|---|---|---|
+| 64-image smoke | Diagnostic-only slice | Not baseline evidence |
+| Full VG SGDet | Official no-overlap config, BGR255 pad32 preprocessing, and union reduce-channel ReLU completed with R@50 `28.82` and mR@50 `11.94`, below official `30.41` and `12.25` | Continue parity diagnostics |
+| Absolute-`xyxy` probe | Follow-up 64-image coordinate probe produced mixed movement | Not adopted |
+| `xyxy` plus ROIAlign `aligned=False` probe | Follow-up 64-image probe was worse on R@K and mR@100 | Not adopted |
+| Claim boundary | Remaining gap is small but unresolved | Keep `checkpoint_backed_evaluation` |

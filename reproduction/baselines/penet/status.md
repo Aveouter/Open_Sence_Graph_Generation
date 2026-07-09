@@ -25,16 +25,17 @@ checkpoint-backed evaluation rather than reproduced.
 
 ## Current Gap
 
-- Full Visual Genome SGDet R@50 is about `1.59` points below the official table.
-- Full Visual Genome SGDet mR@50 is about `0.31` points below the official table.
-- Official PENET process has not been run side-by-side from the same local inputs.
-- Two post-full 64-image smoke probes were measured and not adopted:
-  absolute-`xyxy` proposal propagation produced mixed R/mR movement, while
-  `xyxy` plus ROIAlign `aligned=False` was worse on R@K and mR@100.
+| Gap | Current evidence | Status |
+|---|---|---|
+| R@50 vs official table | Full VG R@50 `28.82` vs official `30.41`, gap `-1.59` points | open |
+| mR@50 vs official table | Full VG mR@50 `11.94` vs official `12.25`, gap `-0.31` points | open |
+| Official process parity | Original PENET/SGB process has not been run side-by-side from the same local inputs | open |
+| Absolute-`xyxy` proposal propagation | 64-image smoke produced mixed R/mR movement | checked, not adopted |
+| `xyxy` plus ROIAlign `aligned=False` | 64-image smoke was worse on R@K and mR@100 | checked, not adopted |
 
 ## Next Action
 
-- Prefer official-process side-by-side diagnostics before another full run:
-  compare detector proposals, ROI features, relation scores, and evaluator
-  matches from the same local images/checkpoint. Treat ROIAlign/FPN numeric
-  parity as a tensor-level test target rather than a smoke-only code change.
+| Priority | Diagnostic | Rationale |
+|---|---|---|
+| P0 | Official-process side-by-side comparison | Compare detector proposals, ROI features, relation scores, and evaluator matches from the same local images/checkpoint before another full run. |
+| P1 | ROIAlign/FPN tensor-level parity | Treat numeric parity as a tensor-level test target rather than a smoke-only code change. |

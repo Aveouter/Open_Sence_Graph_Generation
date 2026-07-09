@@ -46,13 +46,10 @@ parity gap, not as a successful reproduction.
 
 Two additional 64-image probes were run after the full result and then reverted:
 
-- Absolute-`xyxy` propagation through detector/relation/union box paths:
-  R@20/50/100 `20.77 / 24.96 / 28.72`, mR@20/50/100
-  `6.05 / 6.46 / 8.59`. This was mixed versus the current smoke row and was
-  not adopted.
-- Absolute-`xyxy` plus ROIAlign `aligned=False`: R@20/50/100
-  `19.16 / 24.41 / 27.07`, mR@20/50/100 `5.96 / 6.57 / 7.65`.
-  This was worse on R@K and mR@100 and was not adopted.
+| Probe | R@20/50/100 | mR@20/50/100 | Result | Decision |
+|---|---:|---:|---|---|
+| Absolute-`xyxy` propagation through detector/relation/union box paths | `20.77 / 24.96 / 28.72` | `6.05 / 6.46 / 8.59` | Mixed versus current smoke row | not adopted |
+| Absolute-`xyxy` plus ROIAlign `aligned=False` | `19.16 / 24.41 / 27.07` | `5.96 / 6.57 / 7.65` | Worse on R@K and mR@100 | not adopted |
 
 These are protocol diagnostics only. The remaining full-run gap is still
 R@50 `-1.59` points and mR@50 `-0.31` points versus the official table.

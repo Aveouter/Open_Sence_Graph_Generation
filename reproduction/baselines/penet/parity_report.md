@@ -62,12 +62,15 @@ config, size-divisible padding, and union reduce-channel ReLU:
 
 - Command: `CUDA_VISIBLE_DEVICES=2,3,4,5,6 conda run --no-capture-output -n hsg python train.py --test --method PENet --config_file configs/VisualGenome/PE_NET.py --ckpt_path /workspace/Item_code/OpenSGG/outputs/pretrained/penet_official/PE-NET_SGDet/model_final.pth --test_dataset_size 64 --val_batch_size 1 --num_workers 1 --penet_sgdet_eval_topk 100 --penet_sgdet_require_overlap False --ex_name PENet_pr84base_official_sgdet_smoke64_union_reduce_relu --output_dir /workspace/Item_code/OpenSGG/outputs --no_display_method_info --gpus 0 1 2 3 4`
 - Metrics path: `/workspace/Item_code/OpenSGG/outputs/runs/penet/2026-07-09_PENet_pr84base_official_sgdet_smoke64_union_reduce_relu/eval/sgdet/metrics.json`
-- `sgdet_R@20 = 0.20146863162517548`
-- `sgdet_R@50 = 0.24727560579776764`
-- `sgdet_R@100 = 0.276100218296051`
-- `sgdet_mR@20 = 0.05804852023720741`
-- `sgdet_mR@50 = 0.0665256679058075`
-- `sgdet_mR@100 = 0.08660943806171417`
+
+| Metric | Smoke64 fractional | Smoke64 percent |
+|---|---:|---:|
+| R@20 | `0.20146863162517548` | `20.15` |
+| R@50 | `0.24727560579776764` | `24.73` |
+| R@100 | `0.276100218296051` | `27.61` |
+| mR@20 | `0.05804852023720741` | `5.80` |
+| mR@50 | `0.0665256679058075` | `6.65` |
+| mR@100 | `0.08660943806171417` | `8.66` |
 
 The previous 64-image smoke from the earlier SGDet branch had
 `sgdet_R@50 = 0.007558847311884165` and
@@ -112,29 +115,24 @@ pad32 preprocessing, and union reduce-channel ReLU:
 
 Raw fractional metrics:
 
-- `sgdet_R@20 = 0.21955223381519318`
-- `sgdet_R@50 = 0.2882086932659149`
-- `sgdet_R@100 = 0.33078208565711975`
-- `sgdet_mR@20 = 0.08854109793901443`
-- `sgdet_mR@50 = 0.11937950551509857`
-- `sgdet_mR@100 = 0.1394738107919693`
+| Metric | Raw fractional value |
+|---|---:|
+| sgdet_R@20 | `0.21955223381519318` |
+| sgdet_R@50 | `0.2882086932659149` |
+| sgdet_R@100 | `0.33078208565711975` |
+| sgdet_mR@20 | `0.08854109793901443` |
+| sgdet_mR@50 | `0.11937950551509857` |
+| sgdet_mR@100 | `0.1394738107919693` |
 
 ## Current Gap
 
-- The visible gap is now concentrated in R@K. mR@50 is close to the official
-  table, but R@50 remains `1.59` percentage points below the reported row.
-- VG h5/test split parity was checked separately: the local test split and
-  official h5 test split both contain `26446` relation-bearing test images.
-- Detector anchors, detector config, box NMS, and relation postprocessor
-  semantics have been checked against the official repository.
-- The checked low-level coordinate probes did not produce a clear smoke
-  improvement, so they are not included in the PR.
-- The next useful diagnostic is a side-by-side run of the original PENET/SGB
-  process from the same local images/checkpoint, comparing detector proposals,
-  ROI features, relation scores, and evaluator matches image by image.
-- Lower-level ROIAlign/FPN numeric parity remains possible, but it should be
-  tested with tensor-level parity against the official compiled op rather than
-  guessed from torchvision flags.
-- The local run still uses an OpenSGG runtime wrapper rather than the original
-  PENET/SGB process.
-- Smoke metrics must not be reported as PE-NET baseline table results.
+| Gap area | Status | Evidence / next check |
+|---|---|---|
+| Main metric gap | Open | R@50 remains `1.59` percentage points below the official row; mR@50 remains `0.31` points below. |
+| Dataset split | Checked | Local VG test split and official h5 test split both contain `26446` relation-bearing test images. |
+| Detector/postprocessor semantics | Checked at code level | Detector anchors, detector config, box NMS, and relation postprocessor semantics were checked against the official repository. |
+| Coordinate/ROIAlign smoke probes | Checked, not adopted | Absolute-`xyxy` propagation was mixed; `xyxy + aligned=False` was worse on R@K and mR@100. |
+| Runtime process | Open | Local evaluation still uses an OpenSGG runtime wrapper rather than the original PENET/SGB process. |
+| Recommended next diagnostic | Open | Run the original PENET/SGB process side-by-side from the same local images/checkpoint and compare detector proposals, ROI features, relation scores, and evaluator matches image by image. |
+| ROIAlign/FPN numeric parity | Open | Test with tensor-level parity against the official compiled op rather than guessing from torchvision flags. |
+| Claim boundary | Enforced | Smoke metrics must not be reported as PE-NET SGDet baseline table results. |
