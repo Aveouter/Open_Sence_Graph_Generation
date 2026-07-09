@@ -9,7 +9,9 @@ Matches the official VL-Group/PENET pretraining chain:
   3. Box head fc6/fc7 (4096-dim): requires official pretrained detector
      checkpoint; kaiming_init when unavailable
 
-  The PENet relation predictor is trained from scratch — NOT loaded.
+  This helper loads detector-side weights only. The PENet relation predictor
+  is loaded from an external SGDet checkpoint by ``PENetContext`` when the
+  evaluation entrypoint adapts ``roi_heads.relation.predictor.*`` keys.
 """
 
 from __future__ import annotations
@@ -55,17 +57,65 @@ def _fpn_key_map_official_to_ours() -> Dict[str, str]:
     return mapping
 
 
+def _backbone_key_map_official_to_ours(backbone: nn.Module) -> Dict[str, str]:
+    """Map official detector backbone keys to local torchvision-style keys."""
+    mapping: Dict[str, str] = {}
+    for dst_key in backbone.state_dict().keys():
+        if dst_key.startswith("conv1."):
+            src_key = "backbone.body.stem." + dst_key
+        elif dst_key.startswith("bn1."):
+            src_key = "backbone.body.stem." + dst_key
+        elif dst_key.startswith("layer"):
+            src_key = "backbone.body." + dst_key
+        else:
+            continue
+        mapping[src_key] = dst_key
+    return mapping
+
+
 def _box_head_key_map_official_to_ours() -> Dict[str, str]:
     """Map official box-head keys → our ``PENetBoxFeatureExtractor`` keys.
 
     Official (maskrcnn-benchmark):
-      roi_heads.box_head.fc6.weight  →  _box_extractor.fc6.weight
+      roi_heads.box.feature_extractor.fc6.weight → _box_extractor.fc6.weight
     """
     return {
-        "roi_heads.box_head.fc6.weight": "_box_extractor.fc6.weight",
-        "roi_heads.box_head.fc6.bias": "_box_extractor.fc6.bias",
-        "roi_heads.box_head.fc7.weight": "_box_extractor.fc7.weight",
-        "roi_heads.box_head.fc7.bias": "_box_extractor.fc7.bias",
+        "roi_heads.box.feature_extractor.fc6.weight": "_box_extractor.fc6.weight",
+        "roi_heads.box.feature_extractor.fc6.bias": "_box_extractor.fc6.bias",
+        "roi_heads.box.feature_extractor.fc7.weight": "_box_extractor.fc7.weight",
+        "roi_heads.box.feature_extractor.fc7.bias": "_box_extractor.fc7.bias",
+    }
+
+
+def _relation_box_head_key_map_official_to_ours() -> Dict[str, str]:
+    """Map official relation ROI box extractor keys to local extractor keys."""
+    return {
+        "roi_heads.relation.box_feature_extractor.fc6.weight": "_box_extractor.fc6.weight",
+        "roi_heads.relation.box_feature_extractor.fc6.bias": "_box_extractor.fc6.bias",
+        "roi_heads.relation.box_feature_extractor.fc7.weight": "_box_extractor.fc7.weight",
+        "roi_heads.relation.box_feature_extractor.fc7.bias": "_box_extractor.fc7.bias",
+    }
+
+
+def _rpn_head_key_map_official_to_ours() -> Dict[str, str]:
+    """Map official RPN head keys to ``PENetRPNHead`` keys."""
+    return {
+        "rpn.head.conv.weight": "rpn_head.conv.weight",
+        "rpn.head.conv.bias": "rpn_head.conv.bias",
+        "rpn.head.cls_logits.weight": "rpn_head.cls_logits.weight",
+        "rpn.head.cls_logits.bias": "rpn_head.cls_logits.bias",
+        "rpn.head.bbox_pred.weight": "rpn_head.bbox_pred.weight",
+        "rpn.head.bbox_pred.bias": "rpn_head.bbox_pred.bias",
+    }
+
+
+def _box_predictor_key_map_official_to_ours() -> Dict[str, str]:
+    """Map official detector box predictor keys to ``PENetBoxPredictor`` keys."""
+    return {
+        "roi_heads.box.predictor.cls_score.weight": "box_predictor.cls_score.weight",
+        "roi_heads.box.predictor.cls_score.bias": "box_predictor.cls_score.bias",
+        "roi_heads.box.predictor.bbox_pred.weight": "box_predictor.bbox_pred.weight",
+        "roi_heads.box.predictor.bbox_pred.bias": "box_predictor.bbox_pred.bias",
     }
 
 
@@ -103,6 +153,9 @@ def _transfer_weights(
         for name, param in mod.named_parameters():
             full = f"{scope}.{name}" if scope else name
             dst_params[full] = param
+        for name, buffer in mod.named_buffers():
+            full = f"{scope}.{name}" if scope else name
+            dst_params[full] = buffer
 
     for src_key, dst_key in key_map.items():
         if src_key not in src:
@@ -175,6 +228,7 @@ def load_detector_checkpoint(
     fpn: nn.Module,
     box_extractor: nn.Module,
     checkpoint_path: str,
+    proposal_generator: Optional[nn.Module] = None,
 ) -> Dict[str, int]:
     """Load pretrained detector weights from an official ``model_final.pth``.
 
@@ -198,11 +252,12 @@ def load_detector_checkpoint(
 
     counts = {}
 
-    # 1) Backbone: direct key match (official uses same torchvision resnet keys)
+    # 1) Backbone: official ``backbone.body.*`` naming → local torchvision names.
+    backbone_map = _backbone_key_map_official_to_ours(backbone)
     counts["backbone"] = _transfer_weights(
         sd,
         {"": backbone},
-        {},
+        backbone_map,
         strict=False,
     )
 
@@ -219,7 +274,49 @@ def load_detector_checkpoint(
         strict=False,
     )
 
+    if proposal_generator is not None:
+        counts["rpn_head"] = _transfer_weights(
+            sd,
+            {"": proposal_generator},
+            _rpn_head_key_map_official_to_ours(),
+            strict=False,
+        )
+        counts["box_predictor"] = _transfer_weights(
+            sd,
+            {"": proposal_generator},
+            _box_predictor_key_map_official_to_ours(),
+            strict=False,
+        )
+
     return counts
+
+
+def load_detector_box_feature_extractor_from_state_dict(
+    box_extractor: nn.Module,
+    state_dict: Dict[str, torch.Tensor],
+) -> int:
+    """Load official detector ROI box extractor weights into a local extractor."""
+    sd = _strip_module_prefix(state_dict)
+    return _transfer_weights(
+        sd,
+        {"_box_extractor": box_extractor},
+        _box_head_key_map_official_to_ours(),
+        strict=False,
+    )
+
+
+def load_relation_box_feature_extractor_from_state_dict(
+    box_extractor: nn.Module,
+    state_dict: Dict[str, torch.Tensor],
+) -> int:
+    """Load official relation ROI box extractor weights into a local extractor."""
+    sd = _strip_module_prefix(state_dict)
+    return _transfer_weights(
+        sd,
+        {"_box_extractor": box_extractor},
+        _relation_box_head_key_map_official_to_ours(),
+        strict=False,
+    )
 
 
 def load_all_pretrained(
@@ -228,6 +325,8 @@ def load_all_pretrained(
     box_extractor: nn.Module,
     arch: str = "resnext101_32x8d",
     detector_ckpt: Optional[str] = None,
+    detector_box_extractor: Optional[nn.Module] = None,
+    proposal_generator: Optional[nn.Module] = None,
 ) -> Dict[str, int]:
     """Load pretrained backbone weights.  FPN and box-head require the official
     detector checkpoint for COCO pretraining (torchvision does not provide
@@ -239,7 +338,9 @@ def load_all_pretrained(
          (overrides step 1 for backbone; loads FPN and box-head which
           otherwise use kaiming_init)
 
-    The PENet relation predictor is always trained from scratch.
+    This helper does not load the PENet relation predictor; external SGDet
+    predictor weights are remapped by ``PENetContext.remap_external_state_dict``
+    in the experiment checkpoint-loading path.
     """
     counts: Dict[str, int] = {}
 
@@ -259,10 +360,23 @@ def load_all_pretrained(
             fpn,
             box_extractor,
             detector_ckpt,
+            proposal_generator=proposal_generator,
         )
         for k, v in det_counts.items():
             counts[f"detector_{k}"] = v
             print(f"[weights]   {k}: {v} params loaded (overrides previous)")
+        if detector_box_extractor is not None:
+            ckpt = torch.load(detector_ckpt, map_location="cpu")
+            sd = ckpt.get("model", ckpt.get("state_dict", ckpt))
+            n_detector_box = load_detector_box_feature_extractor_from_state_dict(
+                detector_box_extractor,
+                sd,
+            )
+            counts["detector_box_extractor_eval"] = n_detector_box
+            print(
+                "[weights]   detector_box_extractor_eval: "
+                f"{n_detector_box} params loaded"
+            )
     elif detector_ckpt is not None:
         print(f"[weights] WARNING: detector checkpoint not found: {detector_ckpt}")
         print("[weights]   FPN and box-head will use kaiming_init.")
@@ -280,8 +394,14 @@ def load_all_pretrained(
     print(
         f"[weights]   Box fc6/fc7← {'COCO (detector ckpt)' if have_detector else 'kaiming_init (needs detector ckpt)'}"
     )
-    print("[weights]   Union ext  ← kaiming_init (trained from scratch)")
-    print("[weights]   PENet model← kaiming_init (trained from scratch)")
+    print(
+        "[weights]   Union ext  ← detector helper only "
+        "(official SGDet ckpt loaded later when provided)"
+    )
+    print(
+        "[weights]   PENet model← detector helper only "
+        "(relation predictor remapped from official SGDet ckpt when provided)"
+    )
     if not have_detector:
         print("[weights] ─────────────────────────────────────────────")
         print("[weights] To load FPN + box-head COCO pretrained weights:")

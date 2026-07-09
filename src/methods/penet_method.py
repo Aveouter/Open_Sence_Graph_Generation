@@ -17,6 +17,7 @@ from __future__ import annotations
 import torch
 
 from .motifs_method import Motifs_Method, MotifsCriterion
+from src.models.penet_detector import PENetSGDetProposalGenerator
 from src.models.backbone import (
     PENetBoxFeatureExtractor,
     PENetUnionFeatureExtractor,
@@ -64,9 +65,19 @@ class PENet_Method(Motifs_Method):
         self._fpn = FPNNeck(in_channels_list=(256, 512, 1024, 2048), out_channels=256)
 
         # 3) Box extractor
-        self._box_extractor = PENetBoxFeatureExtractor(
+        self._relation_box_extractor = PENetBoxFeatureExtractor(
             roi_output_size=roi_size,
             representation_size=4096,
+        )
+        # Backward-compatible alias used by existing PredCls/SGCls paths.
+        self._box_extractor = self._relation_box_extractor
+
+        self._detector_box_extractor = PENetBoxFeatureExtractor(
+            roi_output_size=roi_size,
+            representation_size=4096,
+        )
+        self._proposal_generator = PENetSGDetProposalGenerator(
+            num_classes=args.get("entity_nums", 151),
         )
 
         # 4) Union extractor (always trained from scratch)
@@ -75,16 +86,25 @@ class PENet_Method(Motifs_Method):
             representation_size=4096,
         )
 
-        # ── Load pretrained backbone + FPN + box-head (detector) weights ──
-        # PENet model itself is NOT loaded — it is trained from scratch.
+        # Load detector-side weights. Official relation predictor tensors are
+        # remapped later by ``PENetContext.remap_external_state_dict`` when
+        # ``ckpt_path`` is an official SGDet checkpoint.
         counts = load_all_pretrained(
             backbone=self._backbone,
             fpn=self._fpn,
-            box_extractor=self._box_extractor,
+            box_extractor=self._relation_box_extractor,
             arch=arch,
             detector_ckpt=detector_ckpt,
+            detector_box_extractor=self._detector_box_extractor,
+            proposal_generator=self._proposal_generator,
         )
         self._weight_load_counts = counts
+        self._has_official_sgdet_detector = (
+            detector_ckpt is not None
+            and counts.get("detector_rpn_head", 0) > 0
+            and counts.get("detector_box_predictor", 0) > 0
+            and counts.get("detector_box_extractor_eval", 0) > 0
+        )
 
         # ── Image normalisation adaptor ──
         # maskrcnn_benchmark: BGR pixel-mean subtraction
@@ -109,7 +129,14 @@ class PENet_Method(Motifs_Method):
         ``.pth`` / ``.pt`` checkpoint is detected.
         """
         from typing import Dict
-        from utils.penet_weights import _transfer_weights, _strip_module_prefix
+        from utils.penet_weights import (
+            _box_head_key_map_official_to_ours,
+            _box_predictor_key_map_official_to_ours,
+            _relation_box_head_key_map_official_to_ours,
+            _rpn_head_key_map_official_to_ours,
+            _strip_module_prefix,
+            _transfer_weights,
+        )
 
         sd = _strip_module_prefix(state_dict)
         counts: Dict[str, int] = {}
@@ -153,19 +180,39 @@ class PENet_Method(Motifs_Method):
         # 3) Box extractor — MUST use relation.box_feature_extractor, NOT
         #    roi_heads.box.feature_extractor (detector).  The two are
         #    different tensors (max abs diff ≈ 0.01).
-        box_map = {
-            "roi_heads.relation.box_feature_extractor.fc6.weight":
-                "_box_extractor.fc6.weight",
-            "roi_heads.relation.box_feature_extractor.fc6.bias":
-                "_box_extractor.fc6.bias",
-            "roi_heads.relation.box_feature_extractor.fc7.weight":
-                "_box_extractor.fc7.weight",
-            "roi_heads.relation.box_feature_extractor.fc7.bias":
-                "_box_extractor.fc7.bias",
-        }
+        box_map = _relation_box_head_key_map_official_to_ours()
         counts["box_extractor"] = _transfer_weights(
-            sd, {"_box_extractor": self._box_extractor}, box_map, strict=False
+            sd,
+            {"_box_extractor": self._relation_box_extractor},
+            box_map,
+            strict=False,
         )
+
+        if hasattr(self, "_detector_box_extractor"):
+            counts["detector_box_extractor"] = _transfer_weights(
+                sd,
+                {"_box_extractor": self._detector_box_extractor},
+                _box_head_key_map_official_to_ours(),
+                strict=False,
+            )
+        if hasattr(self, "_proposal_generator"):
+            counts["detector_rpn_head"] = _transfer_weights(
+                sd,
+                {"": self._proposal_generator},
+                _rpn_head_key_map_official_to_ours(),
+                strict=False,
+            )
+            counts["detector_box_predictor"] = _transfer_weights(
+                sd,
+                {"": self._proposal_generator},
+                _box_predictor_key_map_official_to_ours(),
+                strict=False,
+            )
+            self._has_official_sgdet_detector = (
+                counts.get("detector_box_extractor", 0) > 0
+                and counts.get("detector_rpn_head", 0) > 0
+                and counts.get("detector_box_predictor", 0) > 0
+            )
 
         # 4) Union feature extractor
         ufe_pfx = "roi_heads.relation.union_feature_extractor"
@@ -211,7 +258,8 @@ class PENet_Method(Motifs_Method):
         return counts
 
     def _build_model(self, **args):
-        # PENet model is trained from scratch (kaiming_init)
+        # Built locally first; official relation predictor tensors are loaded
+        # by the experiment checkpoint adapter during evaluation.
         return build_penet(self.hparams)
 
     def _build_criterion(self, **args):
@@ -273,7 +321,7 @@ class PENet_Method(Motifs_Method):
             fpn_features = self._fpn(fpn_in)  # tuple of 5 tensors
 
             # Box features via FPN pooler
-            roi_feats = self._box_extractor(fpn_features, boxes, sz)
+            roi_feats = self._relation_box_extractor(fpn_features, boxes, sz)
 
             results.append(
                 {
@@ -288,6 +336,55 @@ class PENet_Method(Motifs_Method):
         if fpn_features is None or pairs.numel() == 0:
             return None
         return self._union_extractor(fpn_features, boxes, pairs, img_size)
+
+    def _detect_sgdet_features(self, images, image_sizes):
+        """Run the official-checkpoint detector path for SGDet proposals."""
+        if not getattr(self, "_has_official_sgdet_detector", False):
+            raise ValueError(
+                "PENet SGDet requires official detector RPN, detector box "
+                "extractor and detector box predictor weights. Use the "
+                "official SGDet model_final.pth as --ckpt_path, or provide "
+                "--penet_detector_ckpt for the frozen detector components."
+            )
+        images = self._image_list_from_batch(images)
+        device = next(self._backbone.parameters()).device
+        images = [img.to(device) for img in images]
+        results = []
+        for img, size in zip(images, image_sizes):
+            if size is None:
+                size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
+            elif torch.is_tensor(size):
+                size = size.to(device)
+            else:
+                size = torch.as_tensor(size, dtype=torch.float32, device=device)
+            h, w = int(size[0].item()), int(size[1].item())
+            cropped = img[..., :h, :w]
+            cropped = cropped.flip(0) * self._norm_scale + self._norm_bias
+            with torch.no_grad():
+                raw = self._backbone(cropped, return_all_scales=True)
+                fpn_features = self._fpn((raw[4], raw[8], raw[16], raw[32]))
+                proposals = self._proposal_generator(
+                    fpn_features,
+                    self._detector_box_extractor,
+                    size,
+                )
+                roi_feats = self._relation_box_extractor(
+                    fpn_features,
+                    proposals.boxes,
+                    size,
+                )
+            results.append(
+                {
+                    "roi_feats": roi_feats,
+                    "boxes": proposals.boxes,
+                    "labels": proposals.labels,
+                    "obj_dists": proposals.obj_dists,
+                    "boxes_per_cls": proposals.boxes_per_cls,
+                    "fpn_features": fpn_features,
+                    "image_size": size,
+                }
+            )
+        return results
 
     def _extra_model_kwargs(self, target, boxes, labels, return_obj_preds):
         extra = super()._extra_model_kwargs(target, boxes, labels, return_obj_preds)
@@ -308,7 +405,8 @@ class PENet_Method(Motifs_Method):
     # ── Forward ──────────────────────────────────────────────────
 
     def forward(self, images, targets=None, **kwargs):
-        is_training = targets is not None
+        is_training = self.training
+        eval_mode = getattr(self.hparams, "eval_mode", "predcls")
         return_obj_preds = getattr(self.hparams, "eval_mode", "predcls") in ("sgcls", "sgdet")
 
         if is_training or targets is not None:
@@ -322,9 +420,14 @@ class PENet_Method(Motifs_Method):
             labels_list = [t["labels"] for t in targets]
             image_sizes = [t.get("size", t.get("orig_size")) for t in targets]
 
-            vis_results = self._extract_features(
-                images, boxes_list, labels_list, image_sizes
-            )
+            if eval_mode == "sgdet" and not self.training:
+                vis_results = self._detect_sgdet_features(images, image_sizes)
+                boxes_list = [r["boxes"] for r in vis_results]
+                labels_list = [r["labels"] for r in vis_results]
+            else:
+                vis_results = self._extract_features(
+                    images, boxes_list, labels_list, image_sizes
+                )
 
             for i, (box, lab, sz) in enumerate(
                 zip(boxes_list, labels_list, image_sizes)
@@ -333,6 +436,22 @@ class PENet_Method(Motifs_Method):
                 roi_feats, fpn_feats = r["roi_feats"], r["fpn_features"]
 
                 extra = self._extra_model_kwargs(targets[i], box, lab, return_obj_preds)
+                if eval_mode == "sgdet" and not self.training:
+                    extra["obj_dists"] = r["obj_dists"]
+                    extra["boxes_per_cls"] = r["boxes_per_cls"]
+                    sz = r["image_size"]
+                if eval_mode == "sgdet":
+                    missing = [
+                        key
+                        for key in ("boxes_per_cls", "obj_dists")
+                        if key not in extra
+                    ]
+                    if missing:
+                        raise ValueError(
+                            "PENet SGDet requires official detector proposal "
+                            f"fields {missing}; otherwise the run is a "
+                            "protocol_mismatch, not an official SGDet eval."
+                        )
 
                 # Pass FPN features + extraction callback to model
                 extra["_compute_union_fn"] = self._compute_union_features
@@ -345,6 +464,7 @@ class PENet_Method(Motifs_Method):
                 all_outputs.append(out)
 
             batched = {
+                "model_family": "penet_sgdet" if eval_mode == "sgdet" else "motifs",
                 "rel_logits": [o["rel_logits"] for o in all_outputs],
                 "pair_indices": [o["pair_indices"] for o in all_outputs],
                 "sub_boxes": [o["sub_boxes"] for o in all_outputs],
@@ -357,6 +477,21 @@ class PENet_Method(Motifs_Method):
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]
+            sgdet_keys = (
+                "sgdet_rel_scores",
+                "sgdet_sub_boxes",
+                "sgdet_obj_boxes",
+                "sgdet_sub_scores",
+                "sgdet_obj_scores",
+                "sgdet_sub_classes",
+                "sgdet_obj_classes",
+            )
+            if eval_mode == "sgdet":
+                for key in sgdet_keys:
+                    if all(key in o for o in all_outputs):
+                        batched[key] = [o[key] for o in all_outputs]
+                if all("sgdet_box_space" in o for o in all_outputs):
+                    batched["sgdet_box_space"] = [o["sgdet_box_space"] for o in all_outputs]
 
             add_losses = {}
             for o in all_outputs:

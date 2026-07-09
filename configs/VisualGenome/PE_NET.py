@@ -116,11 +116,13 @@ penet_detector_ckpt = None
 
 # ===== SGDet NMS (official LATER_NMS_PREDICTION_THRES) =====
 penet_nms_thresh = 0.5
+penet_sgdet_eval_topk = 100
+penet_sgdet_require_overlap = True
 
 # ===== evaluation =====
 # Supported modes: predcls, sgcls, sgdet
 # Metrics are auto-derived from eval_mode — just change eval_mode above.
-eval_mode = "predcls"
+eval_mode = "sgdet"
 _METRIC_KS = [20, 50, 100]
 metrics = [f"{eval_mode}_R@{k}" for k in _METRIC_KS] + [
     f"{eval_mode}_mR@{k}" for k in _METRIC_KS

@@ -120,6 +120,24 @@ def create_parser():
     parser.add_argument('--gpus', nargs='+', default=[0], type=int)
     parser.add_argument('--metric_for_bestckpt', default='val_loss', type=str)
     parser.add_argument('--ckpt_path', default=None, type=str)
+    parser.add_argument(
+        '--penet_detector_ckpt',
+        default=None,
+        type=str,
+        help='Official PENet/Faster R-CNN detector checkpoint for SGDet proposals.',
+    )
+    parser.add_argument(
+        '--penet_sgdet_eval_topk',
+        default=None,
+        type=int,
+        help='Max sorted SGDet triplets kept per image for PENet evaluation.',
+    )
+    parser.add_argument(
+        '--penet_sgdet_require_overlap',
+        default=None,
+        type=bool,
+        help='Whether PENet SGDet test pairs require overlapping boxes.',
+    )
 
     # CLIP hierarchical alignment parameters
     parser.add_argument('--use_alignment', action='store_true', default=False,
@@ -194,6 +212,9 @@ def default_parser():
         'accumulate_grad_batches': 1,
         # Lightning parameters
         'gpus': [2,3,4,5],
-        'metric_for_bestckpt': 'val_loss'
+        'metric_for_bestckpt': 'val_loss',
+        'penet_detector_ckpt': None,
+        'penet_sgdet_eval_topk': None,
+        'penet_sgdet_require_overlap': None,
     }
     return default_values

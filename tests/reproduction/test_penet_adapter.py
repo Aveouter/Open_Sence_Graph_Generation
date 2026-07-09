@@ -1,17 +1,32 @@
 from __future__ import annotations
 
+import os
 import unittest
 from types import SimpleNamespace
 
 import torch
 
+from src.core.metrics import metric
 from src.methods import method_maps
+from src.models.backbone import PENetBoxFeatureExtractor
+from src.models.penet_detector import PENetSGDetProposalGenerator
 from src.models.penet import (
     PENetContext,
     build_penet,
     fusion_func,
+    _filter_sgdet_overlap_pairs,
     _make_fc,
     _nms_overlaps,
+)
+from utils.penet_weights import (
+    load_detector_box_feature_extractor_from_state_dict,
+    load_relation_box_feature_extractor_from_state_dict,
+)
+
+
+OFFICIAL_PENET_SGDET_CKPT = (
+    "/workspace/Item_code/OpenSGG/outputs/pretrained/penet_official/"
+    "PE-NET_SGDet/model_final.pth"
 )
 
 
@@ -39,6 +54,8 @@ class PENetArchitectureTest(unittest.TestCase):
                 penet_nms_thresh=0.5,
                 penet_train_pairs=512,
                 penet_pos_frac=0.25,
+                penet_sgdet_eval_topk=100,
+                penet_sgdet_require_overlap=True,
             )
         )
         self.assertIsInstance(model, PENetContext)
@@ -67,6 +84,8 @@ class PENetArchitectureTest(unittest.TestCase):
                 penet_nms_thresh=0.5,
                 penet_train_pairs=512,
                 penet_pos_frac=0.25,
+                penet_sgdet_eval_topk=100,
+                penet_sgdet_require_overlap=True,
             )
         )
         self.assertEqual(model.mlp_dim, 32)
@@ -277,6 +296,39 @@ class PENetForwardTest(unittest.TestCase):
         self.assertTrue((preds >= 0).all())
         self.assertTrue((preds < 151).all())
 
+    def test_sgdet_overlap_pair_filter_matches_official_test_pairs(self) -> None:
+        pairs = torch.tensor([[0, 1], [1, 0], [0, 2], [2, 0], [1, 2], [2, 1]])
+        boxes = torch.tensor(
+            [
+                [0.20, 0.20, 0.20, 0.20],
+                [0.25, 0.25, 0.20, 0.20],
+                [0.80, 0.80, 0.10, 0.10],
+            ],
+            dtype=torch.float32,
+        )
+        filtered = _filter_sgdet_overlap_pairs(
+            pairs,
+            boxes,
+            torch.tensor([100.0, 100.0]),
+        )
+        self.assertTrue(torch.equal(filtered, torch.tensor([[0, 1], [1, 0]])))
+
+    def test_sgdet_overlap_pair_filter_keeps_official_placeholder(self) -> None:
+        pairs = torch.tensor([[0, 1], [1, 0]])
+        boxes = torch.tensor(
+            [
+                [0.10, 0.10, 0.10, 0.10],
+                [0.90, 0.90, 0.10, 0.10],
+            ],
+            dtype=torch.float32,
+        )
+        filtered = _filter_sgdet_overlap_pairs(
+            pairs,
+            boxes,
+            torch.tensor([100.0, 100.0]),
+        )
+        self.assertTrue(torch.equal(filtered, torch.tensor([[0, 0]])))
+
     def test_sgdet_refine_with_boxes_per_cls(self) -> None:
         """SGDet with boxes_per_cls → NMS refinement."""
         torch.manual_seed(42)
@@ -296,6 +348,158 @@ class PENetForwardTest(unittest.TestCase):
             boxes_per_cls=boxes_per_cls,
         )
         self.assertEqual(outputs["obj_logits"].shape, (5, 151))
+
+    def test_sgdet_outputs_are_top100_sorted_cache(self) -> None:
+        """SGDet cache is capped for official R@100/mR@100 evaluation."""
+        torch.manual_seed(42)
+        model = self._make_model(sgdet_eval_topk=100)
+        model.eval()
+        num_boxes = 12
+        visual_feats = torch.randn(num_boxes, 64)
+        boxes = torch.rand(num_boxes, 4)
+        boxes[:, 2:] = boxes[:, 2:].clamp_min(0.05)
+        labels = torch.randint(1, 151, (num_boxes,))
+        obj_dists = torch.randn(num_boxes, 151)
+        base_xyxy = torch.rand(num_boxes, 4)
+        xy1 = torch.minimum(base_xyxy[:, :2], base_xyxy[:, 2:]) * 100
+        xy2 = torch.maximum(base_xyxy[:, :2], base_xyxy[:, 2:]) * 100 + 1
+        boxes_xyxy = torch.cat([xy1, xy2], dim=1)
+        boxes_per_cls = boxes_xyxy[:, None, :].expand(num_boxes, 151, 4).clone()
+
+        outputs = model(
+            visual_feats,
+            boxes,
+            labels,
+            return_obj_preds=True,
+            obj_dists=obj_dists,
+            boxes_per_cls=boxes_per_cls,
+        )
+        self.assertIn("sgdet_rel_scores", outputs)
+        self.assertLessEqual(outputs["sgdet_rel_scores"].shape[0], 100)
+        self.assertEqual(outputs["sgdet_rel_scores"].shape[-1], 51)
+        self.assertEqual(outputs["sgdet_box_space"], "resized_xyxy")
+
+    def test_sgdet_proposal_generator_module_shapes(self) -> None:
+        proposal = PENetSGDetProposalGenerator(num_classes=151)
+        self.assertEqual(proposal.rpn_head.conv.weight.shape, (256, 256, 3, 3))
+        self.assertEqual(proposal.rpn_head.cls_logits.weight.shape, (4, 256, 1, 1))
+        self.assertEqual(proposal.rpn_head.bbox_pred.weight.shape, (16, 256, 1, 1))
+        self.assertEqual(proposal.box_predictor.cls_score.weight.shape, (151, 4096))
+        self.assertEqual(proposal.box_predictor.bbox_pred.weight.shape, (604, 4096))
+
+    @unittest.skipUnless(
+        os.path.isfile(OFFICIAL_PENET_SGDET_CKPT),
+        "official PE-NET SGDet checkpoint is not available locally",
+    )
+    def test_official_sgdet_relation_and_detector_box_tensor_parity(self) -> None:
+        ckpt = torch.load(OFFICIAL_PENET_SGDET_CKPT, map_location="cpu", weights_only=True)
+        state_dict = ckpt["model"]
+        stripped = {
+            k[7:] if k.startswith("module.") else k: v
+            for k, v in state_dict.items()
+        }
+
+        relation_extractor = PENetBoxFeatureExtractor()
+        detector_extractor = PENetBoxFeatureExtractor()
+        self.assertEqual(
+            load_relation_box_feature_extractor_from_state_dict(
+                relation_extractor,
+                state_dict,
+            ),
+            4,
+        )
+        self.assertEqual(
+            load_detector_box_feature_extractor_from_state_dict(
+                detector_extractor,
+                state_dict,
+            ),
+            4,
+        )
+
+        rel_state = relation_extractor.state_dict()
+        det_state = detector_extractor.state_dict()
+        for suffix in ("fc6.weight", "fc6.bias", "fc7.weight", "fc7.bias"):
+            self.assertTrue(
+                torch.equal(
+                    rel_state[suffix],
+                    stripped[f"roi_heads.relation.box_feature_extractor.{suffix}"],
+                ),
+                suffix,
+            )
+            self.assertTrue(
+                torch.equal(
+                    det_state[suffix],
+                    stripped[f"roi_heads.box.feature_extractor.{suffix}"],
+                ),
+                suffix,
+            )
+        self.assertFalse(torch.equal(rel_state["fc7.weight"], det_state["fc7.weight"]))
+
+    @unittest.skipUnless(
+        os.path.isfile(OFFICIAL_PENET_SGDET_CKPT),
+        "official PE-NET SGDet checkpoint is not available locally",
+    )
+    def test_official_sgdet_relation_predictor_tensor_parity(self) -> None:
+        ckpt = torch.load(OFFICIAL_PENET_SGDET_CKPT, map_location="cpu", weights_only=True)
+        state_dict = ckpt["model"]
+        stripped = {
+            k[7:] if k.startswith("module.") else k: v
+            for k, v in state_dict.items()
+        }
+
+        model = PENetContext()
+        remapped = model.remap_external_state_dict(state_dict)
+        self.assertEqual(len(remapped), 63)
+        missing, unexpected = model.load_state_dict(remapped, strict=False)
+        self.assertFalse(unexpected)
+        self.assertGreater(len(missing), 0)
+
+        local_state = model.state_dict()
+        for key in (
+            "post_emb.weight",
+            "vis2sem.0.weight",
+            "out_obj.weight",
+            "lin_obj_cyx.weight",
+        ):
+            official_key = f"roi_heads.relation.predictor.{key}"
+            self.assertTrue(torch.equal(local_state[key], stripped[official_key]), key)
+
+    def test_penet_sgdet_metric_accepts_50_or_51_rel_nums(self) -> None:
+        """PE-NET SGDet keeps bg at column 0 even if epoch-end passes 50."""
+        rel_scores = torch.zeros(1, 51)
+        rel_scores[0, 20] = 1.0
+        outputs = {
+            "model_family": "penet_sgdet",
+            "sgdet_rel_scores": [rel_scores],
+            "sgdet_sub_boxes": [torch.tensor([[10.0, 10.0, 30.0, 30.0]])],
+            "sgdet_obj_boxes": [torch.tensor([[50.0, 50.0, 80.0, 80.0]])],
+            "sgdet_sub_scores": [torch.tensor([0.9])],
+            "sgdet_obj_scores": [torch.tensor([0.8])],
+            "sgdet_sub_classes": [torch.tensor([1])],
+            "sgdet_obj_classes": [torch.tensor([2])],
+        }
+        target = {
+            "boxes": torch.tensor(
+                [
+                    [0.20, 0.20, 0.20, 0.20],
+                    [0.65, 0.65, 0.30, 0.30],
+                ]
+            ),
+            "labels": torch.tensor([1, 2]),
+            "rel_annotations": torch.tensor([[0, 1, 20]]),
+            "orig_size": torch.tensor([100, 100]),
+            "size": torch.tensor([100, 100]),
+        }
+        for rel_nums in (50, 51):
+            result, _ = metric(
+                outputs,
+                [target],
+                ["sgdet_R@100", "sgdet_mR@100"],
+                rel_nums=rel_nums,
+                entity_nums=151,
+            )
+            self.assertEqual(result["sgdet_R@100"], 1.0)
+            self.assertGreater(result["sgdet_mR@100"], 0.0)
 
     def test_model_with_freq_bias(self) -> None:
         """Frequency bias should not crash."""

@@ -83,6 +83,51 @@ def fusion_func(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return F.relu(x + y) - (x - y) ** 2
 
 
+def _cxcywh_norm_to_xyxy_abs(
+    boxes: torch.Tensor,
+    image_size: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    cx, cy, w, h = boxes.unbind(-1)
+    xyxy = torch.stack(
+        (
+            cx - w / 2,
+            cy - h / 2,
+            cx + w / 2,
+            cy + h / 2,
+        ),
+        dim=-1,
+    )
+    if image_size is None:
+        return xyxy
+    size = torch.as_tensor(image_size, dtype=boxes.dtype, device=boxes.device).view(-1)
+    if size.numel() >= 2:
+        scale = torch.stack((size[1], size[0], size[1], size[0]))
+        xyxy = xyxy * scale
+    return xyxy
+
+
+def _filter_sgdet_overlap_pairs(
+    pairs: torch.Tensor,
+    boxes: torch.Tensor,
+    image_size: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Match official SGDet test pair filtering when REQUIRE_OVERLAP=True."""
+    if pairs.numel() == 0:
+        return pairs
+    boxes_xyxy = _cxcywh_norm_to_xyxy_abs(boxes, image_size)
+    sub_boxes = boxes_xyxy[pairs[:, 0]]
+    obj_boxes = boxes_xyxy[pairs[:, 1]]
+    lt = torch.maximum(sub_boxes[:, :2], obj_boxes[:, :2])
+    rb = torch.minimum(sub_boxes[:, 2:], obj_boxes[:, 2:])
+    to_remove = 1.0 if image_size is not None else 0.0
+    wh = (rb - lt + to_remove).clamp(min=0)
+    keep = (wh[:, 0] * wh[:, 1]) > 0
+    filtered = pairs[keep]
+    if filtered.numel() == 0:
+        return torch.zeros((1, 2), dtype=torch.long, device=pairs.device)
+    return filtered
+
+
 # =========================================================================
 # make_fc — matches official maskrcnn_benchmark make_fc
 # =========================================================================
@@ -522,6 +567,8 @@ class PENetContext(nn.Module):
         roi_output_size: int = 7,
         train_pairs_per_image: int = 512,
         train_positive_fraction: float = 0.25,
+        sgdet_eval_topk: int = 100,
+        sgdet_require_overlap: bool = True,
     ):
         super().__init__()
 
@@ -536,6 +583,8 @@ class PENetContext(nn.Module):
         self.roi_output_size = roi_output_size
         self.train_pairs_per_image = train_pairs_per_image
         self.train_positive_fraction = train_positive_fraction
+        self.sgdet_eval_topk = sgdet_eval_topk
+        self.sgdet_require_overlap = sgdet_require_overlap
 
         # ===== 1. post_emb =====
         self.post_emb = nn.Linear(visual_dim, self.mlp_dim * 2)
@@ -923,8 +972,15 @@ class PENetContext(nn.Module):
 
         # ── 4. Generate all directed pairs ──
         pairs = generate_object_pairs(N, device)
+        if (
+            not is_training
+            and return_obj_preds
+            and boxes_per_cls is not None
+            and self.sgdet_require_overlap
+        ):
+            pairs = _filter_sgdet_overlap_pairs(pairs, boxes, img_size)
         if pairs.numel() == 0:
-            return {
+            out = {
                 "rel_logits": visual_feats.new_zeros(0, self.num_predicates),
                 "pair_indices": pairs,
                 "sub_boxes": boxes.new_zeros(0, 4),
@@ -932,8 +988,29 @@ class PENetContext(nn.Module):
                 "obj_labels": entity_preds,
                 "obj_logits": entity_dists if return_obj_preds else None,
                 "predicate_bg_index": "first",
+                "relation_softmax_scope": "all",
                 "add_losses": {},
             }
+            if return_obj_preds and boxes_per_cls is not None:
+                out.update(
+                    {
+                        "sgdet_rel_scores": visual_feats.new_zeros(
+                            0, self.num_predicates
+                        ),
+                        "sgdet_sub_boxes": boxes.new_zeros(0, 4),
+                        "sgdet_obj_boxes": boxes.new_zeros(0, 4),
+                        "sgdet_sub_scores": visual_feats.new_zeros(0),
+                        "sgdet_obj_scores": visual_feats.new_zeros(0),
+                        "sgdet_sub_classes": torch.zeros(
+                            0, dtype=torch.long, device=device
+                        ),
+                        "sgdet_obj_classes": torch.zeros(
+                            0, dtype=torch.long, device=device
+                        ),
+                        "sgdet_box_space": "resized_xyxy",
+                    }
+                )
+            return out
 
         # ── 5. Determine which pairs to use ──
         if is_training and rel_annotations is not None:
@@ -1073,7 +1150,7 @@ class PENetContext(nn.Module):
         else:
             out_pairs = pairs
 
-        return {
+        out = {
             "rel_logits": rel_dists,
             "pair_indices": out_pairs,
             "obj_labels": entity_preds,
@@ -1084,6 +1161,45 @@ class PENetContext(nn.Module):
             "relation_softmax_scope": "all",
             "add_losses": add_losses,
         }
+        if return_obj_preds and boxes_per_cls is not None and out_pairs.numel() > 0:
+            obj_prob = F.softmax(entity_dists, dim=-1)
+            obj_prob[:, 0] = 0
+            obj_scores = obj_prob[
+                torch.arange(entity_preds.numel(), device=device),
+                entity_preds,
+            ]
+            selected_boxes = boxes_per_cls[
+                torch.arange(entity_preds.numel(), device=device),
+                entity_preds,
+            ]
+            rel_prob = F.softmax(rel_dists, dim=-1)
+            rel_scores = rel_prob[:, 1:].max(dim=1).values
+            triple_scores = (
+                rel_scores
+                * obj_scores[out_pairs[:, 0]]
+                * obj_scores[out_pairs[:, 1]]
+            )
+            order = torch.argsort(triple_scores, descending=True)
+            if self.sgdet_eval_topk and self.sgdet_eval_topk > 0:
+                order = order[: self.sgdet_eval_topk]
+            sorted_pairs = out_pairs[order]
+            out.update(
+                {
+                    "rel_logits": rel_dists[order],
+                    "pair_indices": sorted_pairs,
+                    "sub_boxes": boxes[sorted_pairs[:, 0]],
+                    "obj_boxes": boxes[sorted_pairs[:, 1]],
+                    "sgdet_rel_scores": rel_prob[order],
+                    "sgdet_sub_boxes": selected_boxes[sorted_pairs[:, 0]],
+                    "sgdet_obj_boxes": selected_boxes[sorted_pairs[:, 1]],
+                    "sgdet_sub_scores": obj_scores[sorted_pairs[:, 0]],
+                    "sgdet_obj_scores": obj_scores[sorted_pairs[:, 1]],
+                    "sgdet_sub_classes": entity_preds[sorted_pairs[:, 0]],
+                    "sgdet_obj_classes": entity_preds[sorted_pairs[:, 1]],
+                    "sgdet_box_space": "resized_xyxy",
+                }
+            )
+        return out
 
 
     # ── External checkpoint remapping ─────────────────────────────────
@@ -1157,5 +1273,7 @@ def build_penet(args) -> PENetContext:
         roi_output_size=getattr(args, "roi_output_size", 7),
         train_pairs_per_image=getattr(args, "penet_train_pairs", 512),
         train_positive_fraction=getattr(args, "penet_pos_frac", 0.25),
+        sgdet_eval_topk=getattr(args, "penet_sgdet_eval_topk", 100),
+        sgdet_require_overlap=getattr(args, "penet_sgdet_require_overlap", True),
     )
     return model

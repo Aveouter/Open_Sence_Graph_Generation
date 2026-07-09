@@ -68,7 +68,9 @@ def dir_check(path: Path) -> dict[str, Any]:
 
 
 def checkpoint_candidates(root: Path, model_dir_name: str) -> list[dict[str, Any]]:
-    search_roots = [root / model_dir_name, root / model_dir_name.lower(), root]
+    search_roots = [root / model_dir_name, root / model_dir_name.lower()]
+    if root.name in {model_dir_name, model_dir_name.lower()}:
+        search_roots.append(root)
     suffixes = {".pth", ".pt", ".pkl", ".ckpt"}
     candidates: list[dict[str, Any]] = []
     seen: set[Path] = set()
@@ -108,6 +110,12 @@ def main() -> int:
         "--checkpoint-root",
         type=Path,
         default=Path("outputs/pretrained/penet_official"),
+    )
+    parser.add_argument(
+        "--protocol",
+        choices=sorted(CHECKPOINT_PROTOCOLS),
+        action="append",
+        help="Target protocol to require; defaults to all PENet protocols.",
     )
     parser.add_argument(
         "--pretrained-detector",
@@ -155,8 +163,10 @@ def main() -> int:
         vg_checks.append(file_check(vg_root / name))
 
     detector_check = file_check(detector)
+    selected_protocols = args.protocol or list(CHECKPOINT_PROTOCOLS)
     checkpoint_checks = {}
-    for protocol, (model_dir_name, drive_id) in CHECKPOINT_PROTOCOLS.items():
+    for protocol in selected_protocols:
+        model_dir_name, drive_id = CHECKPOINT_PROTOCOLS[protocol]
         candidates = checkpoint_candidates(args.checkpoint_root, model_dir_name)
         checkpoint_checks[protocol] = {
             "expected_model_dir": model_dir_name,
@@ -185,6 +195,7 @@ def main() -> int:
     report = {
         "status": "PASS" if not blockers else "BLOCKED",
         "blockers": blockers,
+        "target_protocols": selected_protocols,
         "official_repo": "https://github.com/VL-Group/PENET",
         "official_commit": git_commit(args.penet_root),
         "penet_root": str(args.penet_root),
