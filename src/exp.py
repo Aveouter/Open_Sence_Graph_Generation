@@ -232,6 +232,10 @@ class BaseExperiment(object):
         # need to be loaded via _adapt_state_dict first.
         if ckpt_path is not None and (ckpt_path.endswith('.pth') or ckpt_path.endswith('.pt')):
             state_dict = self._load_checkpoint_state_dict(ckpt_path)
+            # Load extractor weights (backbone, FPN, box-head, etc.) from
+            # official maskrcnn-benchmark checkpoints (PENet, RA-SGG, etc.)
+            if hasattr(self.method, '_load_extractors'):
+                self.method._load_extractors(state_dict)
             # External checkpoint remapping — also loads backbone weights
             # into _visual_extractor if present (RA-SGG)
             if hasattr(self.method.model, 'remap_external_state_dict'):
@@ -283,6 +287,13 @@ class BaseExperiment(object):
         # Load and adapt weights — unified for both .ckpt and .pth/.pt
         print(f'[Info] Loading checkpoint: {ckpt_path}')
         state_dict = self._load_checkpoint_state_dict(ckpt_path)
+        # Load extractor weights from official maskrcnn-benchmark checkpoints
+        if hasattr(self.method, '_load_extractors'):
+            self.method._load_extractors(state_dict)
+        # Allow model to remap external keys before adapt_state_dict
+        if hasattr(self.method.model, 'remap_external_state_dict'):
+            ve = getattr(self.method, '_visual_extractor', None)
+            state_dict = self.method.model.remap_external_state_dict(state_dict, visual_extractor=ve)
         self._adapt_state_dict(state_dict, self.method.model)
         result = self.trainer.test(self.method, self.data)
         self._save_test_results(result)

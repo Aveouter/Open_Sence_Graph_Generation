@@ -86,6 +86,130 @@ class PENet_Method(Motifs_Method):
         )
         self._weight_load_counts = counts
 
+        # ── Image normalisation adaptor ──
+        # maskrcnn_benchmark: BGR pixel-mean subtraction
+        #   x_mb = pixel_BGR - [102.98, 115.95, 122.77]
+        #
+        # OpenSGG: RGB ImageNet nomalisation
+        #   x_in[RGB] = (pixel/255 - mean)/std
+        #
+        # Conversion: undo ImageNet → flip RGB→BGR → subtract pixel_mean
+        scale = torch.tensor([57.375, 57.12, 58.395]).view(3, 1, 1)
+        bias  = torch.tensor([0.55, 0.33, 0.905]).view(3, 1, 1)
+        self.register_buffer("_norm_scale", scale, persistent=False)
+        self.register_buffer("_norm_bias", bias, persistent=False)
+
+    # ── External checkpoint loading ────────────────────────────────
+
+    def _load_extractors(self, state_dict: dict) -> dict:
+        """Load backbone, FPN, box-head and union-extractor weights from an
+        official maskrcnn-benchmark state dict (e.g. ``model_final.pth``).
+
+        Called automatically by exp.py before ``_adapt_state_dict`` when a
+        ``.pth`` / ``.pt`` checkpoint is detected.
+        """
+        from typing import Dict
+        from utils.penet_weights import _transfer_weights, _strip_module_prefix
+
+        sd = _strip_module_prefix(state_dict)
+        counts: Dict[str, int] = {}
+
+        # 1) Backbone: official uses backbone.body.* → ours omits prefix
+        #    Also handles stem. prefix (official: stem.conv1, ours: conv1)
+        #    and BN buffers (running_mean/running_var) that are in named_buffers().
+        bb_params = dict(self._backbone.named_parameters())
+        bb_buffers = dict(self._backbone.named_buffers())
+        bb_all = {**bb_params, **bb_buffers}
+        n_bb = 0
+        for k, v in sd.items():
+            if k.startswith("backbone.body."):
+                our_k = k[len("backbone.body."):]  # → layer1.0.conv1...
+                # Official uses stem.conv1 / stem.bn1, we use conv1 / bn1
+                our_k = our_k.replace("stem.", "")
+                if our_k in bb_all and bb_all[our_k].shape == v.shape:
+                    bb_all[our_k].data.copy_(v)
+                    n_bb += 1
+        counts["backbone"] = n_bb
+
+        # 2) FPN: backbone.fpn.fpn_innerN → _fpn.inner_blocks.N-1
+        fpn_map = {}
+        for i in range(4):
+            fpn_map[f"backbone.fpn.fpn_inner{i + 1}.weight"] = (
+                f"_fpn.inner_blocks.{i}.conv.weight"
+            )
+            fpn_map[f"backbone.fpn.fpn_inner{i + 1}.bias"] = (
+                f"_fpn.inner_blocks.{i}.conv.bias"
+            )
+            fpn_map[f"backbone.fpn.fpn_layer{i + 1}.weight"] = (
+                f"_fpn.layer_blocks.{i}.conv.weight"
+            )
+            fpn_map[f"backbone.fpn.fpn_layer{i + 1}.bias"] = (
+                f"_fpn.layer_blocks.{i}.conv.bias"
+            )
+        counts["fpn"] = _transfer_weights(
+            sd, {"_fpn": self._fpn}, fpn_map, strict=False
+        )
+
+        # 3) Box extractor — MUST use relation.box_feature_extractor, NOT
+        #    roi_heads.box.feature_extractor (detector).  The two are
+        #    different tensors (max abs diff ≈ 0.01).
+        box_map = {
+            "roi_heads.relation.box_feature_extractor.fc6.weight":
+                "_box_extractor.fc6.weight",
+            "roi_heads.relation.box_feature_extractor.fc6.bias":
+                "_box_extractor.fc6.bias",
+            "roi_heads.relation.box_feature_extractor.fc7.weight":
+                "_box_extractor.fc7.weight",
+            "roi_heads.relation.box_feature_extractor.fc7.bias":
+                "_box_extractor.fc7.bias",
+        }
+        counts["box_extractor"] = _transfer_weights(
+            sd, {"_box_extractor": self._box_extractor}, box_map, strict=False
+        )
+
+        # 4) Union feature extractor
+        ufe_pfx = "roi_heads.relation.union_feature_extractor"
+        P = "_union_extractor"
+        union_map = {
+            f"{ufe_pfx}.feature_extractor.fc6.weight":  f"{P}.fc6.weight",
+            f"{ufe_pfx}.feature_extractor.fc6.bias":    f"{P}.fc6.bias",
+            f"{ufe_pfx}.feature_extractor.fc7.weight":  f"{P}.fc7.weight",
+            f"{ufe_pfx}.feature_extractor.fc7.bias":    f"{P}.fc7.bias",
+            f"{ufe_pfx}.feature_extractor.pooler.reduce_channel.0.weight":
+                f"{P}.pooler.reduce_channel.0.weight",
+            f"{ufe_pfx}.feature_extractor.pooler.reduce_channel.0.bias":
+                f"{P}.pooler.reduce_channel.0.bias",
+        }
+        # rect_conv: same Sequential indices but our index 1,3 are ReLU,BN
+        for j in (0, 2, 4, 6):
+            for suffix in ("weight", "bias"):
+                union_map[f"{ufe_pfx}.rect_conv.{j}.{suffix}"] = f"{P}.rect_conv.{j}.{suffix}"
+            if j in (2, 6):
+                for stat in ("running_mean", "running_var", "num_batches_tracked"):
+                    union_map[f"{ufe_pfx}.rect_conv.{j}.{stat}"] = f"{P}.rect_conv.{j}.{stat}"
+        counts["union_extractor"] = _transfer_weights(
+            sd, {"_union_extractor": self._union_extractor}, union_map, strict=False
+        )
+
+        # Also copy BN buffers missed by _transfer_weights (named_buffers).
+        ue_bufs = dict(self._union_extractor.named_buffers())
+        n_buf = 0
+        for src_key, dst_key in union_map.items():
+            # Strip _union_extractor. prefix from dst_key for buffer lookup
+            local_key = dst_key[len(P) + 1:] if dst_key.startswith(P + ".") else dst_key
+            if local_key in ue_bufs and src_key in sd and ue_bufs[local_key].shape == sd[src_key].shape:
+                ue_bufs[local_key].data.copy_(sd[src_key])
+                n_buf += 1
+        counts["union_extractor"] += n_buf
+
+        total = sum(counts.values())
+        if total > 0:
+            print(
+                "[weights] Loaded extractors from official ckpt: "
+                + ", ".join(f"{k}={v}" for k, v in counts.items() if v > 0)
+            )
+        return counts
+
     def _build_model(self, **args):
         # PENet model is trained from scratch (kaiming_init)
         return build_penet(self.hparams)
@@ -135,6 +259,9 @@ class PENet_Method(Motifs_Method):
             boxes = boxes.to(device)
             sz = sz.to(device)
 
+            # Convert ImageNet RGB → maskrcnn_benchmark BGR pixel-mean
+            img = img.flip(0) * self._norm_scale + self._norm_bias
+
             with torch.set_grad_enabled(
                 not all(not p.requires_grad for p in self._backbone.parameters())
             ):
@@ -182,7 +309,7 @@ class PENet_Method(Motifs_Method):
 
     def forward(self, images, targets=None, **kwargs):
         is_training = targets is not None
-        return_obj_preds = getattr(self.hparams, "eval_mode", "predcls") == "sgcls"
+        return_obj_preds = getattr(self.hparams, "eval_mode", "predcls") in ("sgcls", "sgdet")
 
         if is_training or targets is not None:
             all_outputs = []

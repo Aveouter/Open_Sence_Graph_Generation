@@ -274,6 +274,23 @@ class PairFrequencyBias(nn.Module):
         self.obj_baseline.weight.data.copy_(prior.view(-1, num_predicates))
         self.obj_baseline.weight.requires_grad_(False)
 
+    def load_freq_bias(self, distribution: torch.Tensor) -> None:
+        """Load a precomputed ``[num_objects, num_objects, num_predicates]``
+        log-probability tensor."""
+        if distribution.shape != (
+            self.num_objects,
+            self.num_objects,
+            self.num_predicates,
+        ):
+            raise ValueError(
+                f"Expected shape "
+                f"({self.num_objects}, {self.num_objects}, {self.num_predicates}), "
+                f"got {tuple(distribution.shape)}"
+            )
+        self.obj_baseline.weight.data.copy_(
+            distribution.reshape(-1, self.num_predicates)
+        )
+
     def _build_uniform_prior(self) -> torch.Tensor:
         prob = torch.full(
             (self.num_objects, self.num_objects, self.num_predicates),
@@ -304,6 +321,27 @@ class PairFrequencyBias(nn.Module):
             (self.num_objects, self.num_objects, self.num_predicates),
             float(self.eps),
         )
+        # ── bg_matrix: all object class co-occurrences (official PENet) ──
+        # Official get_VG_statistics: bg_matrix counts all overlapping pairs,
+        # bg_matrix += 1 (Laplace), then fg_matrix[:,:,0] = bg_matrix.
+        # Without this, the bg prior is uniform and predictions collapse.
+        bg_counts = torch.zeros(
+            (self.num_objects, self.num_objects), dtype=torch.float64
+        )
+        for img_id in rel_data.get("train", {}).keys():
+            labels = img_to_labels.get(str(img_id))
+            if not labels:
+                continue
+            labels_arr = [lbl for lbl in labels
+                          if 0 <= lbl < self.num_objects]
+            n = len(labels_arr)
+            for i in range(n):
+                c1 = labels_arr[i]
+                for j in range(n):
+                    if i != j:
+                        bg_counts[c1, labels_arr[j]] += 1
+        counts[:, :, 0] = bg_counts.to(counts.dtype) + 1.0  # Laplace smoothing
+
         for img_id, rels in rel_data.get("train", {}).items():
             labels = img_to_labels.get(str(img_id))
             if not labels:

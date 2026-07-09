@@ -269,27 +269,48 @@ class LevelMapper:
 class FPNPooler(nn.Module):
     """FPN-aware ROI pooler matching official ``Pooler``.
 
-    Routes each ROI to the correct FPN level via LevelMapper, then
-    ROI Align with per-level spatial_scale.
+    Two modes:
+      - ``cat_all_levels=False`` (default): route each ROI to a single FPN
+        level via LevelMapper then ROI Align.  Matches the official box-head
+        ``FPN2MLPFeatureExtractor`` pooler (cat_all_levels=False).
+      - ``cat_all_levels=True``: pool every ROI from ALL FPN levels, concat
+        along the channel dimension, then reduce via a ``reduce_channel`` conv.
+        Matches the official union feature extractor (POOLING_ALL_LEVELS=True).
     """
 
     def __init__(
         self,
         output_size=7,
-        scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+        scales=(0.25, 0.125, 0.0625, 0.03125),
         sampling_ratio=2,
+        cat_all_levels=False,
+        in_channels=256,
     ):
         super().__init__()
         self.output_size = output_size
         self.scales = scales
         self.sampling_ratio = sampling_ratio
-        lvl_min = int(-math.log2(scales[0]))
-        lvl_max = int(-math.log2(scales[-1]))
-        self.map_levels = LevelMapper(lvl_min, lvl_max)
+        self.cat_all_levels = cat_all_levels
+
+        if cat_all_levels:
+            num_scales = len(scales)
+            self.reduce_channel = nn.Sequential(
+                nn.Conv2d(in_channels * num_scales, in_channels, 3, padding=1),
+            )
+        else:
+            lvl_min = int(-math.log2(scales[0]))
+            lvl_max = int(-math.log2(scales[-1]))
+            self.map_levels = LevelMapper(lvl_min, lvl_max)
 
     def forward(self, fpn_features, boxes_xyxy_list):
         """fpn_features: tuple of [C, H_i, W_i]  (P2, P3, P4, P5, ...).
         boxes_xyxy_list: list of [N_i, 4] absolute (x1,y1,x2,y2)."""
+        if self.cat_all_levels:
+            return self._forward_cat_all_levels(fpn_features, boxes_xyxy_list)
+        return self._forward_single_level(fpn_features, boxes_xyxy_list)
+
+    def _forward_single_level(self, fpn_features, boxes_xyxy_list):
+        """Route each ROI to one FPN level based on area."""
         num_levels = len(fpn_features)
         C = fpn_features[0].size(0)
         out_s = self.output_size
@@ -325,6 +346,44 @@ class FPNPooler(nn.Module):
             result[mask] = pooled
         return result
 
+    def _forward_cat_all_levels(self, fpn_features, boxes_xyxy_list):
+        """Pool from ALL FPN levels, concat, then reduce_channel.
+
+        Official RelationFeatureExtractor pooler with POOLING_ALL_LEVELS=True.
+        Uses only the first ``len(scales)`` FPN levels (P2–P5).
+        """
+        num_levels = min(len(self.scales), len(fpn_features))
+        C = fpn_features[0].size(0)
+        out_s = self.output_size
+        device, dtype = fpn_features[0].device, fpn_features[0].dtype
+
+        rois_list = []
+        for i, b in enumerate(boxes_xyxy_list):
+            if b.numel() == 0:
+                continue
+            ids = torch.full((b.size(0), 1), i, dtype=dtype, device=device)
+            rois_list.append(torch.cat([ids, b], dim=1))
+        if not rois_list:
+            return torch.zeros(0, C, out_s, out_s, device=device, dtype=dtype)
+        rois = torch.cat(rois_list, dim=0)
+        total_N = rois.size(0)
+
+        level_results = []
+        for lvl in range(num_levels):
+            feat = fpn_features[lvl].unsqueeze(0)
+            pooled = roi_align(
+                feat,
+                rois,
+                output_size=(out_s, out_s),
+                spatial_scale=self.scales[lvl],
+                sampling_ratio=self.sampling_ratio,
+                aligned=True,
+            )
+            level_results.append(pooled)  # each [total_N, C, out_s, out_s]
+
+        concat = torch.cat(level_results, dim=1)  # [total_N, C*L, out_s, out_s]
+        return self.reduce_channel(concat)  # [total_N, C, out_s, out_s]
+
 
 # =========================================================================
 # PENet-specific feature extractors (use FPN + FPNPooler)
@@ -334,14 +393,14 @@ class FPNPooler(nn.Module):
 class PENetBoxFeatureExtractor(nn.Module):
     """Box feature extractor — matches official FPN2MLPFeatureExtractor.
 
-    FPNPooler → flatten → fc6(12544→4096) + fc7(4096→4096).
+    FPNPooler (single-level) → flatten → fc6(12544→4096) + fc7(4096→4096).
     """
 
     def __init__(self, roi_output_size=7, representation_size=4096):
         super().__init__()
         self.pooler = FPNPooler(
             output_size=roi_output_size,
-            scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+            scales=(0.25, 0.125, 0.0625, 0.03125),
             sampling_ratio=2,
         )
         input_size = 256 * roi_output_size * roi_output_size  # 12544
@@ -373,7 +432,8 @@ class PENetBoxFeatureExtractor(nn.Module):
 class PENetUnionFeatureExtractor(nn.Module):
     """Union feature extractor — matches official RelationFeatureExtractor.
 
-    FPNPooler on union boxes + rect_conv → element-wise add → fc6+fc7 → 4096.
+    Multi-level FPNPooler (cat_all_levels=True) on union boxes
+    + rect_conv → element-wise add → fc6+fc7 → 4096.
     """
 
     def __init__(self, roi_output_size=7, representation_size=4096):
@@ -382,8 +442,10 @@ class PENetUnionFeatureExtractor(nn.Module):
         self.rect_size = roi_output_size * 4 - 1  # 27
         self.pooler = FPNPooler(
             output_size=roi_output_size,
-            scales=(0.25, 0.125, 0.0625, 0.03125, 0.015625),
+            scales=(0.25, 0.125, 0.0625, 0.03125),
             sampling_ratio=2,
+            cat_all_levels=True,
+            in_channels=256,
         )
         self.rect_conv = nn.Sequential(
             nn.Conv2d(2, 128, 7, stride=2, padding=3, bias=True),

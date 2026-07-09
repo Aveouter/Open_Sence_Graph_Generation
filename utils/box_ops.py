@@ -3,7 +3,23 @@
 Utilities for bounding box manipulation and GIoU.
 """
 import torch
+import numpy as np
 from torchvision.ops.boxes import box_area
+
+
+def box_iou_numpy(boxes: np.ndarray) -> np.ndarray:
+    """Pairwise IoU of xyxy boxes — matches official maskrcnn_benchmark
+    ``bbox_overlaps`` used in sgg_eval.py::rel_nms."""
+    boxes = np.asarray(boxes, dtype=np.float64)
+    N = boxes.shape[0]
+    area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    lt = np.maximum(boxes[:, None, :2], boxes[None, :, :2])
+    rb = np.minimum(boxes[:, None, 2:], boxes[None, :, 2:])
+    wh = np.maximum(0.0, rb - lt)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+    union = area[:, None] + area[None, :] - inter
+    return inter / np.maximum(union, 1e-6)
+
 
 def box_cxcywh_to_xyxy(x):
     x_c, y_c, w, h = x.unbind(-1)

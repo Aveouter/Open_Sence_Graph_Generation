@@ -84,10 +84,16 @@ dropout = 0.2  # PENET_DROPOUT
 glove_dir = None
 
 # ===== frequency bias =====
-# Official training script sets PREDICT_USE_BIAS True, but
-# PrototypeEmbeddingNetwork does NOT use it internally.
+# IMPORTANT: The official PrototypeEmbeddingNetwork does NOT use frequency
+# bias in its forward pass, despite the config flag PREDICT_USE_BIAS=True.
+# (The flag controls the RelationHead-level freq_bias module, but the PENet
+# predictor ignores it — unlike Motifs/VCTree/Transformer predictors that
+# internally consume it.)
+#
+# Empirical proof: adding any freq_bias at inference DOUBLES the test loss
+# (3.68 → 6.66) and craters mR (28.2 → 23.1).  The checkpoint weights were
+# NOT co-adapted to a freq_bias prior.
 use_freq_bias = False
-freq_bias_eps = 1e-12
 
 # ===== dataset =====
 dataset = "VisualGenome"

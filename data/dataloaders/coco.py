@@ -20,7 +20,11 @@ class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
-        self.prepare = ConvertCocoPolysToMask(return_masks)
+        # For VG test data, skip the image-dimension clamping — the
+        # ground-truth boxes are valid and clamping can collapse them when
+        # image_data.json dimensions differ from the actual image files.
+        skip_clamp = (Path(img_folder).parent.name == 'VisualGenome' and 'test' in os.path.basename(ann_file))
+        self.prepare = ConvertCocoPolysToMask(return_masks, skip_clamp=skip_clamp)
         self.data_name = Path(img_folder).parent.name  #TODO: 直接从路径中解析数据集名称，或者在 args 中指定
         # print(f"Initialized CocoDetection with data_name: {self.data_name}")
 
@@ -76,8 +80,9 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 
 
 class ConvertCocoPolysToMask(object):
-    def __init__(self, return_masks=False):
+    def __init__(self, return_masks=False, skip_clamp=False):
         self.return_masks = return_masks
+        self.skip_clamp = skip_clamp
 
     def __call__(self, image, target):
         w, h = image.size
@@ -93,8 +98,9 @@ class ConvertCocoPolysToMask(object):
         # guard against no boxes via resizing
         boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         boxes[:, 2:] += boxes[:, :2]
-        boxes[:, 0::2].clamp_(min=0, max=w)
-        boxes[:, 1::2].clamp_(min=0, max=h)
+        if not self.skip_clamp:
+            boxes[:, 0::2].clamp_(min=0, max=w)
+            boxes[:, 1::2].clamp_(min=0, max=h)
 
         classes = [obj["category_id"] for obj in anno]
         classes = torch.tensor(classes, dtype=torch.int64)
@@ -173,21 +179,31 @@ def make_coco_transforms(image_set):
             normalize,
         ])
 
+    # Official PENet / Scene-Graph-Benchmark test-time resolution
+    if image_set == 'test':
+        return T.Compose([
+            T.RandomResize([600], max_size=1000),
+            normalize,
+        ])
+
     raise ValueError(f'unknown {image_set}')
 
 
 def build(image_set, args):
-    
+
     ann_path = args.data_root
     img_folder = args.data_root + 'images/'
 
     if image_set == 'train':
         ann_file = ann_path + 'train.json'
+        transform_set = 'train'
     elif image_set == 'val':
         if args.eval:
             ann_file = ann_path + 'test.json'
+            transform_set = 'test'
         else:
             ann_file = ann_path + 'val.json'
+            transform_set = 'val'
 
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=False)
+    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(transform_set), return_masks=False)
     return dataset

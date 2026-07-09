@@ -46,7 +46,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .motifs import FrequencyBias, generate_object_pairs
+from .motifs import FrequencyBias, PairFrequencyBias, generate_object_pairs
 
 
 # =========================================================================
@@ -465,22 +465,25 @@ _VG_OBJECT_NAMES = [
 # =========================================================================
 
 
-def _encode_box_info(boxes: torch.Tensor) -> torch.Tensor:
-    """Encode box info matching official ``encode_box_info`` EXACTLY.
+def _encode_box_info(boxes: torch.Tensor, image_size: tuple = None) -> torch.Tensor:
+    """Encode box info matching official ``encode_box_info``.
 
-    Official signature takes ``proposals`` (list of BoxList) and encodes:
-      [w/wid, h/hei, x/wid, y/hei, x1/wid, y1/hei, x2/wid, y2/hei, w*h/(wid*hei)]
+    Official signature takes ``proposals`` (list of BoxList) in xyxy format
+    and normalises by image dimensions:
+      [w/wid, h/hei, cx/wid, cy/hei, x1/wid, y1/hei, x2/wid, y2/hei, area/(wid*hei)]
 
-    OpenSGG boxes are (cx, cy, w, h) normalized to [0, 1], so:
-      w/wid = w, h/hei = h, x/wid = cx, y/hei = cy, etc.
+    **IMPORTANT**: This function was historically buggy (read xyxy boxes as xywh).
+    All PENet checkpoints were trained with that bug, so we preserve bug-for-bug
+    compatibility at inference until retraining with the corrected encoding.
     """
+    # LEGACY: treats boxes as (cx, cy, w, h) — matches training-time behaviour
     cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
     x1 = cx - w / 2
     y1 = cy - h / 2
     x2 = cx + w / 2
     y2 = cy + h / 2
     area = w * h
-    # Official order: [w, h, x, y, x1, y1, x2, y2, area]
+    # Official order: [w, h, cx, cy, x1, y1, x2, y2, area]
     return torch.stack([w, h, cx, cy, x1, y1, x2, y2, area], dim=-1)
 
 
@@ -511,7 +514,9 @@ class PENetContext(nn.Module):
         obj_class_names: Optional[list[str]] = None,
         pred_class_names: Optional[list[str]] = None,
         use_freq_bias: bool = False,
-        freq_bias_eps: float = 1e-12,
+        freq_bias_eps: float = 1e-3,
+        freq_bias_file: Optional[str] = None,
+        freq_bias_data_root: Optional[str] = None,
         dropout: float = 0.2,
         nms_thresh: float = 0.5,
         roi_output_size: int = 7,
@@ -620,10 +625,23 @@ class PENetContext(nn.Module):
         # obj_dim=2048, embed_dim=300, pos_embed_out=128 → total = 2476
         self.lin_obj_cyx = _make_fc(visual_dim + embed_dim + 128, context_hidden_dim)
 
-        # ===== 12. Frequency bias (official does not use) =====
-        self.freq_bias: Optional[FrequencyBias] = None
+        # ===== 12. Pair-specific frequency bias =====
+        # Official PENet RelationHead always trains with PREDICT_USE_BIAS=True,
+        # which applies a (num_objects×num_objects, num_predicates) pair-conditioned
+        # bias table.  Predictor weights are calibrated for this prior — without it
+        # logits collapse to bg (predicate index 0).
+        self.freq_bias: Optional[PairFrequencyBias] = None
         if use_freq_bias:
-            self.freq_bias = FrequencyBias(num_predicates, freq_bias_eps)
+            self.freq_bias = PairFrequencyBias(
+                num_objects=num_classes,
+                num_predicates=num_predicates,
+                eps=freq_bias_eps,
+                data_root=freq_bias_data_root,
+                predicate_bg_index="first",
+            )
+            if freq_bias_file is not None and os.path.isfile(freq_bias_file):
+                freq_data = torch.load(freq_bias_file, map_location='cpu')
+                self.freq_bias.load_freq_bias(freq_data)
 
         self._init_weights()
 
@@ -892,6 +910,9 @@ class PENetContext(nn.Module):
         )
 
         # ── 2. Split visual features into sub / obj ──
+        # Official: entity_rep.view(num_objs, 2, -1)
+        #     sub_rep = entity_rep[:, 1]   # xs (subject)
+        #     obj_rep  = entity_rep[:, 0]   # xo (object)
         entity_rep = self.post_emb(visual_feats)  # [N, mlp_dim*2]
         entity_rep = entity_rep.view(N, 2, self.mlp_dim)
         sub_rep = entity_rep[:, 1].contiguous().view(-1, self.mlp_dim)  # xs
@@ -1018,9 +1039,23 @@ class PENetContext(nn.Module):
             rel_rep_norm @ predicate_proto_norm.t() * self.logit_scale.exp()
         )  # [P, K]
 
-        # ── 17. Frequency bias ──
+        # ── 17. Pair-specific frequency bias ──
         if self.freq_bias is not None:
-            rel_dists = self.freq_bias(rel_dists)
+            bias_pairs = (
+                pairs[use_idxs]
+                if is_training and rel_annotations is not None
+                else pairs
+            )
+            pair_labels = torch.stack(
+                (
+                    entity_preds[bias_pairs[:, 0]],
+                    entity_preds[bias_pairs[:, 1]],
+                ),
+                dim=-1,
+            )
+            rel_dists = rel_dists + self.freq_bias.index_with_labels(
+                pair_labels.long()
+            )
 
         # ── 18. Prototype losses (training only) ──
         add_losses: dict[str, torch.Tensor] = {}
@@ -1046,8 +1081,53 @@ class PENetContext(nn.Module):
             "sub_boxes": boxes[out_pairs[:, 0]],
             "obj_boxes": boxes[out_pairs[:, 1]],
             "predicate_bg_index": "first",
+            "relation_softmax_scope": "all",
             "add_losses": add_losses,
         }
+
+
+    # ── External checkpoint remapping ─────────────────────────────────
+
+    def remap_external_state_dict(
+        self,
+        state_dict: dict,
+        visual_extractor=None,
+    ) -> dict:
+        """Remap official maskrcnn-benchmark checkpoint keys to flat
+        ``PENetContext`` keys.
+
+        Official predictor keys are nested under
+        ``roi_heads.relation.predictor.*`` — this strips the prefix so that
+        e.g. ``roi_heads.relation.predictor.post_emb.weight`` →
+        ``post_emb.weight``.
+        """
+        model_keys = set(self.state_dict().keys())
+        remapped: dict[str, torch.Tensor] = {}
+
+        predictor_prefixes = [
+            'roi_heads.relation.predictor.',
+            'module.roi_heads.relation.predictor.',
+        ]
+
+        for k, v in state_dict.items():
+            clean = k
+            if clean.startswith('module.'):
+                clean = clean[7:]
+
+            for prefix in predictor_prefixes:
+                if clean.startswith(prefix):
+                    candidate = clean[len(prefix):]
+                    if candidate in model_keys:
+                        remapped[candidate] = v
+                    break
+
+        if not remapped:
+            return {
+                k[7:] if k.startswith('module.') else k: v
+                for k, v in state_dict.items()
+            }
+
+        return remapped
 
 
 # =========================================================================
@@ -1069,7 +1149,9 @@ def build_penet(args) -> PENetContext:
         obj_class_names=getattr(args, "obj_class_names", None),
         pred_class_names=getattr(args, "pred_class_names", None),
         use_freq_bias=getattr(args, "use_freq_bias", False),
-        freq_bias_eps=getattr(args, "freq_bias_eps", 1e-12),
+        freq_bias_eps=getattr(args, "freq_bias_eps", 1e-3),
+        freq_bias_file=getattr(args, "freq_bias_file", None),
+        freq_bias_data_root=getattr(args, "freq_bias_data_root", None),
         dropout=getattr(args, "dropout", 0.2),
         nms_thresh=getattr(args, "penet_nms_thresh", 0.5),
         roi_output_size=getattr(args, "roi_output_size", 7),

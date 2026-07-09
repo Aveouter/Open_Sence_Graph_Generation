@@ -15,13 +15,14 @@ Architecture:
 """
 
 import re
+from functools import reduce
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
 
-from utils.box_ops import rescale_bboxes
-from lib.evaluation.sg_eval import SceneGraphEvaluator
+from utils.box_ops import box_iou_numpy, rescale_bboxes
+from lib.evaluation.sg_eval import SceneGraphEvaluator, evaluate_recall
 
 
 # ===========================================================================
@@ -1140,6 +1141,45 @@ def _evaluate_predcls_batch_compact(
 
 # ===========================================================================
 
+def _rel_nms(pred_boxes, pred_classes, pred_rel_inds, rel_scores, nms_thresh=0.6):
+    """Relation NMS — exact match of official sgg_eval.py::rel_nms.
+
+    Official: rel_nms(pred_boxes, pred_classes, pred_rel_inds, rel_scores, 0.6)
+    Only suppresses a pair when ALL conditions hold:
+      - same (subj_class, obj_class)
+      - box IoU ≥ nms_thresh (rel_ious)
+      - L21 similarity > 0.7
+    """
+    P, K = rel_scores.shape
+
+    # Compute pairwise box IoU for subject and object boxes
+    ious = box_iou_numpy(pred_boxes)  # [N, N] pairwise IoU
+    sub_ious = ious[pred_rel_inds[:, 0]][:, pred_rel_inds[:, 0]]
+    obj_ious = ious[pred_rel_inds[:, 1]][:, pred_rel_inds[:, 1]]
+    rel_ious = np.minimum(sub_ious, obj_ious)
+
+    sub_labels = pred_classes[pred_rel_inds[:, 0]]
+    obj_labels = pred_classes[pred_rel_inds[:, 1]]
+
+    l21 = np.sqrt((np.power(rel_scores[:, None, :], 2.0) +
+                   np.power(rel_scores[None, :, :], 2.0))).sum(axis=-1)
+    is_overlap = (rel_ious >= nms_thresh) & (sub_labels[:, None] == sub_labels[None, :]) & (obj_labels[:, None] == obj_labels[None, :]) & (l21 > 0.7)
+    is_overlap = is_overlap[:, :, None].repeat(K, axis=2)
+
+    scores_cp = rel_scores.copy()
+    pred_rels = np.zeros(P, dtype=np.int64)
+    for _ in range(P):
+        box_ind, cls_ind = np.unravel_index(scores_cp.argmax(), scores_cp.shape)
+        if float(pred_rels[int(box_ind)]) > 0:
+            pass
+        else:
+            pred_rels[int(box_ind)] = int(cls_ind)
+        scores_cp[is_overlap[box_ind, :, cls_ind], cls_ind] = 0.0
+        scores_cp[box_ind] = -1.0
+    pred_scores = rel_scores[np.arange(P, dtype=np.int64), pred_rels]
+    return pred_rels, pred_scores
+
+
 def _evaluate_predcls_batch_pair_indices(
     outputs: Dict[str, Any],
     targets: List[Dict[str, Any]],
@@ -1185,8 +1225,15 @@ def _evaluate_predcls_batch_pair_indices(
         if pair_indices.dim() == 3:
             pair_indices = pair_indices.squeeze(0)
 
-        R = gt_relations.shape[0]
-        best_rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
+        P = int(pair_indices.shape[0])
+        if P == 0:
+            continue
+
+        # ── Extract scores for ALL pairs (official SGRecall protocol) ──
+        # Official evaluator generates predictions for ALL directed object
+        # pairs, ranks them by confidence, and matches top-K against GT.
+        # Limiting predictions to GT pairs only causes R@20 = R@50 = R@100.
+        best_rel_scores = np.zeros((P, rel_nums), dtype=np.float32)
         if rel_logits.numel() > 0 and pair_indices.numel() > 0:
             rel_scores_all = _extract_relation_scores(
                 rel_logits,
@@ -1201,46 +1248,167 @@ def _evaluate_predcls_batch_pair_indices(
                     outputs.get("relation_score_transform", "softmax"), i, "softmax"
                 ),
             )
-            pair_to_idx = {
-                (int(pair_indices[p, 0]), int(pair_indices[p, 1])): p
-                for p in range(pair_indices.shape[0])
-            }
-            for r in range(R):
-                key = (int(gt_relations[r, 0]), int(gt_relations[r, 1]))
-                p_idx = pair_to_idx.get(key)
-                if p_idx is not None and p_idx < rel_scores_all.shape[0]:
-                    best_rel_scores[r] = rel_scores_all[p_idx]
+            best_rel_scores[:] = rel_scores_all
 
-        gt_sub_idx = gt_relations[:, 0]
-        gt_obj_idx = gt_relations[:, 1]
-        pred_entry = {
-            "sub_boxes": gt_boxes_xyxy[gt_sub_idx].astype(np.float32),
-            "sub_classes": gt_labels[gt_sub_idx].astype(np.int64),
-            "sub_scores": np.ones(R, dtype=np.float32),
-            "obj_boxes": gt_boxes_xyxy[gt_obj_idx].astype(np.float32),
-            "obj_classes": gt_labels[gt_obj_idx].astype(np.int64),
-            "obj_scores": np.ones(R, dtype=np.float32),
+        # ── Resolve entity labels & scores per task ──────────────────
+        # PredCLS: GT labels, score=1.0 (only predicates are predicted).
+        # SGCls: PREDICTED labels + scores (model classifies each GT box).
+        # SGDet: NOT SUPPORTED by this path — requires detector pipeline
+        #   (RPN + box head) to produce proposals, and IoU matching between
+        #   predicted and GT boxes.  See _evaluate_sgdet_batch for RelTR.
+        use_predicted_labels = any("sgcls" in k or "sgdet" in k for k in evaluators)
+        sgdet_present = any("sgdet" in k for k in evaluators)
+
+        if use_predicted_labels:
+            obj_labels_key = None
+            for key_candidate in ("obj_labels", "entity_preds"):
+                if key_candidate in outputs:
+                    obj_labels_key = key_candidate
+                    break
+            if obj_labels_key is not None:
+                pred_obj_labels = _resolve_per_image_labels(
+                    outputs[obj_labels_key], i
+                )
+            else:
+                pred_obj_labels = gt_labels
+
+            # Predicted object scores from model logits
+            obj_logits_key = None
+            for key_candidate in ("obj_logits", "obj_dists"):
+                if key_candidate in outputs:
+                    obj_logits_key = key_candidate
+                    break
+            if obj_logits_key is not None:
+                obj_logits_raw = outputs[obj_logits_key]
+                if isinstance(obj_logits_raw, (list, tuple)):
+                    obj_logits_arr = _to_numpy(obj_logits_raw[i])
+                else:
+                    obj_logits_arr = _to_numpy(obj_logits_raw)
+                if obj_logits_arr.ndim == 2 and obj_logits_arr.shape[0] > 0:
+                    obj_prob = obj_logits_arr[:, 1:]
+                    obj_prob = obj_prob / obj_prob.sum(axis=-1, keepdims=True)
+                    pred_obj_scores_arr = obj_prob.max(axis=-1)
+                else:
+                    pred_obj_scores_arr = np.ones_like(pred_obj_labels, dtype=np.float32)
+            else:
+                pred_obj_scores_arr = np.ones_like(pred_obj_labels, dtype=np.float32)
+        else:
+            pred_obj_labels = gt_labels
+            pred_obj_scores_arr = np.ones_like(gt_labels, dtype=np.float32)
+
+        # ── Relation NMS (official SGRecall default: nms_thresh=0.6) ──
+        # NMS uses per-task label set: GT for PredCls, predicted for SGCls.
+        nms_class_labels = pred_obj_labels if use_predicted_labels else gt_labels
+
+        best_rel_scores_with_bg = np.zeros((P, rel_nums + 1), dtype=np.float32)
+        best_rel_scores_with_bg[:, 1:] = best_rel_scores
+        nms_rels, _nms_scores = _rel_nms(
+            gt_boxes_xyxy, nms_class_labels, pair_indices.cpu().numpy(),
+            best_rel_scores_with_bg, nms_thresh=0.6,
+        )
+
+        # ── Zero out suppressed pairs so they don't pollute top-K ──
+        suppressed = (nms_rels == 0)
+        if suppressed.any():
+            best_rel_scores[suppressed] = 0.0
+
+        pred_rel_labels = nms_rels  # 0=bg/suppressed, 1..50=predicate (VG 1-indexed)
+        pred_rel_labels[suppressed] = 0  # ensure suppressed pairs stay as bg
+
+        pair_np = pair_indices.cpu().numpy()
+        sub_idx = pair_np[:, 0].astype(np.int64)                  # [P]
+        obj_idx = pair_np[:, 1].astype(np.int64)                  # [P]
+
+        # ── Build task-specific pred_entry ────────────────────────────
+        # SGDet is NOT supported by this path.  The pair_indices approach
+        # assumes GT boxes as object anchors, but SGDet uses detected
+        # proposals which require RPN + detection box head + IoU matching.
+        if sgdet_present:
+            continue  # skip SGDet: requires full detector pipeline
+
+        if use_predicted_labels:
+            pred_entry_sgcls = {
+                "sub_boxes": gt_boxes_xyxy[sub_idx].astype(np.float32),
+                "sub_classes": pred_obj_labels[sub_idx],
+                "sub_scores": pred_obj_scores_arr[sub_idx].astype(np.float32),
+                "obj_boxes": gt_boxes_xyxy[obj_idx].astype(np.float32),
+                "obj_classes": pred_obj_labels[obj_idx],
+                "obj_scores": pred_obj_scores_arr[obj_idx].astype(np.float32),
+                "rel_scores": best_rel_scores,
+            }
+
+        pred_entry_predcls = {
+            "sub_boxes": gt_boxes_xyxy[sub_idx].astype(np.float32),
+            "sub_classes": gt_labels[sub_idx].astype(np.int64),
+            "sub_scores": np.ones(P, dtype=np.float32),
+            "obj_boxes": gt_boxes_xyxy[obj_idx].astype(np.float32),
+            "obj_classes": gt_labels[obj_idx].astype(np.int64),
+            "obj_scores": np.ones(P, dtype=np.float32),
             "rel_scores": best_rel_scores,
         }
 
-        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
-            evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
+            if "sgcls" in task_eval_key or "sgdet" in task_eval_key:
+                if use_predicted_labels:
+                    evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_sgcls)
+                else:
+                    evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_predcls)
+            else:
+                evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_predcls)
 
-        for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+        # ── Mean recall: official SGMeanRecall approach ──
+        # Official PENet computes per-class recall from GLOBAL ranking:
+        # all predictions are ranked by score product, top-K matches are
+        # found via evaluate_recall, and per-class recall is derived by
+        # counting matches per predicate within the global matched set.
+        # Each predicate's recall is stored separately and averaged.
+        #
+        # For PredCls: sub/obj labels are GT (only predicates predicted).
+        # For SGCls/SGDet: sub/obj labels are MODEL-PREDICTED.
+        if mr_evaluators:
+            pred_labels_global = 1 + best_rel_scores.argmax(axis=1)
+            pred_labels_global[suppressed] = 0
+            pred_scores_global = best_rel_scores.max(axis=1)
+
+            gt_rel_labels = gt_relations[:, 2].astype(np.int64)
+
+            for task_mr_key, mr_eval_list in mr_evaluators.items():
+                # Choose the correct entity labels per task
+                if "sgcls" in task_mr_key or "sgdet" in task_mr_key:
+                    if use_predicted_labels:
+                        entry_for_mr = pred_entry_sgcls
+                    else:
+                        entry_for_mr = pred_entry_predcls
+                else:
+                    entry_for_mr = pred_entry_predcls
+
+                pred_to_gt, _, _ = evaluate_recall(
+                    gt_rels=gt_relations.astype(np.int64),
+                    gt_boxes=gt_boxes_xyxy,
+                    gt_classes=gt_labels.astype(np.int64),
+                    pred_rels=pred_labels_global,
+                    sub_boxes=entry_for_mr["sub_boxes"],
+                    obj_boxes=entry_for_mr["obj_boxes"],
+                    sub_scores=entry_for_mr["sub_scores"],
+                    obj_scores=entry_for_mr["obj_scores"],
+                    pred_scores=pred_scores_global,
+                    sub_labels=entry_for_mr["sub_classes"],
+                    obj_labels=entry_for_mr["obj_classes"],
+                    iou_thresh=0.5,
+                    phrdet=False,
+                )
+
+                for k in [10, 20, 50, 100]:
+                    top_k = pred_to_gt[:k]
+                    matched = reduce(np.union1d, top_k) if len(top_k) > 0 else np.array([], dtype=np.int64)
+                    for rel_id in range(1, rel_nums + 1):
+                        recall_count = int((gt_rel_labels == rel_id).sum())
+                        if recall_count == 0:
+                            continue
+                        recall_hit = sum(1 for idx in matched if gt_rel_labels[int(idx)] == rel_id)
+                        recall_bucket = mr_eval_list[rel_id - 1].result_dict[f"{task_mr_key}_recall"]
+                        if k in recall_bucket:
+                            recall_bucket[k].append(float(recall_hit) / recall_count)
 
 
 # ===========================================================================
@@ -1309,6 +1477,24 @@ def _extract_relation_scores(
     return rel_scores.detach().cpu().numpy()
 
 
+def _resolve_per_image_labels(value: Any, index: int) -> np.ndarray:
+    """Extract per-image label array from batching context.
+
+    After ``_aggregate_step_outputs``, per-image tensors are stacked into a
+    list-of-tensors.  This helper picks the ``index``-th entry and converts
+    it to a 1-D int64 ndarray.
+    """
+    if isinstance(value, (list, tuple)):
+        if index < len(value):
+            val = value[index]
+        else:
+            return np.array([], dtype=np.int64)
+    else:
+        val = value
+    arr = _to_numpy(val).astype(np.int64)
+    return arr.reshape(-1)
+
+
 def _per_image_metadata(value: Any, index: int, default: Any) -> Any:
     """Return scalar metadata after Lightning step-output aggregation.
 
@@ -1352,7 +1538,11 @@ def _collect_main_recall(
 def _collect_mean_recall(
     mr_evaluators: Dict[str, List[SceneGraphEvaluator]]
 ) -> Dict[str, float]:
-    """Average per-class recall values to get mean recall (mR@k)."""
+    """Average per-class recall values to get mean recall (mR@k).
+
+    Also emits per-class recalls as ``{task}_per_class_mR@{k}`` (a list of
+    floats, one per predicate class indexed 0..rel_nums-1) for diagnosis.
+    """
     results = {}
     for task, evaluator_list in mr_evaluators.items():
         for k in (10, 20, 50, 100):
@@ -1363,6 +1553,7 @@ def _collect_mean_recall(
                     per_class.append(recalls[k])
             if per_class:
                 results[f"{task}_mR@{k}"] = float(np.mean(per_class))
+                results[f"{task}_per_class_mR@{k}"] = per_class
     return results
 
 
@@ -1371,7 +1562,7 @@ def _collect_mean_recall(
 # ===========================================================================
 
 def _build_log(supported_tasks, all_results, warnings, skipped) -> str:
-    """Build human-readable evaluation log."""
+    """Build human-readable evaluation log with per-class recall detail."""
     lines = []
 
     for task in supported_tasks:
@@ -1394,6 +1585,23 @@ def _build_log(supported_tasks, all_results, warnings, skipped) -> str:
                 val = all_results.get(key)
                 label = f"{val:.4f}" if (val is not None and not np.isnan(val)) else "unavailable"
                 lines.append(f"mR@{k}:  {label}")
+
+            # Per-class recall (sorted, worst first) for diagnosis
+            for k in (50, 100):
+                per_class_key = f"{task}_per_class_mR@{k}"
+                per_class = all_results.get(per_class_key)
+                if per_class is not None and len(per_class) > 0:
+                    # Sort by recall ascending (worst first)
+                    indexed = sorted(enumerate(per_class), key=lambda x: x[1])
+                    lines.append(f"\n  Per-class mR@{k} (worst → best):")
+                    for idx, val in indexed[:10]:
+                        lines.append(f"    pred_{idx:02d}: {val:.4f}")
+                    if len(per_class) > 10:
+                        lines.append(f"    ... ({len(per_class) - 10} more)")
+                    # Also show top-5
+                    lines.append(f"  Best mR@{k}:")
+                    for idx, val in indexed[-5:][::-1]:
+                        lines.append(f"    pred_{idx:02d}: {val:.4f}")
 
     if warnings or skipped:
         lines.append("")
