@@ -16,6 +16,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
         run: |
           TITLE="$PR_TITLE"
           echo "PR title: $TITLE"
@@ -27,6 +28,11 @@ jobs:
           else
             LABEL="enhancement"
           fi
+
+          # Remove old tracked labels first to prevent accumulation
+          for lbl in bug documentation enhancement; do
+            gh api "repos/$REPO/issues/$PR_NUM/labels/$lbl" -X DELETE 2>/dev/null || true
+          done
 
           echo "Applying label: $LABEL"
           gh pr edit "$PR_NUM" --add-label "$LABEL"
