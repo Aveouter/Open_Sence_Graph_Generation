@@ -1,0 +1,54 @@
+# PR Labeler configuration
+# Labels are applied based on changed file paths.
+# Using sync-labels: true — labels are removed when no matching files changed.
+
+models:
+  - changed-files:
+    - any-glob-to-any-file: 'src/models/**'
+
+methods:
+  - changed-files:
+    - any-glob-to-any-file: 'src/methods/**'
+
+configs:
+  - changed-files:
+    - any-glob-to-any-file: 'configs/**'
+
+ci:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '.github/workflows/**'
+      - 'tools/ci_*.py'
+
+utils:
+  - changed-files:
+    - any-glob-to-any-file: 'utils/**'
+
+core:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/core/**'
+      - 'src/losses/**'
+      - 'src/modules/**'
+
+docs:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.md'
+      - 'docs/**'
+
+data:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'data/**'
+      - 'lib/**'
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'environment.yml'
+      - 'requirements*.txt'
+
+tests:
+  - changed-files:
+    - any-glob-to-any-file: 'tests/**'
