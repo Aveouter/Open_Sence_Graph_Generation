@@ -74,6 +74,7 @@ def generalized_box_iou_1to1(boxes1, boxes2):
     Returns:
         [N] tensor of GIoU values
     """
+    assert boxes1.shape == boxes2.shape, f"Shape mismatch: {boxes1.shape} vs {boxes2.shape}"
     assert (boxes1[:, 2:] >= boxes1[:, :2]).all(), boxes1
     assert (boxes2[:, 2:] >= boxes2[:, :2]).all(), boxes2
 
