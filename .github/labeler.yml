@@ -1,28 +1,18 @@
-# PR Labeler configuration
-# Labels are applied based on changed file paths.
-# sync-labels: true — labels are removed when no matching files changed.
+# PR Labeler — maps changed files to existing repo labels
 
-module:
-  - changed-files:
-    - any-glob-to-any-file:
-      - 'src/**'
-
-config:
-  - changed-files:
-    - any-glob-to-any-file: 'configs/**'
-
-ci:
-  - changed-files:
-    - any-glob-to-any-file:
-      - '.github/workflows/**'
-      - 'tools/ci_*.py'
-
-utils:
-  - changed-files:
-    - any-glob-to-any-file: 'utils/**'
-
-docs:
+documentation:
   - changed-files:
     - any-glob-to-any-file:
       - '**/*.md'
       - 'docs/**'
+
+enhancement:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/**'
+      - 'configs/**'
+      - 'utils/**'
+      - 'tools/**'
+      - 'data/**'
+      - 'lib/**'
+      - '.github/**'
