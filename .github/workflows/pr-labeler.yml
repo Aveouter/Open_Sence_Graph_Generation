@@ -18,8 +18,7 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           REPO: ${{ github.repository }}
         run: |
-          API="https://api.github.com"
-          AUTH="Authorization: Bearer $GH_TOKEN"
+          set -euo pipefail
 
           TITLE="$PR_TITLE"
           echo "PR title: $TITLE"
@@ -32,17 +31,27 @@ jobs:
             LABEL="enhancement"
           fi
 
-          # Remove old tracked labels first to prevent accumulation
+          API="https://api.github.com/repos/$REPO/issues/$PR_NUM/labels"
+          AUTH="Authorization: Bearer $GH_TOKEN"
+
+          # Remove old tracked labels (404 = not present = OK)
           for lbl in bug documentation enhancement; do
-            curl -fsS -X DELETE \
-              -H "$AUTH" \
-              "$API/repos/$REPO/issues/$PR_NUM/labels/$lbl" 2>/dev/null || true
+            echo "  Removing $lbl ..."
+            curl -fsS -X DELETE -H "$AUTH" "$API/$lbl" 2>&1 || echo "  (not present, OK)"
           done
 
-          # Add the correct label via REST API (no git / gh CLI needed)
+          # Add the correct label
           echo "Applying label: $LABEL"
-          curl -fsS -X POST \
+          RESP=$(curl -w "\n%{http_code}" -sS -X POST \
             -H "$AUTH" \
             -H "Content-Type: application/json" \
             -d "{\"labels\":[\"$LABEL\"]}" \
-            "$API/repos/$REPO/issues/$PR_NUM/labels"
+            "$API" 2>&1)
+          HTTP_CODE=$(echo "$RESP" | tail -1)
+          echo "HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Label API returned HTTP $HTTP_CODE"
+            echo "$RESP"
+            exit 1
+          fi
+          echo "Label applied: $LABEL"
