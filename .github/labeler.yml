@@ -1,16 +1,13 @@
 # PR Labeler configuration
 # Labels are applied based on changed file paths.
-# Using sync-labels: true — labels are removed when no matching files changed.
+# sync-labels: true — labels are removed when no matching files changed.
 
-models:
+module:
   - changed-files:
-    - any-glob-to-any-file: 'src/models/**'
+    - any-glob-to-any-file:
+      - 'src/**'
 
-methods:
-  - changed-files:
-    - any-glob-to-any-file: 'src/methods/**'
-
-configs:
+config:
   - changed-files:
     - any-glob-to-any-file: 'configs/**'
 
@@ -24,31 +21,8 @@ utils:
   - changed-files:
     - any-glob-to-any-file: 'utils/**'
 
-core:
-  - changed-files:
-    - any-glob-to-any-file:
-      - 'src/core/**'
-      - 'src/losses/**'
-      - 'src/modules/**'
-
 docs:
   - changed-files:
     - any-glob-to-any-file:
       - '**/*.md'
       - 'docs/**'
-
-data:
-  - changed-files:
-    - any-glob-to-any-file:
-      - 'data/**'
-      - 'lib/**'
-
-dependencies:
-  - changed-files:
-    - any-glob-to-any-file:
-      - 'environment.yml'
-      - 'requirements*.txt'
-
-tests:
-  - changed-files:
-    - any-glob-to-any-file: 'tests/**'
