@@ -133,7 +133,8 @@ The table below summarizes paper-reported Visual Genome **SGDet** results, not
 OpenSGG reproduction results. Values are percentages under graph-constraint
 evaluation when reported by the cited paper table. Source:
 [EGTR Table 1](https://arxiv.org/html/2404.02072v4), with each row attributed
-to the corresponding original method paper.
+to the corresponding original method paper. In that table, `LA` denotes the
+logit adjustment setting proposed by SSR-CNN.
 
 | Method | Paper / Venue | Detector / backbone in paper | AP | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
 |--------|---------------|------------------------------|----|------|------|-------|-------|-------|--------|
@@ -239,16 +240,7 @@ MIT License — see [LICENSE](LICENSE).
 
 ## Citation
 
-If you use OpenSGG, please cite the framework:
-
-```bibtex
-@misc{opensgg,
-  title     = {OpenSGG: Open Scene Graph Generation Framework},
-  author    = {Xinyu Liu and Xiaoguang Lin and contributors},
-  year      = {2025},
-  note      = {https://github.com/Aveouter/Open_Sence_Graph_Generation},
-}
-```
+To be added.
 
 Please also cite the original papers for any methods you use: RelTR (ECCV 2022), EGTR (CVPR 2024), FlowSG (CVPR 2026), USG-Par (CVPR 2025), Neural Motifs (CVPR 2018), VCTree (CVPR 2019), TDE (CVPR 2020), IMP (CVPR 2017), Transformer (CVPR 2020), GPS-Net (CVPR 2020), PE-Net (CVPR 2023), REACT (BMVC 2025), SHA-GCL (CVPR 2022), SQUAT (CVPR 2023).
 
