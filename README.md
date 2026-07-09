@@ -85,18 +85,11 @@ pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorc
 ### VisualGenome
 
 1. Download VisualGenome images (parts 1–2) from [visualgenome.org](https://visualgenome.org/)
-2. Organize under `data/VisualGenome/`:
-
-```
-data/VisualGenome/
-├── images/                     # Image files (from VG_100K and VG_100K_2)
-├── train.json                  # COCO-format training annotations
-├── val.json                    # COCO-format validation annotations
-├── test.json                   # COCO-format test annotations
-├── rel.json                    # Relationship metadata
-├── clip_prototypes.pth         # (optional) CLIP prototypes for hierarchical alignment
-└── predicate_frequencies.json  # (optional) for Head/Body/Tail analysis
-```
+2. Place images under `data/VisualGenome/images/`
+3. Provide COCO-format `train.json`, `val.json`, `test.json`, and `rel.json`
+   under `data/VisualGenome/`
+4. Optional analysis assets such as `clip_prototypes.pth` and
+   `predicate_frequencies.json` can live in the same directory
 
 ### OpenImageV6 (Experimental)
 
@@ -109,44 +102,17 @@ Place COCO-format annotations and images under `data/OpenImage/`.
 ### Training
 
 ```bash
-# End-to-end methods
-python train.py --method RelTR  --dataname VisualGenome --gpus 0 --batch_size 4
-python train.py --method EGTR   --dataname VisualGenome --gpus 0 --batch_size 4
-python train.py --method FlowSG --dataname VisualGenome --gpus 0 --batch_size 16
-python train.py --method USG    --dataname VisualGenome --gpus 0 --batch_size 4
-
-# Two-stage baselines
-python train.py --method Motifs     --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method VCTree     --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method TDE        --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method IMP        --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method Transformer --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method GPSNet     --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method PENet      --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method REACT      --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method SHAGCL     --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method SQUAT      --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method HSTRNet    --dataname VisualGenome --gpus 0 --batch_size 8
-python train.py --method CVC        --dataname VisualGenome --gpus 0 --batch_size 8
+python train.py --method EGTR --dataname VisualGenome --gpus 0 --batch_size 4
 ```
 
-Config files are auto-loaded from `configs/<Dataset>/<Method>.py`. CLI arguments override config values.
+Replace `EGTR` with any supported CLI method name. Config files are auto-loaded
+from `configs/<Dataset>/<Method>.py`, and CLI arguments override config values.
 
 ### Evaluation
 
 ```bash
-# Lightning checkpoint (.ckpt)
-python train.py --test --method RelTR --dataname VisualGenome \
-  --ckpt_path outputs/runs/reltr/<exp>/checkpoints/best-epoch=*.ckpt --gpus 0
-
-# PyTorch checkpoint (.pth)
-python train.py --test --method RelTR --dataname VisualGenome \
-  --ckpt_path outputs/pretrained/other/checkpoint0149.pth --gpus 0
-
-# Smoke test (20 samples)
 python train.py --test --method EGTR --dataname VisualGenome \
-  --ckpt_path outputs/pretrained/egtr/<run>/checkpoints/epoch=03-*.ckpt \
-  --val_batch_size 1 --test_dataset_size 20 --num_workers 0 --gpus 0
+  --ckpt_path outputs/pretrained/egtr/<run>/checkpoints/epoch=03-*.ckpt --gpus 0
 ```
 
 ### Multi-GPU
@@ -161,44 +127,33 @@ python train.py --method RelTR --dataname VisualGenome --gpus 0
 
 ---
 
-## EGTR VisualGenome Checkpoint-Backed Evaluation
+## VisualGenome Paper Results
 
-Evaluated against a traced pretrained checkpoint in the OpenSGG evaluation path.
-This section is not a blanket reproduction claim for every official EGTR
-protocol; use the reproduction workflow below for paper-alignment decisions.
-Checkpoint-backed OpenSGG numbers are integration evidence unless the matching
-baseline report explicitly records official-code, checkpoint, config,
-preprocessing, inference, evaluator, and metric parity.
+The table below summarizes paper-reported Visual Genome **SGDet** results, not
+OpenSGG reproduction results. Values are percentages under graph-constraint
+evaluation when reported by the cited paper table. Source:
+[EGTR Table 1](https://arxiv.org/html/2404.02072v4), with each row attributed
+to the corresponding original method paper.
 
-**Label space:** OpenSGG uses 1-indexed labels with background (`entity_nums=151`, `rel_nums=51`). EGTR logits use explicit no-background dimensions (`egtr_num_labels=150`, `egtr_num_rel_labels=50`). The checkpoint loads non-zero `rel_dist` and `triplet_dist` frequency-bias parameters.
+| Method | Paper / Venue | Detector / backbone in paper | AP | R@20 | R@50 | R@100 | mR@20 | mR@50 | mR@100 |
+|--------|---------------|------------------------------|----|------|------|-------|-------|-------|--------|
+| IMP | CVPR 2017 | Faster R-CNN / ResNeXt-101-FPN | 28.1 | 18.1 | 25.9 | 31.2 | 2.8 | 4.2 | 5.4 |
+| Neural Motifs | CVPR 2018 | Faster R-CNN / ResNeXt-101-FPN | 28.1 | 25.1 | 32.1 | 36.9 | 4.1 | 5.5 | 6.8 |
+| VCTree | CVPR 2019 | Faster R-CNN / ResNeXt-101-FPN | 28.1 | 24.8 | 31.8 | 36.1 | 4.9 | 6.6 | 7.7 |
+| VCTree-TDE | CVPR 2020 | Faster R-CNN / ResNeXt-101-FPN | 28.1 | 14.0 | 19.4 | 23.2 | 6.9 | 9.3 | 11.1 |
+| GPS-Net | CVPR 2020 | Faster R-CNN / ResNeXt-101-FPN | - | - | 31.1 | 35.9 | - | 6.7 | 8.6 |
+| RelTR | TPAMI 2023 | DETR-50 | 26.4 | 21.2 | 27.5 | - | 6.8 | 10.8 | - |
+| EGTR | CVPR 2024 | Deformable DETR-50 | 30.8 | 23.5 | 30.2 | 34.3 | 5.5 | 7.9 | 10.1 |
+| EGTR + logit adjustment | CVPR 2024 | Deformable DETR-50 | 30.8 | 15.7 | 18.7 | 20.5 | 12.1 | 17.8 | 21.7 |
 
-| Task | Metric | Value |
-|------|--------|-------|
-| PredCLS | R@20 | 51.10 |
-| PredCLS | mR@20 | 18.87 |
-| SGDet | R@20 | 23.47 |
-| SGDet | R@50 | 30.08 |
-| SGDet | mR@20 | 9.72 |
-
-> SGCLS is skipped for EGTR unless a dedicated adapter is added.
+For PredCls / SGCls and method-specific unbiased-SGG tables, consult the
+original papers. This README table is a compact literature reference only.
 
 ---
 
 ## Configuration
 
 Configs use a two-layer system: **CLI arguments** override **per-method config files**.
-
-```
-configs/
-├── _template.py                    # All available options
-└── VisualGenome/
-    ├── RelTR.py, EGTR.py, FlowSG.py, USG.py
-    ├── HSTRNet.py, CVC.py
-    ├── Motifs.py, VCTree.py, TDE.py
-    ├── IMP.py, Transformer.py
-    ├── GPS_Net.py, PE_NET.py
-    └── REACT.py, SHA_GCL.py, SQUAT.py
-```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -242,6 +197,17 @@ configs/
 
 ---
 
+## Community Resources
+
+- [ChocoWu/Awesome-Scene-Graph-Generation](https://github.com/ChocoWu/Awesome-Scene-Graph-Generation) — friendly link and broad community index for scene graph datasets, papers, toolkits, workshops, surveys, and applications.
+- [Scene Graph Series](https://scene-graph.github.io/) — project hub for scene graph research updates and community activities.
+- [Scene Graph for Structured Intelligence Workshop](https://scene-graph.github.io/SG4SI-WACV26/) — WACV 2026 workshop page for structured scene understanding.
+- [Scene-Graph-Benchmark.pytorch](https://github.com/KaihuaTang/Scene-Graph-Benchmark.pytorch) — widely used SGG baseline and evaluation reference.
+- [SGG-Benchmark](https://github.com/Maelic/SGG-Benchmark) — maintained benchmark implementation for common SGG methods.
+- [SGG-Annotate](https://github.com/Maelic/SGG-Annotate) — COCO-format visual relationship annotation tool.
+
+---
+
 ## CI/CD Pipeline
 
 GitHub Actions runs on every PR and push to `main`:
@@ -255,53 +221,6 @@ reports, `AGENTS.md`, and workflow files.
 PRs that touch reproduction claims must preserve the status language in
 `AGENTS.md` and `reproduction/README.md`; random-init, tiny-slice, all-zero, or
 partial-checkpoint outputs are not baseline reproduction evidence.
-
----
-
-## Project Structure
-
-```
-OpenSGG/
-├── train.py                               # Entry point
-├── .github/workflows/ci.yml               # CI pipeline
-├── configs/                               # Per-dataset, per-method configs
-│   ├── _template.py
-│   └── VisualGenome/                      # 17 method configs
-├── guides/                                # Reproduction reports and contributor guides
-├── src/                                   # Core framework
-│   ├── exp.py                             # Experiment orchestration
-│   ├── methods/                           # LightningModule wrappers (17 methods)
-│   │   ├── base_method.py                 # Base class (DDP eval, loss averaging)
-│   │   └── reltr_method.py, egtr_method.py, flowsg_method.py, usg_method.py, ...
-│   ├── models/                            # Model definitions
-│   │   ├── backbone.py                    # Shared backbone factory
-│   │   ├── reltr.py, egtr.py, flowsg.py, usg.py, hstrnet.py, cvc.py, gen_sgg.py
-│   │   └── motifs.py, vctree.py, imp.py, transformer_sgg.py, ...
-│   ├── modules/                           # Reusable building blocks
-│   │   ├── layers/                        # Backbone, Transformer, Matcher, CLIP
-│   │   └── egtr/                          # EGTR: Deformable DETR + SGG head
-│   ├── losses/                            # Loss function registry
-│   │   ├── loss.py                        # HSTRCriterion + LOSS_FACTORY
-│   │   └── reweight_loss.py               # Focal, class-balanced losses
-│   └── core/                              # Metrics, optimizers, schedulers
-│       ├── metrics.py                     # Unified evaluation pipeline
-│       └── optim_scheduler.py             # Optimizer/scheduler factory
-├── data/dataloaders/                      # Data loading
-│   ├── dataloader.py                      # Dataset router
-│   ├── dataloader_VisualGenome.py         # VisualGenome loader
-│   ├── coco.py                            # COCO dataset utilities
-│   └── egtr/                              # EGTR-specific data processing
-├── lib/                                   # Vendored libraries
-│   └── evaluation/sg_eval.py              # Recall computation (Danfei Xu benchmark)
-├── tools/analysis/                        # Analysis & evaluation scripts
-├── utils/                                 # Utilities
-│   ├── parser.py                          # Argument parsing
-│   ├── main_utils.py                      # Config loading, env setup
-│   └── misc.py                            # NestedTensor, collate, distributed helpers
-└── outputs/                               # Run artifacts (not tracked)
-    ├── pretrained/                        # Pretrained weights
-    └── runs/                              # Experiment outputs
-```
 
 ---
 
