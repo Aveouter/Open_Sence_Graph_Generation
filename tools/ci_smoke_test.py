@@ -584,13 +584,16 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str, Optional[str]]:
             timeout=300,  # 5 min max per method
         )
         if result.returncode != 0:
-            # Print last 30 lines of stderr for debugging
-            stderr_tail = "\n".join(result.stderr.splitlines()[-30:])
-            stdout_tail = "\n".join(result.stdout.splitlines()[-30:])
+            # Extract traceback section from full stderr
+            full_err = result.stderr
+            tb_idx = full_err.rfind('Traceback (most recent call last)')
+            if tb_idx >= 0:
+                tb_tail = '\n'.join(full_err[tb_idx:].splitlines()[-12:])
+            else:
+                tb_tail = '\n'.join(full_err.splitlines()[-12:])
             return False, (
                 f"train.py exit code {result.returncode}\n"
-                f"STDERR (last 30 lines):\n{stderr_tail}\n"
-                f"STDOUT (last 30 lines):\n{stdout_tail}"
+                f"Last traceback:\n{tb_tail}"
             ), None
         ckpt_path = _find_ckpt(method_name)
         if ckpt_path:
@@ -659,12 +662,15 @@ def run_minimal_test(
             timeout=300,
         )
         if result.returncode != 0:
-            stderr_tail = "\n".join(result.stderr.splitlines()[-30:])
-            stdout_tail = "\n".join(result.stdout.splitlines()[-30:])
+            full_err = result.stderr
+            tb_idx = full_err.rfind('Traceback (most recent call last)')
+            if tb_idx >= 0:
+                tb_tail = '\n'.join(full_err[tb_idx:].splitlines()[-12:])
+            else:
+                tb_tail = '\n'.join(full_err.splitlines()[-12:])
             return False, (
                 f"train.py --test exit code {result.returncode}\n"
-                f"STDERR (last 30 lines):\n{stderr_tail}\n"
-                f"STDOUT (last 30 lines):\n{stdout_tail}"
+                f"Last traceback:\n{tb_tail}"
             )
         _print_results(result.stdout)
         return True, ""
@@ -763,16 +769,9 @@ def main() -> int:
                 # train.py failure is a warning, not blocking
                 # (data may not exist in CI, pretrained weights may be missing)
                 print("    [WARN] train.py failed (non-blocking)")
-                # Print first error line and last meaningful part of traceback
-                for line in err.split('\n'):
+                for line in err.split('\n')[-8:]:
                     if line.strip():
-                        print(f"           {line[:250]}")
-                        break
-                # Find the last Traceback-or-Error section
-                tb_start = err.rfind('Traceback')
-                if tb_start > 0:
-                    for line in err[tb_start:].split('\n')[-6:]:
-                        print(f"           {line[:250]}")
+                        print("           " + line[:250])
                 train_warnings[method_name] = err
             elif ckpt_path:
                 train_ckpts[method_name] = ckpt_path
@@ -793,14 +792,9 @@ def main() -> int:
             if not ok:
                 # test.py failure is a warning, not blocking
                 print("    [WARN] test phase failed (non-blocking)")
-                for line in err.split('\n'):
+                for line in err.split('\n')[-8:]:
                     if line.strip():
-                        print(f"           {line[:250]}")
-                        break
-                tb_start = err.rfind('Traceback')
-                if tb_start > 0:
-                    for line in err[tb_start:].split('\n')[-6:]:
-                        print(f"           {line[:250]}")
+                        print("           " + line[:250])
                 test_warnings[method_name] = err
             else:
                 print("    ✓ Test phase OK")

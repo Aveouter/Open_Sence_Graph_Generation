@@ -281,6 +281,17 @@ jobs:
               'convnext_large_d_320', pretrained='laion2b_s29b_b131k_ft_soup')" 2>&1 ||
             echo "(ConvNeXt-L pre-warm skipped — network may be unavailable)"
 
+      - name: Free disk space for smoke test
+        if: steps.check-changes.outputs.needs_smoke == 'true'
+        shell: bash -el {0}
+        run: |
+          echo "Disk before cleanup:"
+          df -h / | tail -1
+          rm -rf ~/.cache/pip ~/conda_pkgs ~/.cache/torch/hub/checkpoints
+          conda clean -a -y 2>/dev/null || true
+          echo "Disk after cleanup:"
+          df -h / | tail -1
+
       - name: Run smoke tests
         if: steps.check-changes.outputs.needs_smoke == 'true'
         shell: bash -el {0}
