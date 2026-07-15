@@ -48,7 +48,6 @@ import torch.nn.functional as F
 
 from .motifs import FrequencyBias, generate_object_pairs
 
-
 # =========================================================================
 # MLP — exact match of official class
 # =========================================================================
@@ -64,7 +63,8 @@ class MLP(nn.Module):
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(
-            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim])
+            nn.Linear(n, k)
+            for n, k in zip([input_dim] + h, h + [output_dim], strict=True)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -167,8 +167,8 @@ def _load_word_vectors(root: str, wv_type: str, dim: int | str):
         return None
 
     # Parse text format
-    wv_dict: dict = {}   # {word: integer_index}
-    word_list = []        # [vec1, vec2, ...] — matched by index
+    wv_dict: dict = {}  # {word: integer_index}
+    word_list = []  # [vec1, vec2, ...] — matched by index
     int_dim = int(dim.replace("d", ""))
     for line in lines:
         parts = line.rstrip().split(b" ")
@@ -651,7 +651,7 @@ class PENetContext(nn.Module):
         out_dists_sampled[:, 0] = -1  # set bg to -1
 
         out_label = obj_dists.new(num_objs).fill_(0)
-        for i in range(num_objs):
+        for _i in range(num_objs):
             box_ind, cls_ind = np.unravel_index(
                 out_dists_sampled.argmax(), out_dists_sampled.shape
             )

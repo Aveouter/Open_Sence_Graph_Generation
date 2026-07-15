@@ -13,18 +13,18 @@ Weight loading (matching official pretraining chain):
 
 from __future__ import annotations
 
-
 import torch
 
-from .motifs_method import Motifs_Method, MotifsCriterion
 from src.models.backbone import (
+    FPNNeck,
     PENetBoxFeatureExtractor,
     PENetUnionFeatureExtractor,
     ResNetBackbone,
-    FPNNeck,
 )
 from src.models.penet import build_penet
 from utils.penet_weights import load_all_pretrained
+
+from .motifs_method import Motifs_Method, MotifsCriterion
 
 
 class PENetCriterion(MotifsCriterion):
@@ -117,7 +117,7 @@ class PENet_Method(Motifs_Method):
         box_dev = [b.to(device) for b in boxes_list]
         sz_dev = []
         cropped = []
-        for img, size in zip(images, image_sizes):
+        for img, size in zip(images, image_sizes, strict=True):
             if size is None:
                 size = torch.as_tensor(
                     img.shape[-2:], dtype=torch.float32, device=device
@@ -131,7 +131,7 @@ class PENet_Method(Motifs_Method):
             cropped.append(img[..., :h, :w])
 
         results = []
-        for img, boxes, sz in zip(cropped, box_dev, sz_dev):
+        for img, boxes, sz in zip(cropped, box_dev, sz_dev, strict=True):
             boxes = boxes.to(device)
             sz = sz.to(device)
 
@@ -207,7 +207,7 @@ class PENet_Method(Motifs_Method):
             )
 
             for i, (box, lab, sz) in enumerate(
-                zip(boxes_list, labels_list, image_sizes)
+                zip(boxes_list, labels_list, image_sizes, strict=True)
             ):
                 r = vis_results[i]
                 roi_feats, fpn_feats = r["roi_feats"], r["fpn_features"]
