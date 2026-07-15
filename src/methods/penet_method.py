@@ -182,7 +182,14 @@ class PENet_Method(Motifs_Method):
 
     def forward(self, images, targets=None, **kwargs):
         is_training = targets is not None
-        return_obj_preds = getattr(self.hparams, "eval_mode", "predcls") == "sgcls"
+        eval_mode = getattr(self.hparams, "eval_mode", "predcls")
+        return_obj_preds = eval_mode in {"sgcls", "sgdet"}
+        return_relation_features = bool(
+            kwargs.get(
+                "return_relation_features",
+                getattr(self.hparams, "return_relation_features", False),
+            )
+        )
 
         if is_training or targets is not None:
             all_outputs = []
@@ -213,7 +220,12 @@ class PENet_Method(Motifs_Method):
                 extra["_image_size"] = sz
 
                 out = self.model(
-                    roi_feats, box, lab, return_obj_preds=return_obj_preds, **extra
+                    roi_feats,
+                    box,
+                    lab,
+                    return_obj_preds=return_obj_preds,
+                    return_relation_features=return_relation_features,
+                    **extra,
                 )
                 all_outputs.append(out)
 
@@ -230,6 +242,10 @@ class PENet_Method(Motifs_Method):
             }
             if return_obj_preds:
                 batched["obj_logits"] = [o.get("obj_logits") for o in all_outputs]
+            if return_relation_features:
+                batched["relation_features"] = [
+                    o.get("relation_features") for o in all_outputs
+                ]
 
             add_losses = {}
             for o in all_outputs:

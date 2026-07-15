@@ -864,6 +864,7 @@ class PENetContext(nn.Module):
         _compute_union_fn: Optional = None,
         _fpn_features: Optional[tuple] = None,
         _image_size: Optional[torch.Tensor] = None,
+        return_relation_features: bool = False,
     ):
         """Forward pass — strict match with official PrototypeEmbeddingNetwork.
 
@@ -880,6 +881,14 @@ class PENetContext(nn.Module):
 
         # Resolve image_size (new name _image_size, for backward compat)
         img_size = _image_size
+
+        def _detach_feature(value):
+            return value.detach() if torch.is_tensor(value) else value
+
+        def _image_size_feature():
+            if torch.is_tensor(img_size):
+                return img_size.to(device=device, dtype=visual_feats.dtype)
+            return visual_feats.new_zeros(2)
 
         # ── 1. Object label refinement ──
         entity_dists, entity_preds = self._refine_obj_labels(
@@ -903,7 +912,7 @@ class PENetContext(nn.Module):
         # ── 4. Generate all directed pairs ──
         pairs = generate_object_pairs(N, device)
         if pairs.numel() == 0:
-            return {
+            out = {
                 "rel_logits": visual_feats.new_zeros(0, self.num_predicates),
                 "pair_indices": pairs,
                 "sub_boxes": boxes.new_zeros(0, 4),
@@ -913,9 +922,35 @@ class PENetContext(nn.Module):
                 "predicate_bg_index": "first",
                 "add_losses": {},
             }
+            if return_relation_features:
+                predicate_proto = self.W_pred(self.rel_embed.weight)
+                predicate_proto_proj = self.project_head(
+                    self.dropout_pred(torch.relu(predicate_proto))
+                )
+                empty_pair = visual_feats.new_zeros(0, self.mlp_dim)
+                out["relation_features"] = {
+                    "schema": "penet_relation_feature_exposure_v1",
+                    "pair_indices": pairs.detach(),
+                    "subject_visual": empty_pair.detach(),
+                    "object_visual": empty_pair.detach(),
+                    "subject_context": empty_pair.detach(),
+                    "object_context": empty_pair.detach(),
+                    "union_feature": None,
+                    "union_semantic": empty_pair.detach(),
+                    "relation_pre_proj": empty_pair.detach(),
+                    "relation_proj": visual_feats.new_zeros(
+                        0, self.mlp_dim * 2
+                    ).detach(),
+                    "predicate_proto_proj": predicate_proto_proj.detach(),
+                    "boxes_xyxy_or_cxcywh_norm": boxes.detach(),
+                    "object_labels": entity_preds.detach(),
+                    "image_size_hw": _image_size_feature().detach(),
+                    "feature_mode": "eval_all_directed_pairs",
+                }
+            return out
 
         # ── 5. Determine which pairs to use ──
-        if is_training and rel_annotations is not None:
+        if is_training and rel_annotations is not None and not return_relation_features:
             use_idxs, rel_labels_for_loss = self._sample_pairs(
                 pairs,
                 rel_annotations,
@@ -974,7 +1009,9 @@ class PENetContext(nn.Module):
                 boxes,
                 (
                     pairs[use_idxs]
-                    if is_training and rel_annotations is not None
+                    if is_training
+                    and rel_annotations is not None
+                    and not return_relation_features
                     else pairs
                 ),
                 img_size,
@@ -1033,12 +1070,12 @@ class PENetContext(nn.Module):
             )
 
         # Build output pairs
-        if is_training and rel_annotations is not None:
+        if is_training and rel_annotations is not None and not return_relation_features:
             out_pairs = pairs[use_idxs]
         else:
             out_pairs = pairs
 
-        return {
+        out = {
             "rel_logits": rel_dists,
             "pair_indices": out_pairs,
             "obj_labels": entity_preds,
@@ -1048,6 +1085,25 @@ class PENetContext(nn.Module):
             "predicate_bg_index": "first",
             "add_losses": add_losses,
         }
+        if return_relation_features:
+            out["relation_features"] = {
+                "schema": "penet_relation_feature_exposure_v1",
+                "pair_indices": out_pairs.detach(),
+                "subject_visual": sub_rep[s_idx].detach(),
+                "object_visual": obj_rep[o_idx].detach(),
+                "subject_context": sub.detach(),
+                "object_context": obj.detach(),
+                "union_feature": _detach_feature(resolved_union),
+                "union_semantic": sem_pred.detach(),
+                "relation_pre_proj": rel_rep.detach(),
+                "relation_proj": rel_rep_proj.detach(),
+                "predicate_proto_proj": predicate_proto_proj.detach(),
+                "boxes_xyxy_or_cxcywh_norm": boxes.detach(),
+                "object_labels": entity_preds.detach(),
+                "image_size_hw": _image_size_feature().detach(),
+                "feature_mode": "eval_all_directed_pairs",
+            }
+        return out
 
 
 # =========================================================================
