@@ -25,7 +25,6 @@ import torch
 from lib.evaluation.sg_eval import SceneGraphEvaluator
 from utils.box_ops import rescale_bboxes
 
-
 # ===========================================================================
 # Public entry point
 # ===========================================================================

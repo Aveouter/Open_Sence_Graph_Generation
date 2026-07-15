@@ -31,7 +31,6 @@ from torchvision.ops import roi_align
 
 from .motifs import FrequencyBias, generate_object_pairs
 
-
 # ============================================================================
 # FPN Feature Extractor — standalone, for RA-SGG only (does NOT touch backbone.py)
 # ============================================================================

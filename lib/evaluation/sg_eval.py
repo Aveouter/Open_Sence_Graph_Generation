@@ -16,7 +16,6 @@ import numpy as np
 from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
 from lib.pytorch_misc import intersect_2d
 
-
 # ===========================================================================
 # Public API
 # ===========================================================================
