@@ -30,15 +30,104 @@ from utils.path_utils import (
 )
 
 
+def infer_checkpoint_mode(metric_name, explicit_mode=None):
+    """Infer checkpoint comparison direction from the monitored metric name."""
+    if explicit_mode is not None:
+        mode = str(explicit_mode).lower()
+        if mode not in {"min", "max"}:
+            raise ValueError(f"checkpoint_selection_mode must be 'min' or 'max', got {explicit_mode!r}")
+        return mode
+
+    metric = str(metric_name or "val_loss").lower()
+    if any(token in metric for token in ("loss", "error", "perplexity", "nll")):
+        return "min"
+    if any(token in metric for token in ("r@", "mr@", "recall", "accuracy", "acc", "auc", "f1", "map", "ap")):
+        return "max"
+    return "min"
+
+
+def lightning_monitor_name(metric_name):
+    metric = str(metric_name or "val_loss")
+    if metric.startswith("val_"):
+        unprefixed = metric[len("val_"):]
+        if unprefixed.startswith(("predcls_", "sgcls_", "sgdet_")):
+            return unprefixed
+    return metric
+
+
+def resolve_checkpoint_selection(args):
+    monitor = getattr(args, "metric_for_bestckpt", None)
+    if monitor is None:
+        monitor = lightning_monitor_name(getattr(args, "checkpoint_selection_metric", None))
+    monitor = monitor or "val_loss"
+    mode = infer_checkpoint_mode(monitor, getattr(args, "checkpoint_selection_mode", None))
+    return monitor, mode
+
+
+def _normalize_devices(devices):
+    if devices is None:
+        return 1
+    if isinstance(devices, (list, tuple)) and len(devices) == 1:
+        return 1
+    return devices
+
+
+def _count_devices(devices):
+    if devices == "auto":
+        return torch.cuda.device_count()
+
+    if isinstance(devices, (list, tuple)):
+        return len(devices)
+
+    if isinstance(devices, str):
+        if devices == "auto":
+            return torch.cuda.device_count()
+        if "," in devices:
+            return len([d for d in devices.split(",") if d.strip() != ""])
+        return int(devices)
+
+    return int(devices)
+
+
+def _env_rank():
+    for key in ("RANK", "LOCAL_RANK", "SLURM_PROCID"):
+        value = os.environ.get(key)
+        if value is not None:
+            try:
+                return int(value)
+            except ValueError:
+                continue
+    return 0
+
+
+def sync_distributed_flags(args):
+    user_device = getattr(args, "device", "cuda")
+    accelerator = "gpu" if user_device != "cpu" and torch.cuda.is_available() else "cpu"
+    if accelerator == "gpu":
+        devices = _normalize_devices(getattr(args, "gpus", 1))
+    else:
+        devices = 1
+    device_count = _count_devices(devices)
+
+    use_distributed = accelerator == "gpu" and device_count > 1
+    if use_distributed:
+        args.dist = True
+        args.distributed = True
+    elif not hasattr(args, "distributed"):
+        args.distributed = False
+    return use_distributed
+
+
 class BaseExperiment(object):
     """Experiment class specialized for the current RelTR-based scene graph task."""
 
     def __init__(self, args, dataloaders=None, strategy='auto'):
         self.args = args
-        self.config = self.args.__dict__
         self.method = None
         self.args.method = self.args.method.lower()
-        self._dist = self.args.dist
+        self._uses_distributed = sync_distributed_flags(self.args)
+        self._rank = _env_rank()
+        self.config = self.args.__dict__
 
         # ---- normalise & resolve output paths ----
         args.ex_name = normalize_ex_name(args.ex_name)
@@ -71,29 +160,10 @@ class BaseExperiment(object):
         self.trainer = self._init_trainer(self.args, callbacks, strategy, paths)
 
     def _normalize_devices(self, devices):
-        if devices is None:
-            return 1
-        # Convert single-element list to int 1 to prevent Lightning from spawning DDP workers
-        # (devices=[0] causes DDP; devices=1 uses single GPU without DDP)
-        if isinstance(devices, (list, tuple)) and len(devices) == 1:
-            return 1
-        return devices
+        return _normalize_devices(devices)
 
     def _count_devices(self, devices):
-        if devices == "auto":
-            return torch.cuda.device_count()
-
-        if isinstance(devices, (list, tuple)):
-            return len(devices)
-
-        if isinstance(devices, str):
-            if devices == "auto":
-                return torch.cuda.device_count()
-            if "," in devices:
-                return len([d for d in devices.split(",") if d.strip() != ""])
-            return int(devices)
-
-        return int(devices)
+        return _count_devices(devices)
 
     def _resolve_trainer_runtime(self, args, strategy):
         # Respect explicit CPU request even when CUDA is available
@@ -157,6 +227,7 @@ class BaseExperiment(object):
             logger=logger,
             log_every_n_steps=1,
             enable_progress_bar=not getattr(args, 'no_progress_bar', False),
+            use_distributed_sampler=True,
         )
 
         # Gradient accumulation: simulate larger batch size for small-GPU training
@@ -185,8 +256,12 @@ class BaseExperiment(object):
 
     def _load_callbacks(self, args, paths):
         method_info = None
-        if self._dist == 0 and (not self.args.no_display_method_info):
+        if self._rank == 0 and (not self.args.no_display_method_info):
             method_info = self.display_method_info(args)
+
+        checkpoint_monitor, checkpoint_mode = resolve_checkpoint_selection(args)
+        args.metric_for_bestckpt = checkpoint_monitor
+        args.checkpoint_selection_mode = checkpoint_mode
 
         setup_callback = SetupCallback(
             prefix='train' if (not args.test) else 'test',
@@ -198,9 +273,9 @@ class BaseExperiment(object):
         )
 
         ckpt_callback = BestCheckpointCallback(
-            monitor=args.metric_for_bestckpt,
+            monitor=checkpoint_monitor,
             filename='best-{epoch:02d}-{val_loss:.3f}',
-            mode='min',
+            mode=checkpoint_mode,
             save_last=True,
             dirpath=paths['ckpt_dir'],
             verbose=True,
