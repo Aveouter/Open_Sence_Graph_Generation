@@ -20,6 +20,7 @@ if "utils" not in sys.modules:
     utils_package.__path__ = [str(Path(__file__).resolve().parents[2] / "utils")]
     sys.modules["utils"] = utils_package
 
+from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
 from src.core.metrics import (
     _collect_mean_recall,
     _extract_relation_scores,
@@ -27,7 +28,6 @@ from src.core.metrics import (
     _relation_nms_pair_scores,
     metric,
 )
-from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
 
 
 class RASGGPredClsProtocolTest(unittest.TestCase):

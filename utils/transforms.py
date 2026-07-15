@@ -108,7 +108,10 @@ def resize(image, target, size, max_size=None):
     if target is None:
         return rescaled_image, None
 
-    ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(rescaled_image.size, image.size))
+    ratios = tuple(
+        float(s) / float(s_orig)
+        for s, s_orig in zip(rescaled_image.size, image.size, strict=True)
+    )
     ratio_width, ratio_height = ratios
 
     target = target.copy()

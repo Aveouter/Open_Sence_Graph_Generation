@@ -12,8 +12,9 @@ Supports: sgdet, sgcls, predcls, preddet, phrdet
 from functools import reduce
 
 import numpy as np
-from lib.pytorch_misc import intersect_2d
+
 from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
+from lib.pytorch_misc import intersect_2d
 
 
 # ===========================================================================
@@ -280,6 +281,7 @@ def _match_predictions(gt_triplets, pred_triplets,
         np.where(gt_has_match)[0],
         gt_boxes[gt_has_match],
         exact_matches[gt_has_match],
+        strict=True,
     ):
         candidate_boxes = pred_boxes[match_mask]
         candidate_indices = np.where(match_mask)[0]

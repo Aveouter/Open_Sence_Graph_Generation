@@ -22,8 +22,8 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import torch
 
-from utils.box_ops import rescale_bboxes
 from lib.evaluation.sg_eval import SceneGraphEvaluator
+from utils.box_ops import rescale_bboxes
 
 
 # ===========================================================================
@@ -1457,6 +1457,7 @@ def _relation_nms_pair_scores(
         for row, label, score, version in zip(
             affected.tolist(), new_labels.tolist(), new_scores.tolist(),
             versions[affected].tolist(),
+            strict=True,
         ):
             heapq.heappush(heap, (-float(score), row, label, version))
 

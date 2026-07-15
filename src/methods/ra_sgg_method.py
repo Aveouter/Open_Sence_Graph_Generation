@@ -15,8 +15,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .motifs_method import Motifs_Method
 from src.models.ra_sgg import build_ra_sgg
+
+from .motifs_method import Motifs_Method
 
 
 class RA_SGG_Method(Motifs_Method):
@@ -143,9 +144,9 @@ class RA_SGG_Method(Motifs_Method):
             feature_maps, boxes_list, image_sizes, pair_indices_list)
 
         need_obj_preds = eval_mode in ('sgcls', 'sgdet')
-        for i, (roi_feat, union_feat, pair_idx, rel_lab, box, lab) in enumerate(
-                zip(roi_feats_list, union_feats_list, pair_indices_list,
-                    rel_labels_list, boxes_list, labels_list)):
+        for roi_feat, union_feat, _pair_idx, rel_lab, box, lab in zip(
+                roi_feats_list, union_feats_list, pair_indices_list,
+                rel_labels_list, boxes_list, labels_list, strict=True):
             # Relation annotations supervise training only. Evaluation must not
             # expose predicate labels to the predictor.
             model_rel_labels = rel_lab if is_training else torch.zeros_like(rel_lab)
@@ -222,7 +223,8 @@ class RA_SGG_Method(Motifs_Method):
 
         # Extract FPN features and union features
         all_outputs = []
-        for img, boxes, labels, sz in zip(images_list, det_boxes, det_labels, image_sizes):
+        for img, boxes, labels, sz in zip(
+                images_list, det_boxes, det_labels, image_sizes, strict=True):
             if boxes.numel() < 2:
                 all_outputs.append({'rel_logits': boxes.new_zeros(0, 51),
                     'entity_dists': boxes.new_zeros(0, 151),
@@ -266,7 +268,7 @@ class RA_SGG_Method(Motifs_Method):
     def _build_rel_labels(self, boxes_list, targets):
         from src.models.motifs import generate_object_pairs
         pair_indices_list, rel_labels_list = [], []
-        for box, target in zip(boxes_list, targets):
+        for box, target in zip(boxes_list, targets, strict=True):
             N = box.size(0) if box is not None else 0
             if N < 2:
                 pairs = box.new_zeros(0, 2, dtype=torch.long) if box is not None else torch.zeros(0, 2, dtype=torch.long)

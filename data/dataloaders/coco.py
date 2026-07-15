@@ -6,9 +6,10 @@ dataset (COCO-like) which returns image_id for evaluation.
 
 Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
 """
-from pathlib import Path
 import json
 import os
+from pathlib import Path
+
 import h5py
 import numpy as np
 import torch
@@ -17,6 +18,7 @@ import torchvision
 from pycocotools import mask as coco_mask
 
 import utils.transforms as T
+
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks,

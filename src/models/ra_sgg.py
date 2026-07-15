@@ -25,9 +25,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Beta
-from torchvision.ops import roi_align
+from torchvision.models import ResNeXt101_32X8D_Weights, resnext101_32x8d
 from torchvision.ops import nms as torchvision_nms
-from torchvision.models import resnext101_32x8d, ResNeXt101_32X8D_Weights
+from torchvision.ops import roi_align
 
 from .motifs import FrequencyBias, generate_object_pairs
 
@@ -92,11 +92,17 @@ class _FPN(nn.Module):
 
     def forward(self, features: OrderedDict) -> List[torch.Tensor]:
         names = list(features.keys())
-        lats = [conv(features[n]) for conv, n in zip(self.lateral_convs, names)]
+        lats = [
+            conv(features[n])
+            for conv, n in zip(self.lateral_convs, names, strict=True)
+        ]
         for i in range(len(lats) - 1, 0, -1):
             h, w = lats[i - 1].shape[-2], lats[i - 1].shape[-1]
             lats[i - 1] = lats[i - 1] + F.interpolate(lats[i], size=(h, w), mode='nearest')
-        return [conv(lat) for conv, lat in zip(self.output_convs, lats)]
+        return [
+            conv(lat)
+            for conv, lat in zip(self.output_convs, lats, strict=True)
+        ]
 
 
 class _FPNPooler(nn.Module):
@@ -276,7 +282,8 @@ class FPNFeatureExtractor(nn.Module):
     def forward(self, images, boxes_list, image_sizes, return_feature_maps=False):
         dev = next(self.parameters()).device
         results, fpn_all = [], []
-        for img, boxes, sz in zip(images, boxes_list, image_sizes):
+        for img, boxes, sz in zip(
+                images, boxes_list, image_sizes, strict=True):
             img = img.to(dev)
             boxes = boxes.to(dev)
             sz = sz.to(dev)
@@ -294,7 +301,9 @@ class FPNFeatureExtractor(nn.Module):
         """
         results = []
         fpn_ch = 256
-        for fpn_feats, boxes, sz, pi in zip(fpn_feats_list, boxes_list, image_sizes, pair_indices_list):
+        for fpn_feats, boxes, sz, pi in zip(
+                fpn_feats_list, boxes_list, image_sizes,
+                pair_indices_list, strict=True):
             P = pi.size(0)
             if P == 0:
                 results.append(boxes.new_zeros(0, self.output_dim))
@@ -363,7 +372,8 @@ class FPNFeatureExtractor(nn.Module):
         pre_nms = self.rpn_pre_nms_top_n['training' if training else 'testing']
         post_nms = self.rpn_post_nms_top_n['training' if training else 'testing']
 
-        for logit, delta, anc in zip(logits, bbox_deltas, anchors):
+        for logit, delta, anc in zip(
+                logits, bbox_deltas, anchors, strict=True):
             logit = logit.permute(0, 2, 3, 1).reshape(-1)      # [4*H*W]
             delta = delta.permute(0, 2, 3, 1).reshape(-1, 4)    # [4*H*W, 4]
             scores = torch.sigmoid(logit)
@@ -411,7 +421,8 @@ class FPNFeatureExtractor(nn.Module):
     def extract_object_features_from_boxes(self, fpn_feats, boxes_list, image_sizes):
         """Extract per-box ROI features — used for SGDet where boxes come from detector."""
         results = []
-        for fpn, boxes, sz in zip(fpn_feats, boxes_list, image_sizes):
+        for fpn, boxes, sz in zip(
+                fpn_feats, boxes_list, image_sizes, strict=True):
             if boxes.numel() == 0:
                 results.append(boxes.new_zeros(0, self.output_dim))
                 continue
@@ -428,7 +439,7 @@ class FPNFeatureExtractor(nn.Module):
         dev = next(self.parameters()).device
         all_boxes_norm, all_labels, all_scores = [], [], []
 
-        for img, sz in zip(images, image_sizes):
+        for img, sz in zip(images, image_sizes, strict=True):
             img = img.to(dev)
             ih, iw = sz[0].float(), sz[1].float()
             fpn_feats = self.fpn(self.backbone(img))
@@ -517,7 +528,10 @@ class MLP(nn.Module):
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(
-            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+            nn.Linear(n, k)
+            for n, k in zip(
+                [input_dim] + h, h + [output_dim], strict=True
+            ))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for i, layer in enumerate(self.layers):
@@ -1838,9 +1852,10 @@ class RASGGModel(PENetBase):
         import sys
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+        from types import SimpleNamespace
+
         from src.models.backbone import build_visual_extractor
         from utils.main_utils import get_dataset
-        from types import SimpleNamespace
 
         print(f"[MemoryBank] Building memory bank from: {ckpt_path}")
         print(f"[MemoryBank] Mode: {mode}, Max per triplet: {max_per_triplet}")
@@ -1904,7 +1919,8 @@ class RASGGModel(PENetBase):
 
         from tqdm import tqdm
 
-        for batch_idx, batch in enumerate(tqdm(train_loader, desc="Extracting features")):
+        for _batch_idx, batch in enumerate(
+                tqdm(train_loader, desc="Extracting features")):
             images, targets = batch[0], batch[1]
 
             if not isinstance(images, (list, tuple)):
@@ -1913,7 +1929,8 @@ class RASGGModel(PENetBase):
                 else:
                     continue
 
-            for img_idx, (img, target) in enumerate(zip(images, targets)):
+            for _img_idx, (img, target) in enumerate(
+                    zip(images, targets, strict=True)):
                 if torch.is_tensor(target.get('rel_annotations', None)):
                     rel_anns = target['rel_annotations']
                 else:
@@ -2010,7 +2027,7 @@ class RASGGModel(PENetBase):
 
         all_keys = []
         all_values = []
-        for tri_key, entries in featurebank_dict.items():
+        for _tri_key, entries in featurebank_dict.items():
             for key, value in entries:
                 all_keys.append(key)
                 all_values.append(value)
