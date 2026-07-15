@@ -82,16 +82,34 @@ class EpochEndCallback(Callback):
 
 
 class BestCheckpointCallback(ModelCheckpoint):
-    def on_validation_epoch_end(self, trainer, pl_module):
-        super().on_validation_epoch_end(trainer, pl_module)
+    @staticmethod
+    def _copy_best_alias(trainer):
         checkpoint_callback = trainer.checkpoint_callback
-        if checkpoint_callback and checkpoint_callback.best_model_path and trainer.global_rank == 0:
+        if (
+            checkpoint_callback
+            and checkpoint_callback.best_model_path
+            and trainer.global_rank == 0
+            and osp.exists(checkpoint_callback.best_model_path)
+        ):
             best_path = checkpoint_callback.best_model_path
             shutil.copy(best_path, osp.join(osp.dirname(best_path), 'best.ckpt'))
 
+    def on_validation_epoch_end(self, trainer, pl_module):
+        super().on_validation_epoch_end(trainer, pl_module)
+        self._copy_best_alias(trainer)
+
+    def on_validation_end(self, trainer, pl_module):
+        super().on_validation_end(trainer, pl_module)
+        self._copy_best_alias(trainer)
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        super().on_train_epoch_end(trainer, pl_module)
+        self._copy_best_alias(trainer)
+
+    def on_train_end(self, trainer, pl_module):
+        super().on_train_end(trainer, pl_module)
+        self._copy_best_alias(trainer)
+
     def on_test_end(self, trainer, pl_module):
         super().on_test_end(trainer, pl_module)
-        checkpoint_callback = trainer.checkpoint_callback
-        if checkpoint_callback and checkpoint_callback.best_model_path and trainer.global_rank == 0:
-            best_path = checkpoint_callback.best_model_path
-            shutil.copy(best_path, osp.join(osp.dirname(best_path), 'best.ckpt'))
+        self._copy_best_alias(trainer)
