@@ -1,3 +1,5 @@
+import json
+import inspect
 import os
 import os.path as osp
 import sys
@@ -28,6 +30,32 @@ from utils.path_utils import (
     save_eval_results,
     write_metadata,
 )
+
+
+def _allow_checkpoint_shape_adaptation(method_name):
+    """Keep compatibility remaps away from strict RA-SGG checkpoint loads."""
+    normalized = str(method_name).strip().lower().replace('-', '_')
+    return normalized not in {'ra_sgg', 'rasgg'}
+
+
+def _remap_external_checkpoint(model, state_dict, visual_extractor=None):
+    """Call legacy and visual-extractor-aware checkpoint remappers safely."""
+    remapper = getattr(model, 'remap_external_state_dict', None)
+    if not callable(remapper):
+        return state_dict
+
+    parameters = inspect.signature(remapper).parameters.values()
+    accepts_visual_extractor = any(
+        parameter.name == 'visual_extractor'
+        or parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+    if accepts_visual_extractor:
+        return remapper(
+            state_dict,
+            visual_extractor=visual_extractor,
+        )
+    return remapper(state_dict)
 
 
 class BaseExperiment(object):
@@ -243,8 +271,19 @@ class BaseExperiment(object):
             # into _visual_extractor if present (RA-SGG)
             if hasattr(self.method.model, 'remap_external_state_dict'):
                 ve = getattr(self.method, '_visual_extractor', None)
-                state_dict = self.method.model.remap_external_state_dict(state_dict, visual_extractor=ve)
-            self._adapt_state_dict(state_dict, self.method.model)
+                state_dict = _remap_external_checkpoint(
+                    self.method.model,
+                    state_dict,
+                    visual_extractor=ve,
+                )
+            self._adapt_state_dict(
+                state_dict,
+                self.method.model,
+                remap_external=False,
+                allow_shape_adaptation=_allow_checkpoint_shape_adaptation(
+                    self.args.method
+                ),
+            )
             ckpt_path = None  # Lightning does not need to load it again
 
         self.trainer.fit(
@@ -256,10 +295,10 @@ class BaseExperiment(object):
     def test(self):
         """Test the model, loading a checkpoint if available.
 
-        Handles size mismatches between checkpoint and current model config
-        (e.g., different entity_nums / rel_nums) by truncating or padding
-        weight tensors.  Works for both Lightning (.ckpt) and raw PyTorch
-        (.pth / .pt) checkpoints.
+        Generic adapters may handle configured size differences by truncating or
+        padding tensors. RA-SGG disables that compatibility path so an official
+        checkpoint shape mismatch fails instead of becoming a partial remap.
+        Works for Lightning (.ckpt) and raw PyTorch (.pth / .pt) checkpoints.
         """
         ckpt_path = None
         ckpt_dir = self.paths['ckpt_dir']
@@ -290,7 +329,29 @@ class BaseExperiment(object):
         # Load and adapt weights — unified for both .ckpt and .pth/.pt
         print(f'[Info] Loading checkpoint: {ckpt_path}')
         state_dict = self._load_checkpoint_state_dict(ckpt_path)
-        self._adapt_state_dict(state_dict, self.method.model)
+
+        # For external .pth/.pt checkpoints, remap backbone/FPN weights into
+        # _visual_extractor before loading the model (same as train() does).
+        external_remapped = False
+        if ckpt_path.endswith('.pth') or ckpt_path.endswith('.pt'):
+            if hasattr(self.method.model, 'remap_external_state_dict'):
+                ve = getattr(self.method, '_visual_extractor', None)
+                state_dict = _remap_external_checkpoint(
+                    self.method.model,
+                    state_dict,
+                    visual_extractor=ve,
+                )
+                external_remapped = True
+
+        model_load_report = self._adapt_state_dict(
+            state_dict,
+            self.method.model,
+            remap_external=not external_remapped,
+            allow_shape_adaptation=_allow_checkpoint_shape_adaptation(
+                self.args.method
+            ),
+        )
+        self._save_checkpoint_load_report(ckpt_path, model_load_report)
         result = self.trainer.test(self.method, self.data)
         self._save_test_results(result)
         return result
@@ -334,7 +395,13 @@ class BaseExperiment(object):
         return result
 
     @staticmethod
-    def _adapt_state_dict(state_dict, model):
+    def _adapt_state_dict(
+        state_dict,
+        model,
+        *,
+        remap_external=True,
+        allow_shape_adaptation=True,
+    ):
         """Load *state_dict* into *model*, adapting mismatched tensor shapes.
 
         For each parameter whose shape differs between the checkpoint and the
@@ -342,12 +409,14 @@ class BaseExperiment(object):
         ckpt is larger) or zero-padded (if ckpt is smaller).
 
         This allows a checkpoint trained with, e.g., entity_nums=150 to be
-        loaded into a model configured with entity_nums=151.
+        loaded into a model configured with entity_nums=151 when
+        ``allow_shape_adaptation`` is true. Reproduction-sensitive callers can
+        disable it and require exact shapes.
         """
         if not isinstance(state_dict, dict):
             raise TypeError(f'Expected dict state_dict, got {type(state_dict)}')
 
-        if hasattr(model, 'remap_external_state_dict'):
+        if remap_external and hasattr(model, 'remap_external_state_dict'):
             original_count = len(state_dict)
             remapped = model.remap_external_state_dict(state_dict)
             if remapped is not state_dict:
@@ -367,6 +436,12 @@ class BaseExperiment(object):
             model_w = model_state[k]
             if ckpt_w.shape == model_w.shape:
                 continue
+
+            if not allow_shape_adaptation:
+                raise ValueError(
+                    f"Checkpoint shape mismatch for {k}: "
+                    f"{tuple(ckpt_w.shape)} != {tuple(model_w.shape)}"
+                )
 
             adapted_shapes.add((tuple(ckpt_w.shape), tuple(model_w.shape)))
             w = ckpt_w
@@ -395,6 +470,35 @@ class BaseExperiment(object):
         if len(unexpected) > 0:
             print(f'[Info] Unexpected keys ({len(unexpected)}): {unexpected[:10]}...' if len(unexpected) > 10
                   else f'[Info] Unexpected keys ({len(unexpected)}): {unexpected}')
+
+        return {
+            'adapted_shape_count': adapted,
+            'adapted_shapes': [
+                {'checkpoint': list(source), 'model': list(target)}
+                for source, target in sorted(adapted_shapes)
+            ],
+            'missing_keys': list(missing),
+            'unexpected_keys': list(unexpected),
+        }
+
+    def _save_checkpoint_load_report(self, ckpt_path, model_load_report):
+        """Persist checkpoint compatibility evidence beside every test run."""
+        report = {
+            'checkpoint_path': ckpt_path,
+            'model_load': model_load_report,
+        }
+        external_report = getattr(
+            self.method.model, '_last_external_load_report', None
+        )
+        if external_report is not None:
+            report['external_remap'] = external_report
+
+        report_path = osp.join(self.save_dir, 'checkpoint_load_report.json')
+        os.makedirs(self.save_dir, exist_ok=True)
+        with open(report_path, 'w', encoding='utf-8') as handle:
+            json.dump(report, handle, indent=2, ensure_ascii=False)
+            handle.write('\n')
+        print(f'[Info] Checkpoint load report: {report_path}')
 
     def _save_test_results(self, result):
         """Persist Lightning test results into ``eval/<eval_mode>/``."""

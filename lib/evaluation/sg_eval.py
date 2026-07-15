@@ -82,8 +82,12 @@ def _evaluate_single_entry(gt_entry, pred_entry, mode, result_dict,
     gt_classes = gt_entry["gt_classes"]
 
     rel_scores = pred_entry["rel_scores"]
-    pred_rel_labels = 1 + rel_scores.argmax(axis=1)
-    pred_rel_scores = rel_scores.max(axis=1)
+    if "pred_rel_labels" in pred_entry:
+        pred_rel_labels = np.asarray(pred_entry["pred_rel_labels"], dtype=np.int64)
+        pred_rel_scores = np.asarray(pred_entry["pred_rel_scores"], dtype=np.float32)
+    else:
+        pred_rel_labels = 1 + rel_scores.argmax(axis=1)
+        pred_rel_scores = rel_scores.max(axis=1)
 
     pred_to_gt, _, _ = evaluate_recall(
         gt_rels=gt_rels,
@@ -175,7 +179,9 @@ def evaluate_recall(gt_rels, gt_boxes, gt_classes,
     rel_scores = np.column_stack((sub_scores, obj_scores, pred_scores))
 
     # sort by product of three confidence scores (descending)
-    sort_idx = rel_scores.prod(axis=1).argsort()[::-1]
+    # Official maskrcnn-benchmark uses argsort on the negated score.  Besides
+    # being clearer, this preserves its ordering for exact score ties.
+    sort_idx = np.argsort(-rel_scores.prod(axis=1))
     pred_triplets = pred_triplets[sort_idx]
     pred_triplet_boxes = pred_triplet_boxes[sort_idx]
     rel_scores = rel_scores[sort_idx]

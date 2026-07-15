@@ -38,6 +38,17 @@ class RA_SGG_Method(Motifs_Method):
         from src.models.ra_sgg import build_fpn_extractor
         self._visual_extractor = build_fpn_extractor(self.hparams)
 
+        # Convert the shared dataloader's ImageNet-normalized RGB tensors to
+        # the Caffe BGR pixel-mean space used by the official checkpoint.
+        adapt_scale = torch.tensor([0.225, 0.224, 0.229]).mul(255).view(3, 1, 1)
+        adapt_bias = torch.tensor([
+            0.406 * 255 - 102.9801,
+            0.456 * 255 - 115.9465,
+            0.485 * 255 - 122.7717,
+        ]).view(3, 1, 1)
+        self.register_buffer('_norm_scale', adapt_scale, persistent=False)
+        self.register_buffer('_norm_bias', adapt_bias, persistent=False)
+
     def _build_model(self, **args):
         return build_ra_sgg(self.hparams)
 
@@ -72,27 +83,55 @@ class RA_SGG_Method(Motifs_Method):
 
         boxes_list = [t.get("boxes") for t in targets]
         labels_list = [t.get("labels") for t in targets]
-        image_sizes = [t.get("size", t.get("orig_size")) for t in targets]
 
         # Build image list + device
         images_list = self._image_list_from_batch(images)
         if not images_list:
             raise NotImplementedError("Cannot infer image list from batch")
+        if len(images_list) != len(targets):
+            raise ValueError(
+                f"RA-SGG got {len(images_list)} image(s) but {len(targets)} target(s)"
+            )
 
         device = next(self._visual_extractor.parameters()).device
-        images_list = [img.to(device) for img in images_list]
-        # Infer missing sizes from image shapes (needed for CI / synthetic data)
+        prepared_images, image_sizes = [], []
+        box_dev, label_dev = [], []
         for idx in range(len(targets)):
-            if image_sizes[idx] is None:
-                if idx < len(images_list):
-                    image_sizes[idx] = torch.tensor(
-                        images_list[idx].shape[-2:], dtype=torch.float32, device=device)
-            if boxes_list[idx] is None or boxes_list[idx].numel() == 0:
-                # Needs at least 2 objects — create dummy boxes for synthetic test
-                boxes_list[idx] = torch.tensor(
-                    [[0.3, 0.3, 0.2, 0.2], [0.6, 0.6, 0.2, 0.2]], device=device)
-            if labels_list[idx] is None:
-                labels_list[idx] = torch.tensor([1, 2], device=device)
+            img = images_list[idx].to(device)
+            size = targets[idx].get("size", targets[idx].get("orig_size"))
+            if size is None:
+                size = torch.as_tensor(img.shape[-2:], dtype=torch.float32, device=device)
+            else:
+                size = torch.as_tensor(size, dtype=torch.float32, device=device)
+            if size.numel() != 2:
+                raise ValueError(f"image size must have 2 elements, got {tuple(size.shape)}")
+            height, width = int(size[0].item()), int(size[1].item())
+            if height > img.shape[-2] or width > img.shape[-1]:
+                raise ValueError(
+                    f"target image size {(height, width)} exceeds tensor size "
+                    f"{tuple(img.shape[-2:])}"
+                )
+
+            # NestedTensor batches are padded; the official backbone must not
+            # see that batch padding. Channel reversal is essential: RGB -> BGR.
+            img = img[..., :height, :width]
+            img = self._norm_scale * img[[2, 1, 0], ...] + self._norm_bias
+            # maskrcnn-benchmark pads ImageList tensors with zeros to a
+            # size-divisibility of 32 after Caffe normalization.
+            pad_h = (32 - height % 32) % 32
+            pad_w = (32 - width % 32) % 32
+            img = F.pad(img, (0, pad_w, 0, pad_h), value=0.0)
+            prepared_images.append(img)
+            image_sizes.append(size)
+
+            if boxes_list[idx] is None or labels_list[idx] is None:
+                raise ValueError("PredCls requires target boxes and object labels")
+            box_dev.append(boxes_list[idx].to(device))
+            label_dev.append(labels_list[idx].to(device))
+
+        images_list = prepared_images
+        boxes_list = box_dev
+        labels_list = label_dev
 
         roi_feats_list, feature_maps = self._visual_extractor(
             images_list, boxes_list, image_sizes, return_feature_maps=True)
@@ -107,9 +146,12 @@ class RA_SGG_Method(Motifs_Method):
         for i, (roi_feat, union_feat, pair_idx, rel_lab, box, lab) in enumerate(
                 zip(roi_feats_list, union_feats_list, pair_indices_list,
                     rel_labels_list, boxes_list, labels_list)):
+            # Relation annotations supervise training only. Evaluation must not
+            # expose predicate labels to the predictor.
+            model_rel_labels = rel_lab if is_training else torch.zeros_like(rel_lab)
             out = self.model(
                 roi_features=roi_feat, union_features=union_feat,
-                labels=lab, boxes=box, rel_labels=rel_lab,
+                labels=lab, boxes=box, rel_labels=model_rel_labels,
                 return_obj_preds=need_obj_preds, cur_iter=self._cur_iter)
             all_outputs.append(out)
 
@@ -123,6 +165,17 @@ class RA_SGG_Method(Motifs_Method):
             'obj_labels': [o['obj_labels'] for o in all_outputs],
             'predicate_bg_index': 'first',  # bg class at index 0
             'relation_softmax_scope': 'all',
+            'relation_nms': (
+                not is_training
+                and eval_mode in ('predcls', 'sgcls')
+                and getattr(self.hparams, 'ra_sgg_relation_nms', True)
+            ),
+            'relation_nms_iou_threshold': getattr(
+                self.hparams, 'ra_sgg_relation_nms_iou_threshold', 0.6
+            ),
+            'relation_nms_l21_threshold': getattr(
+                self.hparams, 'ra_sgg_relation_nms_l21_threshold', 0.7
+            ),
         }
 
         # Collect add_losses
@@ -254,6 +307,7 @@ class RA_SGG_Method(Motifs_Method):
     @torch.no_grad()
     def _eval_step(self, batch, prefix: str):
         """Evaluation step — uses standard PE-Net inference (no retrieval)."""
+        self._visual_extractor.to(self.device)
         images, targets = self._split_batch(batch)
         targets = self._move_targets_to_device(targets)
 

@@ -112,10 +112,13 @@ def resize(image, target, size, max_size=None):
     ratio_width, ratio_height = ratios
 
     target = target.copy()
-    if "boxes" in target:
-        boxes = target["boxes"]
-        scaled_boxes = boxes * torch.as_tensor([ratio_width, ratio_height, ratio_width, ratio_height])
-        target["boxes"] = scaled_boxes
+    for box_key in ("boxes", "eval_boxes"):
+        if box_key in target:
+            boxes = target[box_key]
+            scaled_boxes = boxes * torch.as_tensor(
+                [ratio_width, ratio_height, ratio_width, ratio_height]
+            )
+            target[box_key] = scaled_boxes
 
     if "area" in target:
         area = target["area"]
@@ -250,11 +253,12 @@ class Normalize(object):
             return image, None
         target = target.copy()
         h, w = image.shape[-2:]
-        if "boxes" in target:
-            boxes = target["boxes"]
-            boxes = box_xyxy_to_cxcywh(boxes)
-            boxes = boxes / torch.tensor([w, h, w, h], dtype=torch.float32)
-            target["boxes"] = boxes
+        for box_key in ("boxes", "eval_boxes"):
+            if box_key in target:
+                boxes = target[box_key]
+                boxes = box_xyxy_to_cxcywh(boxes)
+                boxes = boxes / torch.tensor([w, h, w, h], dtype=torch.float32)
+                target[box_key] = boxes
         return image, target
 
 

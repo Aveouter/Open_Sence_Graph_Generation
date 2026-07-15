@@ -9,6 +9,8 @@ Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references
 from pathlib import Path
 import json
 import os
+import h5py
+import numpy as np
 import torch
 import torch.utils.data
 import torchvision
@@ -17,7 +19,9 @@ from pycocotools import mask as coco_mask
 import utils.transforms as T
 
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks):
+    def __init__(self, img_folder, ann_file, transforms, return_masks,
+                 use_official_vg_h5_eval=False, vg_h5_file=None,
+                 vg_image_data_file=None):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
@@ -38,9 +42,177 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 
         self.rel_categories = all_rels['rel_categories']
 
+        # The historical COCO conversion rounds VG boxes and deduplicates exact
+        # relation triplets. Official maskrcnn-benchmark evaluation instead
+        # reads float boxes and raw (duplicate-preserving) relation tuples from
+        # the Stanford H5 file. RA-SGG checkpoint evaluation opts into that
+        # source explicitly so GT semantics match the official evaluator.
+        self.use_official_vg_h5_eval = bool(use_official_vg_h5_eval)
+        self._official_vg_eval_targets = None
+        if self.use_official_vg_h5_eval:
+            if vg_h5_file is None or vg_image_data_file is None:
+                raise ValueError(
+                    "official VG H5 evaluation requires vg_h5_file and "
+                    "vg_image_data_file"
+                )
+            self._official_vg_eval_targets = self._load_official_vg_eval_targets(
+                img_folder, vg_h5_file, vg_image_data_file
+            )
+
+    def _load_official_vg_eval_targets(self, img_folder, h5_file, image_data_file):
+        """Load the exact official test targets, preserving duplicate GT rels."""
+        with open(image_data_file, 'r') as f:
+            image_data = json.load(f)
+
+        corrupted = {1592, 1722, 4616, 4617}
+        image_data = [
+            item for item in image_data
+            if int(item['image_id']) not in corrupted
+            and os.path.exists(os.path.join(img_folder, f"{item['image_id']}.jpg"))
+        ]
+
+        with h5py.File(h5_file, 'r') as h5:
+            split = h5['split'][:]
+            first_box = h5['img_to_first_box'][:]
+            last_box = h5['img_to_last_box'][:]
+            first_rel = h5['img_to_first_rel'][:]
+            last_rel = h5['img_to_last_rel'][:]
+            selected = np.flatnonzero(
+                (split == 2) & (first_box >= 0) & (first_rel >= 0)
+            )
+
+            if len(image_data) != len(split):
+                raise RuntimeError(
+                    "VG image_data/H5 alignment mismatch after removing the four "
+                    f"known corrupt images: {len(image_data)} != {len(split)}"
+                )
+            official_ids = [int(image_data[idx]['image_id']) for idx in selected]
+            local_ids = list(map(int, self.ids))
+            if len(local_ids) != len(official_ids) or set(local_ids) != set(official_ids):
+                raise RuntimeError(
+                    "COCO test image set does not match official VG H5 test set: "
+                    f"local_count={len(self.ids)}, "
+                    f"official_count={len(official_ids)}"
+                )
+            if local_ids != official_ids:
+                # torchvision sorts COCO image ids, whereas the official VG
+                # loader preserves H5/image_data order. Restore that order.
+                self.ids = official_ids
+
+            # Keep the original int32 dtype through the in-place cxcywh->xyxy
+            # conversion. This intentionally preserves maskrcnn-benchmark's
+            # integer cast/truncation before the later image-scale conversion.
+            all_boxes = h5['boxes_1024'][:]
+            all_labels = h5['labels'][:, 0].astype(np.int64, copy=False)
+            all_rel_pairs = h5['relationships'][:].astype(np.int64, copy=False)
+            all_predicates = h5['predicates'][:, 0].astype(np.int64, copy=False)
+
+            targets = []
+            for h5_idx in selected:
+                box_start = int(first_box[h5_idx])
+                box_end = int(last_box[h5_idx]) + 1
+                rel_start = int(first_rel[h5_idx])
+                rel_end = int(last_rel[h5_idx]) + 1
+                info = image_data[h5_idx]
+                width, height = int(info['width']), int(info['height'])
+
+                boxes = all_boxes[box_start:box_end].copy()
+                # Official load_graphs conversion: cx,cy,w,h -> xyxy at 1024,
+                # then get_groundtruth rescales by max(original width,height).
+                boxes[:, :2] = boxes[:, :2] - boxes[:, 2:] / 2.0
+                boxes[:, 2:] = boxes[:, :2] + boxes[:, 2:]
+                boxes = boxes.astype(np.float32)
+                boxes *= float(max(width, height)) / 1024.0
+                boxes[:, 0::2] = np.clip(boxes[:, 0::2], 0.0, width - 1.0)
+                boxes[:, 1::2] = np.clip(boxes[:, 1::2], 0.0, height - 1.0)
+
+                local_pairs = all_rel_pairs[rel_start:rel_end] - box_start
+                relations = np.column_stack((
+                    local_pairs,
+                    all_predicates[rel_start:rel_end],
+                )).astype(np.int64, copy=False)
+                if (
+                    np.any(local_pairs < 0)
+                    or np.any(local_pairs >= (box_end - box_start))
+                ):
+                    raise RuntimeError(
+                        f"official VG relation index outside image boxes: {info['image_id']}"
+                    )
+
+                targets.append({
+                    'boxes': boxes,
+                    'labels': all_labels[box_start:box_end].copy(),
+                    'relations': relations,
+                    'width': width,
+                    'height': height,
+                })
+
+        print(
+            "[VisualGenome] Using official H5 test targets: "
+            f"{len(targets)} images, "
+            f"{sum(len(t['relations']) for t in targets)} raw relations"
+        )
+        return targets
+
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
+
+        if self.use_official_vg_h5_eval:
+            official = self._official_vg_eval_targets[idx]
+            width, height = img.size
+            if (width, height) != (official['width'], official['height']):
+                raise RuntimeError(
+                    f"VG image size mismatch for {image_id}: image={(width, height)}, "
+                    f"official={(official['width'], official['height'])}"
+                )
+            eval_boxes = torch.from_numpy(official['boxes'].copy()).float()
+            eval_labels = torch.from_numpy(official['labels'].copy()).long()
+            eval_rel_annotations = torch.from_numpy(
+                official['relations'].copy()
+            ).long()
+
+            # Official __getitem__ uses get_groundtruth(evaluation=False),
+            # which removes clipped boxes with zero width/height. The evaluator
+            # separately calls get_groundtruth(evaluation=True), which retains
+            # those boxes and raw relation tuples. Keep both views.
+            keep = (
+                (eval_boxes[:, 3] > eval_boxes[:, 1])
+                & (eval_boxes[:, 2] > eval_boxes[:, 0])
+            )
+            boxes = eval_boxes[keep]
+            labels = eval_labels[keep]
+            old_to_new = torch.full(
+                (len(eval_boxes),), -1, dtype=torch.long
+            )
+            old_to_new[keep] = torch.arange(int(keep.sum()), dtype=torch.long)
+            rel_keep = (
+                keep[eval_rel_annotations[:, 0]]
+                & keep[eval_rel_annotations[:, 1]]
+            )
+            rel_annotations = eval_rel_annotations[rel_keep].clone()
+            rel_annotations[:, 0] = old_to_new[rel_annotations[:, 0]]
+            rel_annotations[:, 1] = old_to_new[rel_annotations[:, 1]]
+            target = {
+                'boxes': boxes,
+                'labels': labels,
+                'image_id': torch.tensor([image_id]),
+                'area': (
+                    (boxes[:, 2] - boxes[:, 0] + 1.0)
+                    * (boxes[:, 3] - boxes[:, 1] + 1.0)
+                ),
+                'iscrowd': torch.zeros(len(boxes), dtype=torch.int64),
+                'orig_size': torch.as_tensor([height, width]),
+                'size': torch.as_tensor([height, width]),
+                'rel_annotations': rel_annotations,
+                'eval_boxes': eval_boxes,
+                'eval_labels': eval_labels,
+                'eval_rel_annotations': eval_rel_annotations,
+            }
+            if self._transforms is not None:
+                img, target = self._transforms(img, target)
+            return img, target
+
         # rel.json keys can be str or int depending on the split;
         # try str first, then int as fallback.
         rel_key = str(image_id)
@@ -145,7 +317,7 @@ class ConvertCocoPolysToMask(object):
         return image, target
 
 
-def make_coco_transforms(image_set):
+def make_coco_transforms(image_set, test_min_size=800, test_max_size=1333):
 
     normalize = T.Compose([
         T.ToTensor(),
@@ -169,7 +341,7 @@ def make_coco_transforms(image_set):
 
     if image_set == 'val':
         return T.Compose([
-            T.RandomResize([800], max_size=1333),
+            T.RandomResize([test_min_size], max_size=test_max_size),
             normalize,
         ])
 
@@ -189,5 +361,20 @@ def build(image_set, args):
         else:
             ann_file = ann_path + 'val.json'
 
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=False)
+    use_official_h5_eval = bool(
+        image_set == 'val'
+        and getattr(args, 'eval', False)
+        and getattr(args, 'vg_use_official_h5_eval_annotations', False)
+    )
+    dataset = CocoDetection(img_folder, ann_file,
+                            transforms=make_coco_transforms(
+                                image_set,
+                                test_min_size=getattr(args, 'test_min_size', 800),
+                                test_max_size=getattr(args, 'test_max_size', 1333)),
+                            return_masks=False,
+                            use_official_vg_h5_eval=use_official_h5_eval,
+                            vg_h5_file=os.path.join(
+                                args.data_root, 'VG-SGG-with-attri.h5'),
+                            vg_image_data_file=os.path.join(
+                                args.data_root, 'image_data.json'))
     return dataset

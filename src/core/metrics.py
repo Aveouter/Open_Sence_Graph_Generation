@@ -14,6 +14,8 @@ Architecture:
       └── _collect_results()          -- aggregate evaluator state → final dict
 """
 
+import heapq
+import math
 import re
 from typing import Any, Dict, List, Tuple
 
@@ -382,8 +384,6 @@ def _evaluate_sgdet_batch(
         rel_scores = _extract_relation_scores(
             rel_logits, rel_nums, score_transform=rel_score_transform
         )
-        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1)
-
         # ---- Hungarian score boosting (mimics missing evaluate_rel_batch.py) ----
         # For triplet queries matched to GT relations by the Hungarian matcher,
         # boost the GT predicate's score to push correct predictions up the ranking.
@@ -414,20 +414,8 @@ def _evaluate_sgdet_batch(
         for task_eval_key in evaluators:
             evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
-        for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+        for mr_eval_list in mr_evaluators.values():
+            _evaluate_mean_recall_entry(gt_entry, pred_entry, mr_eval_list, rel_nums)
 
 
 # ===========================================================================
@@ -538,24 +526,11 @@ def _evaluate_predcls_batch(
             "rel_scores": best_rel_scores,
         }
 
-        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
             evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
-        for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+        for mr_eval_list in mr_evaluators.values():
+            _evaluate_mean_recall_entry(gt_entry, pred_entry, mr_eval_list, rel_nums)
 
 
 def _evaluate_sgcls_batch(
@@ -672,7 +647,6 @@ def _evaluate_sgcls_batch(
             "rel_scores": best_rel_scores,
         }
 
-        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
             if "sgcls" in task_eval_key:
                 evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
@@ -680,19 +654,7 @@ def _evaluate_sgcls_batch(
         for task_mr_key, mr_eval_list in mr_evaluators.items():
             if "sgcls" not in task_mr_key:
                 continue
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+            _evaluate_mean_recall_entry(gt_entry, pred_entry, mr_eval_list, rel_nums)
 
 
 # ===========================================================================
@@ -822,25 +784,11 @@ def _evaluate_predcls_batch_hstrnet(
             "rel_scores": best_rel_scores,
         }
 
-        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
-
         for task_eval_key in evaluators:
             evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
-        for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+        for mr_eval_list in mr_evaluators.values():
+            _evaluate_mean_recall_entry(gt_entry, pred_entry, mr_eval_list, rel_nums)
 
 
 # ===========================================================================
@@ -955,7 +903,6 @@ def _evaluate_predcls_batch_egtr(
                 pred_obj_scores[r], pred_obj_labels[r] = torch.max(
                     torch.sigmoid(o_logits), dim=0)
 
-        pred_rel_labels = 1 + np.argmax(rel_scores, axis=1)
         pred_sub_labels = pred_sub_labels + 1
         pred_obj_labels = pred_obj_labels + 1
 
@@ -972,20 +919,8 @@ def _evaluate_predcls_batch_egtr(
         for task_eval_key in evaluators:
             evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
-        for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+        for mr_eval_list in mr_evaluators.values():
+            _evaluate_mean_recall_entry(gt_entry, pred_entry, mr_eval_list, rel_nums)
 
 
 # ===========================================================================
@@ -1113,29 +1048,14 @@ def _evaluate_predcls_batch_compact(
                 evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry_sgdet)
 
         for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
             if "predcls" in task_mr_key:
-                for rel_id in range(1, rel_nums + 1):
-                    gt_mask = (gt_rel_labels == rel_id)
-                    if not gt_mask.any():
-                        continue
-                    gt_entry_rel = {
-                        "gt_classes": gt_entry["gt_classes"],
-                        "gt_relations": gt_entry["gt_relations"][gt_mask],
-                        "gt_boxes": gt_entry["gt_boxes"],
-                    }
-                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_predcls)
+                _evaluate_mean_recall_entry(
+                    gt_entry, pred_entry_predcls, mr_eval_list, rel_nums
+                )
             if "sgdet" in task_mr_key:
-                for rel_id in range(1, rel_nums + 1):
-                    gt_mask = (gt_rel_labels == rel_id)
-                    if not gt_mask.any():
-                        continue
-                    gt_entry_rel = {
-                        "gt_classes": gt_entry["gt_classes"],
-                        "gt_relations": gt_entry["gt_relations"][gt_mask],
-                        "gt_boxes": gt_entry["gt_boxes"],
-                    }
-                    mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_sgdet)
+                _evaluate_mean_recall_entry(
+                    gt_entry, pred_entry_sgdet, mr_eval_list, rel_nums
+                )
 
 
 # ===========================================================================
@@ -1147,12 +1067,15 @@ def _evaluate_predcls_batch_pair_indices(
     mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
     rel_nums: int,
 ) -> None:
-    """Motifs/CVC-style PredCLS evaluation.
+    """Motifs/CVC/RA-SGG PredCLS evaluation.
 
-    These models score predicates for directed GT object pairs and expose
-    ``pair_indices`` in target object-index space. PredCLS can therefore match
-    each GT relation by its exact ``(subject_idx, object_idx)`` pair, without
-    IoU or Hungarian matching.
+    These models score predicates for ALL directed object pairs and expose
+    ``pair_indices`` in target object-index space. PredCLS evaluates ALL
+    N×(N−1) pairs (not just GT-matching pairs), so the model must correctly
+    rank GT relations above background pairs.
+
+    GT relations are matched to predictions by exact ``(subject_idx, object_idx)``
+    pair, without IoU or Hungarian matching.
     """
     logits_key = "rel_logits" if "rel_logits" in outputs else "pred_logits"
     required_keys = [logits_key, "pair_indices"]
@@ -1163,15 +1086,25 @@ def _evaluate_predcls_batch_pair_indices(
     for i, target in enumerate(targets):
         _validate_target(target)
 
-        gt_relations = _to_numpy(target["rel_annotations"]).astype(np.int64)
+        gt_relations = _to_numpy(
+            target.get("eval_rel_annotations", target["rel_annotations"])
+        ).astype(np.int64)
         if gt_relations.ndim == 1:
             gt_relations = gt_relations.reshape(-1, 3) if gt_relations.size > 0 else \
                 np.zeros((0, 3), dtype=np.int64)
         if gt_relations.shape[0] == 0:
             continue
 
-        gt_labels = _to_numpy(target["labels"]).astype(np.int64)
-        gt_boxes_xyxy = _rescale_boxes(target["boxes"], target["orig_size"])
+        gt_labels = _to_numpy(
+            target.get("eval_labels", target["labels"])
+        ).astype(np.int64)
+        gt_boxes_xyxy = _rescale_boxes(
+            target.get("eval_boxes", target["boxes"]), target["orig_size"]
+        )
+        pred_obj_labels = _to_numpy(target["labels"]).astype(np.int64)
+        pred_obj_boxes_xyxy = _rescale_boxes(
+            target["boxes"], target["orig_size"]
+        )
         gt_entry = {
             "gt_classes": gt_labels,
             "gt_relations": gt_relations,
@@ -1185,62 +1118,120 @@ def _evaluate_predcls_batch_pair_indices(
         if pair_indices.dim() == 3:
             pair_indices = pair_indices.squeeze(0)
 
-        R = gt_relations.shape[0]
-        best_rel_scores = np.zeros((R, rel_nums), dtype=np.float32)
-        if rel_logits.numel() > 0 and pair_indices.numel() > 0:
-            rel_scores_all = _extract_relation_scores(
-                rel_logits,
-                rel_nums,
-                predicate_bg_index=_per_image_metadata(
-                    outputs.get("predicate_bg_index", "last"), i, "last"
-                ),
-                softmax_scope=_per_image_metadata(
-                    outputs.get("relation_softmax_scope", "foreground"), i, "foreground"
-                ),
-                score_transform=_per_image_metadata(
-                    outputs.get("relation_score_transform", "softmax"), i, "softmax"
-                ),
+        if rel_logits.ndim != 2:
+            raise ValueError(
+                f"pair-index rel_logits must be [P, C], got {tuple(rel_logits.shape)}"
             )
-            pair_to_idx = {
-                (int(pair_indices[p, 0]), int(pair_indices[p, 1])): p
-                for p in range(pair_indices.shape[0])
-            }
-            for r in range(R):
-                key = (int(gt_relations[r, 0]), int(gt_relations[r, 1]))
-                p_idx = pair_to_idx.get(key)
-                if p_idx is not None and p_idx < rel_scores_all.shape[0]:
-                    best_rel_scores[r] = rel_scores_all[p_idx]
+        if pair_indices.ndim != 2 or pair_indices.shape[1] != 2:
+            raise ValueError(
+                f"pair_indices must be [P, 2], got {tuple(pair_indices.shape)}"
+            )
 
-        gt_sub_idx = gt_relations[:, 0]
-        gt_obj_idx = gt_relations[:, 1]
+        # Convert every candidate pair's logits to foreground predicate scores.
+        rel_scores_all = _extract_relation_scores(
+            rel_logits,
+            rel_nums,
+            predicate_bg_index=_per_image_metadata(
+                outputs.get("predicate_bg_index", "last"), i, "last"
+            ),
+            softmax_scope=_per_image_metadata(
+                outputs.get("relation_softmax_scope", "foreground"), i, "foreground"
+            ),
+            score_transform=_per_image_metadata(
+                outputs.get("relation_score_transform", "softmax"), i, "softmax"
+            ),
+        )
+
+        P = pair_indices.shape[0]
+        if rel_scores_all.shape[0] != P:
+            raise ValueError(
+                "pair-index prediction count mismatch: "
+                f"{P} pairs but {rel_scores_all.shape[0]} relation score rows"
+            )
+        s_idx = pair_indices[:, 0].cpu().numpy().astype(np.int64)
+        o_idx = pair_indices[:, 1].cpu().numpy().astype(np.int64)
+        if P and (
+            s_idx.min() < 0 or o_idx.min() < 0
+            or s_idx.max() >= len(pred_obj_labels)
+            or o_idx.max() >= len(pred_obj_labels)
+        ):
+            raise IndexError(
+                "pair_indices contain object indices outside "
+                f"[0, {len(pred_obj_labels)})"
+            )
+
+        use_relation_nms = bool(_per_image_metadata(
+            outputs.get("relation_nms", False), i, False
+        ))
+        nms_rel_labels = None
+        nms_rel_scores = None
+        if use_relation_nms:
+            bg_index = _per_image_metadata(
+                outputs.get("predicate_bg_index", "last"), i, "last"
+            )
+            softmax_scope = _per_image_metadata(
+                outputs.get("relation_softmax_scope", "foreground"),
+                i,
+                "foreground",
+            )
+            score_transform = _per_image_metadata(
+                outputs.get("relation_score_transform", "softmax"),
+                i,
+                "softmax",
+            )
+            if (
+                rel_logits.shape[1] != rel_nums + 1
+                or bg_index not in ("first", 0)
+                or softmax_scope != "all"
+                or score_transform != "softmax"
+            ):
+                raise ValueError(
+                    "relation_nms requires bg-first [P, rel_nums + 1] logits "
+                    "with a full softmax"
+                )
+            full_rel_scores = torch.softmax(rel_logits, dim=-1).cpu().numpy()
+            rel_scores_all, nms_rel_labels, nms_rel_scores = _relation_nms_pair_scores(
+                sub_boxes=pred_obj_boxes_xyxy[s_idx],
+                obj_boxes=pred_obj_boxes_xyxy[o_idx],
+                sub_classes=pred_obj_labels[s_idx],
+                obj_classes=pred_obj_labels[o_idx],
+                full_rel_scores=full_rel_scores,
+                object_boxes=pred_obj_boxes_xyxy,
+                pair_indices=np.column_stack((s_idx, o_idx)),
+                nms_threshold=float(_per_image_metadata(
+                    outputs.get("relation_nms_iou_threshold", 0.6), i, 0.6
+                )),
+                l21_threshold=float(_per_image_metadata(
+                    outputs.get("relation_nms_l21_threshold", 0.7), i, 0.7
+                )),
+                return_selection=True,
+            )
+
+        # Build prediction entry for ALL pairs (not just GT-matching ones).
+        # This is the correct PredCLS protocol: the model must rank GT
+        # relations above non-GT background pairs.
         pred_entry = {
-            "sub_boxes": gt_boxes_xyxy[gt_sub_idx].astype(np.float32),
-            "sub_classes": gt_labels[gt_sub_idx].astype(np.int64),
-            "sub_scores": np.ones(R, dtype=np.float32),
-            "obj_boxes": gt_boxes_xyxy[gt_obj_idx].astype(np.float32),
-            "obj_classes": gt_labels[gt_obj_idx].astype(np.int64),
-            "obj_scores": np.ones(R, dtype=np.float32),
-            "rel_scores": best_rel_scores,
+            "sub_boxes": pred_obj_boxes_xyxy[s_idx].astype(np.float32),
+            "sub_classes": pred_obj_labels[s_idx].astype(np.int64),
+            "sub_scores": np.ones(P, dtype=np.float32),
+            "obj_boxes": pred_obj_boxes_xyxy[o_idx].astype(np.float32),
+            "obj_classes": pred_obj_labels[o_idx].astype(np.int64),
+            "obj_scores": np.ones(P, dtype=np.float32),
+            "rel_scores": rel_scores_all,
         }
+        if nms_rel_labels is not None:
+            # The official relation-NMS may assign background (label zero) if
+            # every foreground predicate for a heavily-overlapping pair has
+            # already been suppressed. Preserve that case explicitly instead
+            # of forcing ``1 + argmax(foreground_scores)``.
+            pred_entry["pred_rel_labels"] = nms_rel_labels
+            pred_entry["pred_rel_scores"] = nms_rel_scores
 
-        pred_rel_labels = 1 + np.argmax(best_rel_scores, axis=1)
         for task_eval_key in evaluators:
             evaluators[task_eval_key].evaluate_entry(gt_entry, pred_entry)
 
-        for task_mr_key, mr_eval_list in mr_evaluators.items():
-            gt_rel_labels = gt_relations[:, 2]
-            for rel_id in range(1, rel_nums + 1):
-                gt_mask = (gt_rel_labels == rel_id)
-                if not gt_mask.any():
-                    continue
-                pred_mask = (pred_rel_labels == rel_id)
-                gt_entry_rel = {
-                    "gt_classes": gt_entry["gt_classes"],
-                    "gt_relations": gt_entry["gt_relations"][gt_mask],
-                    "gt_boxes": gt_entry["gt_boxes"],
-                }
-                pred_entry_rel = _filter_by_mask(pred_entry, pred_mask)
-                mr_eval_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry_rel)
+        for mr_eval_list in mr_evaluators.values():
+            _evaluate_mean_recall_entry(gt_entry, pred_entry, mr_eval_list, rel_nums)
 
 
 # ===========================================================================
@@ -1299,6 +1290,7 @@ def _extract_relation_scores(
             else:
                 rel_scores = torch.softmax(rel_logits[:, :-1], dim=-1)
     elif dim == rel_nums:
+        # Already foreground-only; predicate_bg_index is irrelevant here.
         rel_scores = torch.softmax(rel_logits, dim=-1)
     else:
         raise ValueError(
@@ -1307,6 +1299,213 @@ def _extract_relation_scores(
         )
 
     return rel_scores.detach().cpu().numpy()
+
+
+def _relation_nms_pair_scores(
+    sub_boxes: np.ndarray,
+    obj_boxes: np.ndarray,
+    sub_classes: np.ndarray,
+    obj_classes: np.ndarray,
+    full_rel_scores: np.ndarray,
+    nms_threshold: float = 0.6,
+    l21_threshold: float = 0.7,
+    block_size: int = 128,
+    object_boxes: np.ndarray = None,
+    pair_indices: np.ndarray = None,
+    return_selection: bool = False,
+) -> np.ndarray:
+    """Apply the PE-Net/RA-SGG relation NMS used for PredCls and SGCls.
+
+    ``full_rel_scores`` contains background at column zero. The returned array
+    contains foreground-only scores with exactly one selected predicate per
+    pair, which lets the shared evaluator preserve the official global ranking.
+    IoU/L21 comparisons are blocked to avoid the official implementation's
+    ``[P, P, C]`` temporary while retaining the same decisions.  The greedy
+    selection uses a lazy row-maximum heap, which is equivalent to repeatedly
+    applying a global flattened ``argmax`` but avoids scanning ``P*C`` values
+    once for every pair.
+    """
+    full_rel_scores = np.asarray(full_rel_scores, dtype=np.float32)
+    pair_count, class_count = full_rel_scores.shape
+    if class_count < 2:
+        raise ValueError("relation_nms requires background plus foreground scores")
+    if pair_count == 0:
+        empty_scores = np.zeros((0, class_count - 1), dtype=np.float32)
+        if return_selection:
+            return empty_scores, np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float32)
+        return empty_scores
+
+    sub_boxes = np.asarray(sub_boxes, dtype=np.float32)
+    obj_boxes = np.asarray(obj_boxes, dtype=np.float32)
+    sub_classes = np.asarray(sub_classes, dtype=np.int64)
+    obj_classes = np.asarray(obj_classes, dtype=np.int64)
+    if not (
+        len(sub_boxes) == len(obj_boxes) == len(sub_classes)
+        == len(obj_classes) == pair_count
+    ):
+        raise ValueError("relation_nms pair fields must have the same length")
+
+    # Compute the official inclusive-coordinate IoU without the repository's
+    # portable Python double loop.  In PredCls all pair boxes index the same
+    # small GT object set, so one N x N IoU matrix is enough.
+    object_indexed = object_boxes is not None and pair_indices is not None
+    if object_indexed:
+        object_boxes = np.asarray(object_boxes, dtype=np.float32)
+        pair_indices = np.asarray(pair_indices, dtype=np.int64)
+        if pair_indices.shape != (pair_count, 2):
+            raise ValueError(
+                f"pair_indices must be {(pair_count, 2)}, got {pair_indices.shape}"
+            )
+        object_ious = _inclusive_iou_rows(object_boxes, object_boxes)
+        s_indices = pair_indices[:, 0]
+        o_indices = pair_indices[:, 1]
+
+    is_overlap = np.empty((pair_count, pair_count), dtype=bool)
+    for start in range(0, pair_count, block_size):
+        stop = min(start + block_size, pair_count)
+        if object_indexed:
+            sub_iou = object_ious[s_indices[start:stop, None], s_indices[None, :]]
+            obj_iou = object_ious[o_indices[start:stop, None], o_indices[None, :]]
+        else:
+            sub_iou = _inclusive_iou_rows(sub_boxes[start:stop], sub_boxes)
+            obj_iou = _inclusive_iou_rows(obj_boxes[start:stop], obj_boxes)
+        is_overlap[start:stop] = (
+            (np.minimum(sub_iou, obj_iou) >= nms_threshold)
+            & (sub_classes[start:stop, None] == sub_classes[None, :])
+            & (obj_classes[start:stop, None] == obj_classes[None, :])
+        )
+
+    # For non-negative probability rows p and q,
+    #   sum_c sqrt(p_c^2 + q_c^2) >= sqrt(sum(p)^2 + sum(q)^2).
+    # Full softmax rows sum to one, so the official 0.7 condition is always
+    # true (lower bound sqrt(2)).  Keep the general blocked path for callers
+    # using a larger threshold or non-probability scores.
+    row_sums = full_rel_scores.sum(axis=1, dtype=np.float64)
+    can_use_l21_bound = np.all(full_rel_scores >= 0.0)
+    min_l21_bound = math.hypot(float(row_sums.min()), float(row_sums.min()))
+    if not (can_use_l21_bound and min_l21_bound > l21_threshold):
+        squared_scores = np.square(full_rel_scores)
+        for start in range(0, pair_count, block_size):
+            stop = min(start + block_size, pair_count)
+            l21 = np.sqrt(
+                squared_scores[start:stop, None, :]
+                + squared_scores[None, :, :]
+            ).sum(axis=-1)
+            is_overlap[start:stop] &= l21 > l21_threshold
+
+    # Official greedy algorithm, accelerated with one live row maximum per
+    # heap entry.  Heap tuple ordering (-score, row, class) exactly matches
+    # NumPy's flattened argmax tie rule (smallest row, then smallest class).
+    working_scores = full_rel_scores.copy()
+    working_scores[:, 0] = 0.0
+    suppressed = np.zeros_like(working_scores, dtype=bool)
+    selected = np.zeros(pair_count, dtype=bool)
+    selected_labels = np.zeros(pair_count, dtype=np.int64)
+    versions = np.zeros(pair_count, dtype=np.int64)
+    current_labels = working_scores.argmax(axis=1).astype(np.int64)
+    current_scores = working_scores[
+        np.arange(pair_count, dtype=np.int64), current_labels
+    ]
+    heap = [
+        (-float(current_scores[row]), row, int(current_labels[row]), 0)
+        for row in range(pair_count)
+    ]
+    heapq.heapify(heap)
+
+    selected_count = 0
+    while selected_count < pair_count:
+        while heap:
+            neg_score, pair_idx, class_idx, version = heapq.heappop(heap)
+            if not selected[pair_idx] and version == versions[pair_idx]:
+                break
+        else:
+            raise RuntimeError("relation_nms row-maximum heap was exhausted")
+
+        # Background was initialized to zero. If the global maximum is now
+        # zero, every remaining row has exhausted all foreground predicates;
+        # the official flattened argmax assigns background to those rows in
+        # row order. Their selected score is recovered from the untouched
+        # ``full_rel_scores`` below, so this bulk path is exactly equivalent.
+        if -neg_score == 0.0 and class_idx == 0:
+            selected_labels[~selected] = 0
+            selected[:] = True
+            selected_count = pair_count
+            break
+
+        selected[pair_idx] = True
+        selected_labels[pair_idx] = class_idx
+        selected_count += 1
+
+        affected_all = np.flatnonzero(is_overlap[pair_idx] & ~selected)
+        if affected_all.size == 0:
+            continue
+        suppressed[affected_all, class_idx] = True
+        affected = affected_all[current_labels[affected_all] == class_idx]
+        if affected.size == 0:
+            continue
+
+        candidate_scores = np.where(
+            suppressed[affected], 0.0, working_scores[affected]
+        )
+        new_labels = candidate_scores.argmax(axis=1).astype(np.int64)
+        new_scores = candidate_scores[
+            np.arange(affected.size, dtype=np.int64), new_labels
+        ]
+        current_labels[affected] = new_labels
+        current_scores[affected] = new_scores
+        versions[affected] += 1
+        for row, label, score, version in zip(
+            affected.tolist(), new_labels.tolist(), new_scores.tolist(),
+            versions[affected].tolist(),
+        ):
+            heapq.heappush(heap, (-float(score), row, label, version))
+
+    selected_scores = full_rel_scores[
+        np.arange(pair_count, dtype=np.int64), selected_labels
+    ]
+    foreground_scores = np.zeros(
+        (pair_count, class_count - 1), dtype=np.float32
+    )
+    foreground_mask = selected_labels > 0
+    foreground_scores[
+        np.flatnonzero(foreground_mask), selected_labels[foreground_mask] - 1
+    ] = selected_scores[foreground_mask]
+    if return_selection:
+        return foreground_scores, selected_labels, selected_scores
+    return foreground_scores
+
+
+def _inclusive_iou_rows(boxes: np.ndarray, query_boxes: np.ndarray) -> np.ndarray:
+    """Vectorized Fast R-CNN IoU with the legacy inclusive ``+1`` convention."""
+    boxes = np.asarray(boxes, dtype=np.float64)
+    query_boxes = np.asarray(query_boxes, dtype=np.float64)
+    if boxes.ndim != 2 or boxes.shape[1] != 4:
+        raise ValueError(f"boxes must be [N, 4], got {boxes.shape}")
+    if query_boxes.ndim != 2 or query_boxes.shape[1] != 4:
+        raise ValueError(f"query_boxes must be [M, 4], got {query_boxes.shape}")
+
+    iw = np.minimum(boxes[:, None, 2], query_boxes[None, :, 2]) - np.maximum(
+        boxes[:, None, 0], query_boxes[None, :, 0]
+    ) + 1.0
+    ih = np.minimum(boxes[:, None, 3], query_boxes[None, :, 3]) - np.maximum(
+        boxes[:, None, 1], query_boxes[None, :, 1]
+    ) + 1.0
+    intersection = np.maximum(iw, 0.0) * np.maximum(ih, 0.0)
+    box_area = (
+        (boxes[:, 2] - boxes[:, 0] + 1.0)
+        * (boxes[:, 3] - boxes[:, 1] + 1.0)
+    )
+    query_area = (
+        (query_boxes[:, 2] - query_boxes[:, 0] + 1.0)
+        * (query_boxes[:, 3] - query_boxes[:, 1] + 1.0)
+    )
+    union = box_area[:, None] + query_area[None, :] - intersection
+    return np.divide(
+        intersection,
+        union,
+        out=np.zeros_like(intersection),
+        where=union > 0.0,
+    )
 
 
 def _per_image_metadata(value: Any, index: int, default: Any) -> Any:
@@ -1350,17 +1549,19 @@ def _collect_main_recall(
 
 
 def _collect_mean_recall(
-    mr_evaluators: Dict[str, List[SceneGraphEvaluator]]
+    mr_evaluators: Dict[str, List[SceneGraphEvaluator]],
 ) -> Dict[str, float]:
     """Average per-class recall values to get mean recall (mR@k)."""
     results = {}
     for task, evaluator_list in mr_evaluators.items():
         for k in (10, 20, 50, 100):
-            per_class = []
-            for evaluator in evaluator_list:
-                recalls = evaluator.recalls
-                if k in recalls and not np.isnan(recalls[k]):
-                    per_class.append(recalls[k])
+            # Official SGMeanRecall uses a fixed denominator containing every
+            # foreground predicate. Classes absent from the evaluated split are
+            # therefore zero, not omitted from the average.
+            per_class = [
+                evaluator.recalls.get(k, 0.0)
+                for evaluator in evaluator_list
+            ]
             if per_class:
                 results[f"{task}_mR@{k}"] = float(np.mean(per_class))
     return results
@@ -1477,11 +1678,35 @@ def compute_head_body_tail_mr(
 # Helpers
 # ===========================================================================
 
-def _filter_by_mask(entry: Dict[str, np.ndarray], mask: np.ndarray) -> Dict[str, np.ndarray]:
-    """Filter a pred_entry dict by boolean mask along the first axis."""
-    mask = np.asarray(mask, dtype=bool)
-    return {k: v[mask] for k, v in entry.items()}
+def _evaluate_mean_recall_entry(
+    gt_entry: Dict[str, np.ndarray],
+    pred_entry: Dict[str, np.ndarray],
+    evaluator_list: List[SceneGraphEvaluator],
+    rel_nums: int,
+) -> None:
+    """Update per-predicate recall using one shared, globally ranked prediction list.
 
+    Mean-recall classes only receive class-filtered ground truth. Predictions
+    must remain unfiltered so every predicate competes for the same top-K slots,
+    matching the official ``SGMeanRecall`` protocol.
+    """
+    if len(evaluator_list) != rel_nums:
+        raise ValueError(
+            f"mean-recall evaluator count mismatch: {len(evaluator_list)} != {rel_nums}"
+        )
+
+    gt_relations = gt_entry["gt_relations"]
+    gt_rel_labels = gt_relations[:, 2]
+    for rel_id in range(1, rel_nums + 1):
+        gt_mask = gt_rel_labels == rel_id
+        if not gt_mask.any():
+            continue
+        gt_entry_rel = {
+            "gt_classes": gt_entry["gt_classes"],
+            "gt_relations": gt_relations[gt_mask],
+            "gt_boxes": gt_entry["gt_boxes"],
+        }
+        evaluator_list[rel_id - 1].evaluate_entry(gt_entry_rel, pred_entry)
 
 def _rescale_boxes(boxes, orig_size) -> np.ndarray:
     """Convert normalized boxes to absolute pixel coordinates (numpy array output)."""
