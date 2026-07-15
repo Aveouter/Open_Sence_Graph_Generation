@@ -49,7 +49,7 @@ def create_parser():
     parser.add_argument('--val_dataset_size', default=None, type=int,
                         help='Optional val/test subset size for quick smoke tests')
     parser.add_argument('--test_dataset_size', default=None, type=int,
-                        help='Optional test subset size; overrides val_dataset_size in eval mode')
+                        help='Optional test size; overrides val_dataset_size in eval mode')
     parser.add_argument('--data_root', default='./data')
     parser.add_argument('--dataname', '-d', default='VisualGenome', type=str,
                         choices=['VisualGenome', 'OpenImageV6'],
@@ -122,7 +122,7 @@ def create_parser():
 
     # lightning
     parser.add_argument('--gpus', nargs='+', default=[0], type=int)
-    parser.add_argument('--metric_for_bestckpt', default='val_loss', type=str)
+    parser.add_argument('--metric_for_bestckpt', default=None, type=str)
     parser.add_argument('--ckpt_path', default=None, type=str)
 
     # CLIP hierarchical alignment parameters
@@ -200,6 +200,6 @@ def default_parser():
         'accumulate_grad_batches': 1,
         # Lightning parameters
         'gpus': [2,3,4,5],
-        'metric_for_bestckpt': 'val_loss'
+        'metric_for_bestckpt': None
     }
     return default_values
