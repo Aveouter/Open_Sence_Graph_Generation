@@ -25,12 +25,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Beta
-from torchvision.ops import roi_align
+from torchvision.models import ResNeXt101_32X8D_Weights, resnext101_32x8d
 from torchvision.ops import nms as torchvision_nms
-from torchvision.models import resnext101_32x8d, ResNeXt101_32X8D_Weights
+from torchvision.ops import roi_align
 
 from .motifs import FrequencyBias, generate_object_pairs
-
 
 # ============================================================================
 # FPN Feature Extractor — standalone, for RA-SGG only (does NOT touch backbone.py)
@@ -92,26 +91,53 @@ class _FPN(nn.Module):
 
     def forward(self, features: OrderedDict) -> List[torch.Tensor]:
         names = list(features.keys())
-        lats = [conv(features[n]) for conv, n in zip(self.lateral_convs, names)]
+        lats = [
+            conv(features[n])
+            for conv, n in zip(self.lateral_convs, names, strict=True)
+        ]
         for i in range(len(lats) - 1, 0, -1):
             h, w = lats[i - 1].shape[-2], lats[i - 1].shape[-1]
             lats[i - 1] = lats[i - 1] + F.interpolate(lats[i], size=(h, w), mode='nearest')
-        return [conv(lat) for conv, lat in zip(self.output_convs, lats)]
+        return [
+            conv(lat)
+            for conv, lat in zip(self.output_convs, lats, strict=True)
+        ]
 
 
 class _FPNPooler(nn.Module):
-    """Level-aware ROIAlign 7×7 using FPN heuristic."""
+    """FPN-aware ROIAlign — matches official maskrcnn-benchmark ``Pooler``.
 
-    def __init__(self, output_size: int = 7):
+    Two modes:
+      ``cat_all_levels=False`` (default): route each ROI to a single FPN level
+        via area heuristic, then ROIAlign.  Matches official box-head pooler.
+      ``cat_all_levels=True``: pool every ROI from ALL FPN levels, concat along
+        channels, then reduce via 3×3 Conv2d + ReLU.  Matches official union
+        ``RelationFeatureExtractor`` pooler (POOLING_ALL_LEVELS=True).
+    """
+
+    _SCALES = (0.25, 0.125, 0.0625, 0.03125)  # P2–P5
+
+    def __init__(self, output_size: int = 7, cat_all_levels: bool = False,
+                 in_channels: int = 256):
         super().__init__()
         self.output_size = output_size
+        self.cat_all_levels = cat_all_levels
         self.canonical_scale = 224.0
         self.canonical_level = 4
         self.k_min, self.k_max = 2, 5
 
+        if cat_all_levels:
+            num_scales = len(self._SCALES)
+            self.reduce_channel = nn.Sequential(
+                nn.Conv2d(in_channels * num_scales, in_channels, 3, padding=1),
+                nn.ReLU(inplace=True),
+            )
+
     def _assign_levels(self, boxes: torch.Tensor, image_size: torch.Tensor) -> torch.Tensor:
-        w = boxes[:, 2] * image_size[1].float()
-        h = boxes[:, 3] * image_size[0].float()
+        # maskrcnn-benchmark's BoxList uses the legacy inclusive-coordinate
+        # area, i.e. (x2 - x1 + 1) * (y2 - y1 + 1).
+        w = boxes[:, 2] * image_size[1].float() + 1.0
+        h = boxes[:, 3] * image_size[0].float() + 1.0
         area = torch.sqrt(w * h + 1e-6)
         lv = torch.floor(self.canonical_level + torch.log2(area / self.canonical_scale + 1e-6))
         return lv.clamp(self.k_min, self.k_max).long() - self.k_min
@@ -127,7 +153,16 @@ class _FPNPooler(nn.Module):
         y1 = (cy - h / 2) * img_h
         x2 = (cx + w / 2) * img_w
         y2 = (cy + h / 2) * img_h
-        lv = self._assign_levels(boxes, image_size)
+
+        if self.cat_all_levels:
+            return self._forward_cat_all_levels(fpn_feats, x1, y1, x2, y2, device, N)
+        return self._forward_single_level(fpn_feats, x1, y1, x2, y2, device, N, img_h, img_w)
+
+    def _forward_single_level(self, fpn_feats, x1, y1, x2, y2, device, N, img_h, img_w):
+        """Route each ROI to one FPN level based on area."""
+        # reconstruct normalized boxes for level assignment
+        boxes = torch.stack([(x1+x2)/2/img_w, (y1+y2)/2/img_h, (x2-x1)/img_w, (y2-y1)/img_h], dim=1)
+        lv = self._assign_levels(boxes, torch.tensor([img_h, img_w], device=device))
         out = [None] * N
         for li in range(len(fpn_feats)):
             m = lv == li
@@ -138,11 +173,32 @@ class _FPNPooler(nn.Module):
             fm = fpn_feats[li]
             if fm.dim() == 3:
                 fm = fm.unsqueeze(0)
+            scale = self._SCALES[li]
             ro = roi_align(fm, r, output_size=(self.output_size, self.output_size),
-                           spatial_scale=1.0 / (2 ** (li + 2)), aligned=True)
+                           spatial_scale=scale, sampling_ratio=2, aligned=False)
             for j, idx in enumerate(torch.where(m)[0]):
                 out[idx] = ro[j]
         return torch.stack([o for o in out if o is not None]).flatten(1)
+
+    def _forward_cat_all_levels(self, fpn_feats, x1, y1, x2, y2, device, N):
+        """Pool from ALL FPN levels, concat channels, then reduce_channel.
+
+        Official RelationFeatureExtractor pooler: P2–P5 → concat 256×4=1024 → reduce→256.
+        """
+        num_lvls = min(len(self._SCALES), len(fpn_feats))
+        lb = torch.stack([x1, y1, x2, y2], dim=1)
+        r = torch.cat([torch.zeros(N, 1, device=device), lb], dim=1)
+        level_results = []
+        for li in range(num_lvls):
+            fm = fpn_feats[li]
+            if fm.dim() == 3:
+                fm = fm.unsqueeze(0)
+            pooled = roi_align(fm, r, output_size=(self.output_size, self.output_size),
+                               spatial_scale=self._SCALES[li], sampling_ratio=2, aligned=False)
+            level_results.append(pooled)  # [N, 256, 7, 7]
+        concat = torch.cat(level_results, dim=1)  # [N, 1024, 7, 7]
+        reduced = self.reduce_channel(concat)  # [N, 256, 7, 7]
+        return reduced.flatten(1)
 
 
 class FPNFeatureExtractor(nn.Module):
@@ -162,7 +218,8 @@ class FPNFeatureExtractor(nn.Module):
         super().__init__()
         self.backbone = _ResNetFPNBackbone(pretrained, frozen)
         self.fpn = _FPN(self.backbone.out_channels, out_channels=256)
-        self.pooler = _FPNPooler(output_size=roi_output_size)
+        self.pooler = _FPNPooler(output_size=roi_output_size)  # single-level (box head)
+        self.union_pooler = _FPNPooler(output_size=roi_output_size, cat_all_levels=True)  # multi-level
         self.roi_output_size = roi_output_size
         fpn_ch = 256
         self.fc6 = nn.Linear(fpn_ch * roi_output_size ** 2, 4096)
@@ -224,7 +281,8 @@ class FPNFeatureExtractor(nn.Module):
     def forward(self, images, boxes_list, image_sizes, return_feature_maps=False):
         dev = next(self.parameters()).device
         results, fpn_all = [], []
-        for img, boxes, sz in zip(images, boxes_list, image_sizes):
+        for img, boxes, sz in zip(
+                images, boxes_list, image_sizes, strict=True):
             img = img.to(dev)
             boxes = boxes.to(dev)
             sz = sz.to(dev)
@@ -236,13 +294,15 @@ class FPNFeatureExtractor(nn.Module):
         return (results, fpn_all) if return_feature_maps else results
 
     def extract_union_features(self, fpn_feats_list, boxes_list, image_sizes, pair_indices_list):
-        """Union features matching official RelationFeatureExtractor EXACTLY.
+        """Union features matching official RelationFeatureExtractor.
 
-        official: union_vis (FPN Pooler) + rect_conv(head/tail masks) → fc6+fc7
+        Official: multi-level FPNPooler (cat_all_levels) + rect_conv → fc6+fc7
         """
         results = []
         fpn_ch = 256
-        for fpn_feats, boxes, sz, pi in zip(fpn_feats_list, boxes_list, image_sizes, pair_indices_list):
+        for fpn_feats, boxes, sz, pi in zip(
+                fpn_feats_list, boxes_list, image_sizes,
+                pair_indices_list, strict=True):
             P = pi.size(0)
             if P == 0:
                 results.append(boxes.new_zeros(0, self.output_dim))
@@ -257,13 +317,13 @@ class FPNFeatureExtractor(nn.Module):
             y2 = (cy + h/2)*img_h
             si, oi = pi[:, 0], pi[:, 1]
 
-            # Union visual via FPN Pooler → [P, 256, 7, 7]
+            # Union visual via multi-level FPN Pooler → [P, 256, 7, 7]
             ux1 = torch.min(x1[si], x1[oi])
             uy1 = torch.min(y1[si], y1[oi])
             ux2 = torch.max(x2[si], x2[oi])
             uy2 = torch.max(y2[si], y2[oi])
             ub = torch.stack([(ux1+ux2)/2/img_w, (uy1+uy2)/2/img_h, (ux2-ux1)/img_w, (uy2-uy1)/img_h], dim=1)
-            union_vis = self.pooler(fpn_feats, ub, sz).view(P, fpn_ch, self.roi_output_size, self.roi_output_size)
+            union_vis = self.union_pooler(fpn_feats, ub, sz).view(P, fpn_ch, self.roi_output_size, self.roi_output_size)
 
             # Rectangle masks (head + tail) → rect_conv → [P, 256, 7, 7]
             x1_n = x1/img_w*self.rect_size
@@ -311,7 +371,8 @@ class FPNFeatureExtractor(nn.Module):
         pre_nms = self.rpn_pre_nms_top_n['training' if training else 'testing']
         post_nms = self.rpn_post_nms_top_n['training' if training else 'testing']
 
-        for logit, delta, anc in zip(logits, bbox_deltas, anchors):
+        for logit, delta, anc in zip(
+                logits, bbox_deltas, anchors, strict=True):
             logit = logit.permute(0, 2, 3, 1).reshape(-1)      # [4*H*W]
             delta = delta.permute(0, 2, 3, 1).reshape(-1, 4)    # [4*H*W, 4]
             scores = torch.sigmoid(logit)
@@ -359,7 +420,8 @@ class FPNFeatureExtractor(nn.Module):
     def extract_object_features_from_boxes(self, fpn_feats, boxes_list, image_sizes):
         """Extract per-box ROI features — used for SGDet where boxes come from detector."""
         results = []
-        for fpn, boxes, sz in zip(fpn_feats, boxes_list, image_sizes):
+        for fpn, boxes, sz in zip(
+                fpn_feats, boxes_list, image_sizes, strict=True):
             if boxes.numel() == 0:
                 results.append(boxes.new_zeros(0, self.output_dim))
                 continue
@@ -376,7 +438,7 @@ class FPNFeatureExtractor(nn.Module):
         dev = next(self.parameters()).device
         all_boxes_norm, all_labels, all_scores = [], [], []
 
-        for img, sz in zip(images, image_sizes):
+        for img, sz in zip(images, image_sizes, strict=True):
             img = img.to(dev)
             ih, iw = sz[0].float(), sz[1].float()
             fpn_feats = self.fpn(self.backbone(img))
@@ -465,7 +527,10 @@ class MLP(nn.Module):
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(
-            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+            nn.Linear(n, k)
+            for n, k in zip(
+                [input_dim] + h, h + [output_dim], strict=True
+            ))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for i, layer in enumerate(self.layers):
@@ -561,15 +626,15 @@ def _load_glove_vectors(class_names: List[str], wv_dim: int = 300,
 # The VG predicate class names (0-indexed, 0 = __background__, 1-50 = predicates)
 VG_PREDICATE_NAMES = [
     '__background__',
-    'above', 'against', 'at', 'attached to', 'behind',
-    'belonging to', 'between', 'carrying', 'covered in', 'covering',
-    'eating', 'flying in', 'for', 'from', 'growing on',
-    'hanging from', 'has', 'holding', 'in', 'in front of',
-    'laying on', 'looking at', 'lying on', 'made of', 'mounted on',
-    'near', 'of', 'on', 'on back of', 'over',
-    'painted on', 'parked on', 'part of', 'playing', 'riding',
-    'says', 'sitting on', 'skating on', 'skiing on', 'standing on',
-    'surfing on', 'to', 'under', 'using', 'walking in',
+    'above', 'across', 'against', 'along', 'and',
+    'at', 'attached to', 'behind', 'belonging to', 'between',
+    'carrying', 'covered in', 'covering', 'eating', 'flying in',
+    'for', 'from', 'growing on', 'hanging from', 'has',
+    'holding', 'in', 'in front of', 'laying on', 'looking at',
+    'lying on', 'made of', 'mounted on', 'near', 'of',
+    'on', 'on back of', 'over', 'painted on', 'parked on',
+    'part of', 'playing', 'riding', 'says', 'sitting on',
+    'standing on', 'to', 'under', 'using', 'walking in',
     'walking on', 'watching', 'wearing', 'wears', 'with',
 ]
 
@@ -589,17 +654,17 @@ VG_OBJECT_NAMES = [
     'fruit', 'giraffe', 'girl', 'glass', 'glove',
     'guy', 'hair', 'hand', 'handle', 'hat',
     'head', 'helmet', 'hill', 'horse', 'house',
-    'jacket', 'jeans', 'kid', 'kite', 'lady',
+    'jacket', 'jean', 'kid', 'kite', 'lady',
     'lamp', 'laptop', 'leaf', 'leg', 'letter',
-    'light', 'logo', 'man', 'men', 'mirror',
-    'motorcycle', 'mountain', 'mouth', 'neck', 'nose',
-    'number', 'orange', 'pant', 'paper', 'paw',
-    'people', 'person', 'phone', 'pillow', 'pizza',
-    'plane', 'plant', 'plate', 'player', 'pole',
-    'post', 'pot', 'racket', 'railing', 'rock',
-    'roof', 'room', 'screen', 'seat', 'sheep',
-    'shelf', 'shirt', 'shoe', 'short', 'sidewalk',
-    'sign', 'sink', 'skateboard', 'ski', 'skier',
+    'light', 'logo', 'man', 'men', 'motorcycle',
+    'mountain', 'mouth', 'neck', 'nose', 'number',
+    'orange', 'pant', 'paper', 'paw', 'people',
+    'person', 'phone', 'pillow', 'pizza', 'plane',
+    'plant', 'plate', 'player', 'pole', 'post',
+    'pot', 'racket', 'railing', 'rock', 'roof',
+    'room', 'screen', 'seat', 'sheep', 'shelf',
+    'shirt', 'shoe', 'short', 'sidewalk', 'sign',
+    'sink', 'skateboard', 'ski', 'skier', 'sneaker',
     'snow', 'sock', 'stand', 'street', 'surfboard',
     'table', 'tail', 'tie', 'tile', 'tire',
     'toilet', 'towel', 'tower', 'track', 'train',
@@ -607,6 +672,9 @@ VG_OBJECT_NAMES = [
     'vegetable', 'vehicle', 'wave', 'wheel', 'window',
     'windshield', 'wing', 'wire', 'woman', 'zebra',
 ]
+
+assert len(VG_PREDICATE_NAMES) == 51
+assert len(VG_OBJECT_NAMES) == 151
 
 
 def _predicate_frequencies_from_dataset(data_root: str) -> torch.Tensor:
@@ -1214,7 +1282,13 @@ class RASGGModel(PENetBase):
         loaded into it immediately.  The returned dict contains only predictor keys
         for the model itself.
         """
+        original_checkpoint_count = len(state_dict)
+        checkpoint_has_union_reduce = any(
+            "pooler.reduce_channel" in key or key.startswith("union_pooler.reduce_channel.")
+            for key in state_dict
+        )
         remapped = {}
+        skipped_checkpoint_keys = []
         ve_weights = {} if visual_extractor is not None else None
 
         for k, v in state_dict.items():
@@ -1265,15 +1339,20 @@ class RASGGModel(PENetBase):
                 new_k = new_k.replace('roi_heads.relation.box_feature_extractor.fc6', 'fc6')
             elif new_k.startswith('roi_heads.relation.box_feature_extractor.fc7'):
                 new_k = new_k.replace('roi_heads.relation.box_feature_extractor.fc7', 'fc7')
-            # ---- Union feature extractor → ufc6/ufc7 + rect_conv ----
+            # ---- Union feature extractor → ufc6/ufc7 + rect_conv + reduce_channel ----
             elif new_k.startswith('roi_heads.relation.union_feature_extractor.feature_extractor.fc6'):
                 new_k = new_k.replace('roi_heads.relation.union_feature_extractor.feature_extractor.fc6', 'ufc6')
             elif new_k.startswith('roi_heads.relation.union_feature_extractor.feature_extractor.fc7'):
                 new_k = new_k.replace('roi_heads.relation.union_feature_extractor.feature_extractor.fc7', 'ufc7')
+            elif new_k.startswith('roi_heads.relation.union_feature_extractor.feature_extractor.pooler.reduce_channel.'):
+                # reduce_channel.0.weight → union_pooler.reduce_channel.0.weight
+                suffix = new_k[len('roi_heads.relation.union_feature_extractor.feature_extractor.pooler.reduce_channel.'):]
+                new_k = 'union_pooler.reduce_channel.' + suffix
             elif new_k.startswith('roi_heads.relation.union_feature_extractor.rect_conv.'):
                 suffix = new_k[len('roi_heads.relation.union_feature_extractor.rect_conv.'):]
                 # Skip MaxPool (index 3, no params)
                 if suffix.startswith('3.') or suffix == '3':
+                    skipped_checkpoint_keys.append(k)
                     continue
                 new_k = 'rect_conv.' + suffix
 
@@ -1285,8 +1364,10 @@ class RASGGModel(PENetBase):
 
             # Skip keys that are NOT parameters (iteration counter, optimizer state)
             if new_k.startswith('roi_heads.') and 'predictor' not in new_k and 'box_feature' not in new_k and 'relation' not in k:
+                skipped_checkpoint_keys.append(k)
                 continue
             if new_k.startswith('rpn.') or new_k.startswith('optimizer'):
+                skipped_checkpoint_keys.append(k)
                 continue
 
             remapped[new_k] = v
@@ -1295,6 +1376,7 @@ class RASGGModel(PENetBase):
             if ve_weights is not None and (
                     new_k.startswith('backbone.') or
                     new_k.startswith('fpn.') or
+                    new_k.startswith('union_pooler.') or
                     new_k.startswith('fc6') or new_k.startswith('fc7') or
                     new_k.startswith('ufc6') or new_k.startswith('ufc7') or
                     new_k.startswith('box_fc6') or new_k.startswith('box_fc7') or
@@ -1305,27 +1387,73 @@ class RASGGModel(PENetBase):
 
         # ---- Load visual extractor weights immediately ----
         ve_loaded = 0
+        visual_shape_mismatches = []
+        visual_loadable_keys = set()
         if ve_weights is not None and visual_extractor is not None:
             ve_sd = visual_extractor.state_dict()
             loadable = {}
             for rk, rv in ve_weights.items():
                 if rk in ve_sd and ve_sd[rk].shape == rv.shape:
                     loadable[rk] = rv
+                    visual_loadable_keys.add(rk)
                 elif rk in ve_sd and 'num_batches_tracked' in rk:
                     # torchvision BN adds num_batches_tracked; official ckpt doesn't have it
                     if ve_sd[rk].shape == ():
                         loadable[rk] = torch.tensor(0, dtype=torch.long)
                         if rk.endswith('num_batches_tracked'):
                             continue
+                elif rk in ve_sd:
+                    visual_shape_mismatches.append(
+                        f"{rk}: {tuple(rv.shape)} != {tuple(ve_sd[rk].shape)}"
+                    )
+
+            required_union_keys = {
+                "union_pooler.reduce_channel.0.weight",
+                "union_pooler.reduce_channel.0.bias",
+            }
+            if checkpoint_has_union_reduce:
+                missing_union = sorted(required_union_keys - set(loadable))
+                if missing_union:
+                    raise RuntimeError(
+                        "RA-SGG checkpoint contains all-level union-pool weights, "
+                        f"but they could not be loaded: {missing_union}"
+                    )
             ve_loaded = len(loadable)
             visual_extractor.load_state_dict(loadable, strict=False)
             print(f"[RA-SGG] Loaded {ve_loaded} backbone+FPN+box_extractor weights into visual extractor")
 
         # ---- Stats ----
-        model_keys = set(self.state_dict().keys())
+        model_state = self.state_dict()
+        model_keys = set(model_state.keys())
         remapped_keys = set(remapped.keys())
-        matched = model_keys & remapped_keys
-        only_model = model_keys - remapped_keys
+        matched = {
+            key for key in model_keys & remapped_keys
+            if model_state[key].shape == remapped[key].shape
+        }
+        model_shape_mismatches = sorted(
+            f"{key}: {tuple(remapped[key].shape)} != {tuple(model_state[key].shape)}"
+            for key in model_keys & remapped_keys
+            if model_state[key].shape != remapped[key].shape
+        )
+        only_model = model_keys - matched
+
+        if visual_extractor is not None:
+            self._last_external_load_report = {
+                "checkpoint_tensors": original_checkpoint_count,
+                "remapped_tensors": len(remapped),
+                "model_matched_tensors": len(matched),
+                "visual_matched_tensors": ve_loaded,
+                "model_missing_keys": sorted(only_model),
+                "model_shape_mismatches": model_shape_mismatches,
+                "visual_shape_mismatches": sorted(visual_shape_mismatches),
+                "visual_checkpoint_keys_not_loaded": sorted(
+                    set(ve_weights or {}) - visual_loadable_keys
+                ),
+                "checkpoint_keys_not_loaded": sorted(
+                    remapped_keys - matched - visual_loadable_keys
+                ),
+                "checkpoint_keys_skipped": sorted(skipped_checkpoint_keys),
+            }
 
         if only_model:
             model_missing = sorted(only_model)
@@ -1552,7 +1680,7 @@ class RASGGModel(PENetBase):
         # ---- MIXUP ----
         if self.do_mixup:
             rel_labels_onehot = F.one_hot(rel_labels, num_classes=self.num_predicates).float()
-            mixup_labels_onehot = F.onehot(mixup_labels, num_classes=self.num_predicates).float()
+            mixup_labels_onehot = F.one_hot(mixup_labels, num_classes=self.num_predicates).float()
             beta_dist = Beta(
                 torch.ones(len(rel_labels), device=device) * self.mixup_alpha,
                 torch.ones(len(rel_labels), device=device) * self.mixup_beta)
@@ -1723,9 +1851,10 @@ class RASGGModel(PENetBase):
         import sys
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+        from types import SimpleNamespace
+
         from src.models.backbone import build_visual_extractor
         from utils.main_utils import get_dataset
-        from types import SimpleNamespace
 
         print(f"[MemoryBank] Building memory bank from: {ckpt_path}")
         print(f"[MemoryBank] Mode: {mode}, Max per triplet: {max_per_triplet}")
@@ -1789,7 +1918,8 @@ class RASGGModel(PENetBase):
 
         from tqdm import tqdm
 
-        for batch_idx, batch in enumerate(tqdm(train_loader, desc="Extracting features")):
+        for _batch_idx, batch in enumerate(
+                tqdm(train_loader, desc="Extracting features")):
             images, targets = batch[0], batch[1]
 
             if not isinstance(images, (list, tuple)):
@@ -1798,7 +1928,8 @@ class RASGGModel(PENetBase):
                 else:
                     continue
 
-            for img_idx, (img, target) in enumerate(zip(images, targets)):
+            for _img_idx, (img, target) in enumerate(
+                    zip(images, targets, strict=True)):
                 if torch.is_tensor(target.get('rel_annotations', None)):
                     rel_anns = target['rel_annotations']
                 else:
@@ -1895,7 +2026,7 @@ class RASGGModel(PENetBase):
 
         all_keys = []
         all_values = []
-        for tri_key, entries in featurebank_dict.items():
+        for _tri_key, entries in featurebank_dict.items():
             for key, value in entries:
                 all_keys.append(key)
                 all_values.append(value)

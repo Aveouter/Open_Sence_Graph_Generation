@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "claim_status": "implementation_audit",
+  "protocol_status": "protocol_mismatch",
+  "completed_at_utc": "2026-07-15T11:50:53Z",
+  "run": {
+    "directory": "outputs/runs/ra_sgg/2026-07-15_rasgg_predcls_h5_repro_20260715",
+    "command": "train.py --test --method RA_SGG --config_file configs/VisualGenome/RA_SGG.py --ckpt_path checkpoints/RASGG/model_final.pth --gpus 0 --val_batch_size 1 --eval_mode predcls --ex_name rasgg_predcls_h5_repro_20260715 --no_display_method_info --progress_bar_refresh_rate 100",
+    "git_commit": "035958e",
+    "git_dirty": true,
+    "seed": 42
+  },
+  "checkpoint": {
+    "path": "checkpoints/RASGG/model_final.pth",
+    "sha256": "2488946f213686cad43a06f718735067f02a9fcbf966e2108cccfb1cd0edd8db",
+    "size_bytes": 2718467375,
+    "tensor_count": 648,
+    "remapped_tensors": 643,
+    "model_matched_tensors": 63,
+    "visual_matched_tensors": 574,
+    "shape_adaptations": 0,
+    "bundled_config_sha256": "7fa5d616de17de5c7a1b533214408419545587edbbe1deb55f4ff50647255f14",
+    "bundled_result_sha256": "80d035ac3d7e7b786106d9386f10495248ef60a41507da134055ad850a18aacc"
+  },
+  "dataset": {
+    "source": "data/VisualGenome/VG-SGG-with-attri.h5",
+    "test_images": 26446,
+    "model_input_objects": 325563,
+    "evaluator_objects": 325570,
+    "raw_evaluator_relations": 183642,
+    "restored_exact_duplicate_relations_vs_legacy_coco": 31416
+  },
+  "metrics": {
+    "predcls_R@20": {
+      "candidate": 0.5547371506690979,
+      "bundled_reference": 0.5546,
+      "delta": 0.0001371506690979185
+    },
+    "predcls_R@50": {
+      "candidate": 0.6218554973602295,
+      "bundled_reference": 0.6217,
+      "delta": 0.0001554973602294618
+    },
+    "predcls_R@100": {
+      "candidate": 0.6410786509513855,
+      "bundled_reference": 0.641,
+      "delta": 0.00007865095138548384
+    },
+    "predcls_mR@20": {
+      "candidate": 0.2872789204120636,
+      "bundled_reference": 0.2873,
+      "delta": -0.00002107958793640119
+    },
+    "predcls_mR@50": {
+      "candidate": 0.36152592301368713,
+      "bundled_reference": 0.3615,
+      "delta": 0.00002592301368714578
+    },
+    "predcls_mR@100": {
+      "candidate": 0.3910185992717743,
+      "bundled_reference": 0.391,
+      "delta": 0.00001859927177427778
+    }
+  },
+  "max_absolute_delta_from_bundled_reference": 0.0001554973602294618,
+  "runtime": {
+    "python": "3.10.8",
+    "torch": "2.5.1+cu121",
+    "torchvision": "0.20.1+cu121",
+    "lightning": "2.1.4",
+    "numpy": "1.26.4",
+    "h5py": "3.12.1",
+    "cuda_runtime": "12.1",
+    "cudnn": 90100,
+    "nvidia_driver": "550.163.01",
+    "gpu": "NVIDIA GeForce RTX 2080 Ti",
+    "environment_note": "PyTorch/torchvision and pkg_resources were supplied by temporary read-only compatibility overlays on the hsg environment."
+  },
+  "run_artifact_hashes": {
+    "eval/summary.json": {
+      "sha256": "d5e969ed8ee7ac56d0872239a862c9b6b121d4b681088e170c7249c6d991a884",
+      "size_bytes": 289
+    },
+    "eval/predcls/metrics.json": {
+      "sha256": "9c0ddb412f213ec6541a8d9016b8e61515e10d32b13c22fc0064986f4bc3a55b",
+      "size_bytes": 256
+    },
+    "eval/official_comparison.json": {
+      "sha256": "9edc75062d5ff9da86243024025f70c6f3e14ec7e3f836168fdb02ae3f2b6601",
+      "size_bytes": 2312
+    },
+    "lightning/metrics.csv": {
+      "sha256": "4ae63a8bee8178d569989816369151296517b7cc28d53b26223be9d86b341d03",
+      "size_bytes": 229
+    },
+    "metadata.json": {
+      "sha256": "3651265ec039a4e6cdb3c8032b83e9a6fc7f0343ad8af93bc4a8c49fe86365b2",
+      "size_bytes": 750
+    },
+    "checkpoint_load_report.json": {
+      "sha256": "e11037e0a59bd754191b5f68ca850d2444f4bd8fdc7abc43692aa7b38b0b94cb",
+      "size_bytes": 24214
+    },
+    "source_runtime_manifest.json": {
+      "sha256": "08c4a2c9f4983d4336ec48d45f7f5ab73849084dc46cea56d8a74fe4bdac55d3",
+      "size_bytes": 1906
+    }
+  },
+  "source_snapshot_note": "These hashes describe selected files from the dirty full-run worktree, not the later PR commit. Unlisted dirty files were not part of the recorded source manifest.",
+  "recorded_dirty_run_source_hashes": {
+    "configs/VisualGenome/RA_SGG.py": "a9f2cfaf59200bd370506949ac845f1ea7213ce3cfadeeb5ee48a5fbd90525c6",
+    "data/dataloaders/coco.py": "35814edffec9514410616ca472ee708665d930c214bfac8b95289f289b1da5ee",
+    "lib/evaluation/sg_eval.py": "cc27d14ea959902aa143030df0a026ae8e5d2dfeb0a35dcce53fee1fb6502488",
+    "src/core/metrics.py": "3b307dc6b0b52aa9c472a7a370aeef8c4d2b08f90109fc4de550e6651c9c235c",
+    "src/exp.py": "2fbba439f35bd56abc61947d139760b45f4eec57c775dc8f3b5502714028e51f",
+    "src/methods/ra_sgg_method.py": "3faca59b926486ee261051fc368c3f5ff6ea8d6a76b7e6f04dba5fc29bb09f16",
+    "src/models/ra_sgg.py": "b9fceaa6874e0f9589b4369ed5b5f71d39899497ba0e36a92cc2d06aaf4db86a",
+    "train.py": "4d6a77616b6a3dad9be319b2131318ac96a66bc8a181ef01d321f4b5e25627fd",
+    "utils/parser.py": "b46b679a3c5c2763e28f1e7ac3dfbf419a6f61eaac90e0671906668d64cdcc5e",
+    "utils/transforms.py": "f30919681ff462dfe7c9638c117e54350debb620d36cfc6cdb14043a66952397",
+    "tests/reproduction/test_rasgg_predcls_protocol.py": "6b325d1d5b12c889353db0f869aaba1bbbe1f28f56a50b791e896945bb066fe0"
+  },
+  "claim_boundary": "This checkpoint-backed candidate matches the bundled displayed metrics extremely closely, but the exact RA-PENetCorrectProtoBeta source, complete checkpoint provenance, direct RA-SGG evaluator archive, and clean pinned runtime are unavailable. Do not label this run reproduced."
+}
