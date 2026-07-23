@@ -70,6 +70,22 @@ pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorc
 
 > If Tsinghua mirror channels in `environment.yml` are inaccessible, replace them with `defaults` and `conda-forge`, or remove the `channels` section to use your local `.condarc`.
 
+### Docker
+
+For a containerized GPU setup, see [Docker Environment](guides/docker.md).
+
+```bash
+docker build -t opensgg:dev .
+docker run --rm -it --gpus all --ipc=host --shm-size=16g \
+  -v "$PWD":/workspace/OpenSGG \
+  -v "$PWD/data":/workspace/OpenSGG/data \
+  -v "$PWD/outputs":/workspace/OpenSGG/outputs \
+  opensgg:dev bash
+```
+
+For a Compose workflow, use `docker compose run --rm opensgg bash` for CPU
+checks or add `-f compose.gpu.yaml` for GPU runs.
+
 | Dependency | Version |
 |------------|---------|
 | Python | ≤ 3.10 |
