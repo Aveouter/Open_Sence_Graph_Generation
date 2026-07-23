@@ -1,0 +1,21 @@
+services:
+  opensgg:
+    build:
+      context: .
+      args:
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}
+        TORCH_VERSION: ${TORCH_VERSION:-2.5.1}
+        TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.20.1}
+        CONDA_CHANNEL_MODE: ${CONDA_CHANNEL_MODE:-community}
+    image: opensgg:dev
+    working_dir: /workspace/OpenSGG
+    shm_size: "16gb"
+    ipc: host
+    stdin_open: true
+    tty: true
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - .:/workspace/OpenSGG
+      - ${OPENSGG_DATA_DIR:-./data}:/workspace/OpenSGG/data
+      - ${OPENSGG_OUTPUTS_DIR:-./outputs}:/workspace/OpenSGG/outputs

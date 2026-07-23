@@ -1,0 +1,55 @@
+.git
+.github
+.claude
+.codex
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+*.pyo
+
+# Local crash dumps and runtime artifacts.
+core
+core.*
+*.log
+*.tmp
+
+# Large local datasets, checkpoints, and experiment outputs should be mounted.
+data/
+checkpoints/
+ckpts/
+weights/
+outputs/
+reports/
+figures/
+runs/
+results/
+logs/
+wandb/
+lightning_logs/
+_local/
+verified
+evidence-gated
+*.pth
+*.pt
+*.ckpt
+*.zip
+*.tar
+*.tar.gz
+*.json.resume
+.ddp_eval_cache/
+
+# Native build artifacts.
+*.ninja_*
+*.so
+*.cuda.o
+*.cpu.o
+build.ninja
+.ninja_deps
+.ninja_log
+build/
+
+# Editor and OS metadata.
+.DS_Store
+.idea/
+.vscode/
