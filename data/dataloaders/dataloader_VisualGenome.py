@@ -2,7 +2,8 @@ from functools import partial
 from types import SimpleNamespace
 
 import torch
-from torch.utils.data import DataLoader, DistributedSampler, Subset
+from torch.utils.data import DataLoader, Subset
+
 import utils.misc as utils
 from data.dataloaders import build_dataset, get_coco_api_from_dataset
 
@@ -42,8 +43,11 @@ def load_data(args=None, **kwargs):
         dataset_val = Subset(dataset_val, list(range(eval_start, eval_start + val_n)))
 
     if args.distributed:
-        sampler_train = DistributedSampler(dataset_train)
-        sampler_val = DistributedSampler(dataset_val, shuffle=False)
+        # Lightning injects DistributedSampler after process-group
+        # initialization. Creating it here fails in the parent process because
+        # torch.distributed is not initialized yet.
+        sampler_train = None
+        sampler_val = None
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
@@ -54,26 +58,32 @@ def load_data(args=None, **kwargs):
     # the reconstructed kwargs, corrupting DDP training. Using batch_size+sampler
     # instead lets PyTorch auto-create the BatchSampler internally, which makes
     # Lightning use the safe sampler-only code path.
-    data_loader_train = DataLoader(
-        dataset_train,
+    train_loader_kwargs = dict(
         batch_size=args.batch_size,
-        sampler=sampler_train,
         drop_last=True,
         collate_fn=utils.collate_fn,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
     )
+    if sampler_train is None:
+        train_loader_kwargs["shuffle"] = True
+    else:
+        train_loader_kwargs["sampler"] = sampler_train
+    data_loader_train = DataLoader(dataset_train, **train_loader_kwargs)
 
     val_batch_size = getattr(args, 'val_batch_size', None) or args.batch_size
     val_collate = partial(utils.collate_fn, fixed_max_size=_VAL_FIXED_MAX_SIZE)
 
-    data_loader_val = DataLoader(
-        dataset_val,
+    val_loader_kwargs = dict(
         batch_size=val_batch_size,
-        sampler=sampler_val,
         drop_last=False,
         collate_fn=val_collate,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
     )
+    if sampler_val is None:
+        val_loader_kwargs["shuffle"] = False
+    else:
+        val_loader_kwargs["sampler"] = sampler_val
+    data_loader_val = DataLoader(dataset_val, **val_loader_kwargs)
 
     # 可选：保存评估用对象，挂到 dataset 上而非 loader
     base_ds = get_coco_api_from_dataset(dataset_val)
