@@ -69,21 +69,22 @@
 
 ## 实验结果
 
-**→ [结果报告总目录](../../outputs/analysis/ontology_probe/report/README.md)**
+**→ [结果报告总目录](../../outputs/reports/ontology_probe/README.md)**
 
 总目录按阶段分册，并可跳转到各份报告：
 
 | 报告 | 阶段 |
 |---|---|
-| [01_dataset_statistics.md](../../outputs/analysis/ontology_probe/report/01_dataset_statistics.md) | M1、M3 |
-| [02_prior_baselines.md](../../outputs/analysis/ontology_probe/report/02_prior_baselines.md) | M4 |
-| [03_visual_probes.md](../../outputs/analysis/ontology_probe/report/03_visual_probes.md) | M5、M6 |
-| [04_interventions.md](../../outputs/analysis/ontology_probe/report/04_interventions.md) | M7、M8 |
-| [05_ontology.md](../../outputs/analysis/ontology_probe/report/05_ontology.md) | M9、M10 |
+| [01_dataset_statistics.md](../../outputs/reports/ontology_probe/01_dataset_statistics.md) | M1、M3 |
+| [02_prior_baselines.md](../../outputs/reports/ontology_probe/02_prior_baselines.md) | M4 |
+| [03_visual_probes.md](../../outputs/reports/ontology_probe/03_visual_probes.md) | M5、M6 |
+| [04_interventions.md](../../outputs/reports/ontology_probe/04_interventions.md) | M7、M8 |
+| [05_ontology.md](../../outputs/reports/ontology_probe/05_ontology.md) | M9、M10 |
 
 报告只陈述测量结果、测量协议与限制，不做进一步推论。
 
-结果目录在 `outputs/analysis/ontology_probe/` 下：
-`predicate_stats/ splits/ matrix/ sanity/ cache/ probes/ shuffle/ rescue/`
-`diagnostics/ report/`。`outputs/` 被 `.gitignore` 排除，因此上述链接是**本地路径**，
-需要在跑过流水线之后才能打开，不作为仓库提交内容。
+报告是手写文档，放在 `outputs/reports/` 下并**纳入版本控制**（`.gitignore` 只
+排除该目录下的 csv/json/png）。报告引用的原始产物是生成物，在
+`outputs/analysis/ontology_probe/` 下（`predicate_stats/ splits/ matrix/ sanity/`
+`cache/ probes/ shuffle/ rescue/ diagnostics/`），该目录被 `.gitignore` 排除，
+需跑过流水线后才会出现。

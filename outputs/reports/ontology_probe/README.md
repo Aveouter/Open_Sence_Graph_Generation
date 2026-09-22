@@ -29,6 +29,8 @@ checkpoint，不报告 benchmark 数字。
 
 ## 产物位置
 
-各阶段原始产物在 `outputs/analysis/ontology_probe/` 下：
+本目录（`outputs/reports/ontology_probe/`）是**手写报告**，纳入版本控制。
+
+报告引用的各阶段原始产物是生成物，在 `outputs/analysis/ontology_probe/` 下：
 `predicate_stats/ splits/ matrix/ sanity/ cache/ probes/ shuffle/ rescue/ diagnostics/`。
-`outputs/` 被 `.gitignore` 排除，不属于仓库提交内容；报告链接为本地路径。
+该目录被 `.gitignore` 排除，需跑过流水线后才会出现；各报告中的路径都相对这个根目录。

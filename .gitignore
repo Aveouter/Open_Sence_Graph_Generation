@@ -25,6 +25,12 @@ lib/fpn/box_intersections_cpu/
 # ---- New unified outputs (replaces scattered old dirs) ----
 outputs/runs/
 outputs/analysis/
+# outputs/reports/ holds the hand-written analysis reports and is tracked on
+# purpose, unlike the generated artifacts under outputs/analysis/. Anything that
+# is not a report (a stray figure, csv or json) is still ignored.
+outputs/reports/**/*.csv
+outputs/reports/**/*.json
+outputs/reports/**/*.png
 outputs/pretrained/**
 outputs/pretrained/**/*.pth
 outputs/pretrained/**/*.pt
