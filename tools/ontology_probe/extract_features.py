@@ -18,7 +18,6 @@ much worse than a two-minute calibration.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -32,7 +31,6 @@ from tools.ontology_probe.common import (
     DEFAULT_DATA_ROOT,
     DEFAULT_OUTPUT_ROOT,
     SAMPLE_ROOT,
-    sha256_file,
     status_block,
     write_json,
 )
@@ -40,11 +38,9 @@ from tools.ontology_probe.feature_cache import (
     build_manifest,
     is_shard_done,
     plan_shards,
-    shard_dir,
     write_shard,
 )
 from tools.ontology_probe.vg_annotations import (
-    RelationTable,
     build_relation_table,
     load_vg_index,
 )
@@ -313,9 +309,10 @@ def encode_crops(
     the GIL) and the GPU sits idle during it otherwise; ``executor.map`` yields
     in order, so the feature order still matches ``crops`` exactly.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     import numpy as np
     import torch
-    from concurrent.futures import ThreadPoolExecutor
 
     data_root = Path(data_root)
     if not crops:
@@ -338,7 +335,7 @@ def encode_crops(
 
     tasks: list[tuple[int, Sequence[tuple[int, int, int, int]]]] = []
     cursor = 0
-    for image_id, count in zip(image_ids, sizes):
+    for image_id, count in zip(image_ids, sizes, strict=True):
         image_crops = crops[cursor : cursor + count]
         cursor += count
         if image_crops:

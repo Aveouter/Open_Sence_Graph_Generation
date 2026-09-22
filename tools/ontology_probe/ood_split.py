@@ -106,7 +106,6 @@ def greedy_holdout_pairs(
     budget is exhausted.  Returned as (pair keys, affected image ids, stats).
     """
     study_ids = set(study_predicate_ids)
-    pairs = table.undirected_pairs()
     rows_by_pair = _pair_rows(table)
 
     pair_images: dict[int, set[int]] = {}

@@ -20,7 +20,7 @@ from __future__ import annotations
 import collections
 import math
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Sequence
 
 from tools.ontology_probe.canonical_map import CanonicalMap
 from tools.ontology_probe.vg_annotations import RelationTable, undirected_pair_key
@@ -297,7 +297,7 @@ def conflict_mask(
     wrong" carries no information.
     """
     mask = []
-    for row, label in zip(rows, labels):
+    for row, label in zip(rows, labels, strict=True):
         c_s, c_o = sub_table.c_s[row], sub_table.c_o[row]
         if not table.is_pair_seen(c_s, c_o):
             mask.append(False)

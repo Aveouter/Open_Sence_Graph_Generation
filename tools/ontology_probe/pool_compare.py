@@ -51,6 +51,7 @@ from tools.ontology_probe.probe_metrics import (
     paired_mean_diff,
     summarise,
 )
+
 PAIRS_OF_INTEREST = (
     ("vg50", "L1_noise"),
     ("vg50", "L2_entail"),
@@ -120,7 +121,7 @@ def compare_space_pair(
     # model's own targets row for row, or the two cells were not evaluated on
     # the same relations in the same order and nothing below is comparable.
     if labels != list(coarse_targets):
-        mismatches = sum(1 for a, b in zip(labels, coarse_targets) if a != b)
+        mismatches = sum(1 for a, b in zip(labels, coarse_targets, strict=True) if a != b)
         raise AssertionError(
             f"cell alignment broken for {level}/{split}: {mismatches} label "
             "mismatches between pooled-vg50 and native canonical targets"
@@ -129,14 +130,14 @@ def compare_space_pair(
     pooled = _reports_for(labels, pooled_probs, cmap)
     native = _reports_for(labels, coarse_probs, cmap)
 
-    pooled_correct = [int(p == t) for p, t in zip(pooled["predictions"], labels)]
-    native_correct = [int(p == t) for p, t in zip(native["predictions"], labels)]
+    pooled_correct = [int(p == t) for p, t in zip(pooled["predictions"], labels, strict=True)]
+    native_correct = [int(p == t) for p, t in zip(native["predictions"], labels, strict=True)]
     acc_diff = paired_accuracy_diff(pooled_correct, native_correct)
     mcnemar = mcnemar_test(pooled_correct, native_correct)
 
     nll_diff = paired_mean_diff(
-        [-math.log(max(row[t], 1e-12)) for row, t in zip(pooled_probs, labels)],
-        [-math.log(max(row[t], 1e-12)) for row, t in zip(coarse_probs, labels)],
+        [-math.log(max(row[t], 1e-12)) for row, t in zip(pooled_probs, labels, strict=True)],
+        [-math.log(max(row[t], 1e-12)) for row, t in zip(coarse_probs, labels, strict=True)],
     )
 
     # touched/untouched split

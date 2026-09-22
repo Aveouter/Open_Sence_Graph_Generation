@@ -56,7 +56,7 @@ from tools.ontology_probe.probe_metrics import (
     paired_accuracy_diff,
     summarise,
 )
-from tools.ontology_probe.probe_models import PROBE_INPUTS, build_probe
+from tools.ontology_probe.probe_models import build_probe
 
 VISUAL_KEYS = ("visual_s", "visual_o", "visual_u")
 #: variant name -> which visual blocks it permutes
@@ -88,7 +88,7 @@ def permutation(n: int, seed: int, groups: Sequence[int] | None = None) -> torch
         permuted = torch.tensor(members)[
             torch.randperm(len(members), generator=generator)
         ]
-        for target, source in zip(members, permuted.tolist()):
+        for target, source in zip(members, permuted.tolist(), strict=True):
             result[target] = source
     return result
 
@@ -181,7 +181,7 @@ def run_shuffle(
     }
 
     base = evaluate_with_features(model, features, labels, cmap)
-    base_correct = [int(p == t) for p, t in zip(base["predictions"], labels)]
+    base_correct = [int(p == t) for p, t in zip(base["predictions"], labels, strict=True)]
 
     results: list[dict[str, Any]] = []
     for variant in variants:
@@ -207,7 +207,7 @@ def run_shuffle(
                     )
                 report = evaluate_with_features(model, shuffled, labels, cmap)
                 correct = [
-                    int(p == t) for p, t in zip(report["predictions"], labels)
+                    int(p == t) for p, t in zip(report["predictions"], labels, strict=True)
                 ]
                 delta = paired_accuracy_diff(base_correct, correct)
                 results.append(

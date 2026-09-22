@@ -113,7 +113,7 @@ class ProbeModelTest(unittest.TestCase):
         }
 
     def test_every_registered_probe_builds_and_forwards(self) -> None:
-        for name, inputs in PROBE_INPUTS.items():
+        for name in PROBE_INPUTS:
             with self.subTest(probe=name):
                 model = build_probe(name, n_classes=7, visual_dim=32)
                 logits = model(self._features(5))

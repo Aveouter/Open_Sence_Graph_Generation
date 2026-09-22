@@ -94,8 +94,8 @@ def rescue_analysis(
     thresholds: Sequence[float] = CONFIDENCE_THRESHOLDS,
 ) -> dict[str, Any]:
     labels = base["labels"]
-    base_correct = [p == t for p, t in zip(base["predictions"], labels)]
-    visual_correct = [p == t for p, t in zip(visual["predictions"], labels)]
+    base_correct = [p == t for p, t in zip(base["predictions"], labels, strict=True)]
+    visual_correct = [p == t for p, t in zip(visual["predictions"], labels, strict=True)]
 
     base_error = [not c for c in base_correct]
     base_right = list(base_correct)
@@ -160,8 +160,8 @@ def per_predicate_rescue(
     min_support: int = 30,
 ) -> list[dict[str, Any]]:
     labels = base["labels"]
-    base_correct = [p == t for p, t in zip(base["predictions"], labels)]
-    visual_correct = [p == t for p, t in zip(visual["predictions"], labels)]
+    base_correct = [p == t for p, t in zip(base["predictions"], labels, strict=True)]
+    visual_correct = [p == t for p, t in zip(visual["predictions"], labels, strict=True)]
 
     rows: list[dict[str, Any]] = []
     for class_id in sorted(set(labels)):

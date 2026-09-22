@@ -113,7 +113,7 @@ def _group_by(
     groups: dict[int, collections.Counter] = collections.defaultdict(
         collections.Counter
     )
-    for key, pred in zip(keys, predicate_ids):
+    for key, pred in zip(keys, predicate_ids, strict=True):
         groups[key][pred] += 1
     return dict(groups)
 

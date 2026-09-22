@@ -20,6 +20,7 @@ from tools.ontology_probe.prior_baselines import (
 from tools.ontology_probe.probe_metrics import (
     _norm_ppf,
     accuracy,
+    hbt_strata,
     macro_recall,
     mcnemar_test,
     mean_nll,
@@ -31,7 +32,6 @@ from tools.ontology_probe.probe_metrics import (
     ranked_predictions,
     summarise,
 )
-from tools.ontology_probe.probe_metrics import hbt_strata
 from tools.ontology_probe.vg_annotations import (
     RelationTable,
     undirected_pair_key,
@@ -292,8 +292,8 @@ class PoolingIdentityTest(unittest.TestCase):
                 direct = B1LookupPredictor(canon_prior, alpha=alpha).predict_probs(
                     table, [0, 6, 8]
                 )
-                for a, b in zip(pooled, direct):
-                    for x, y in zip(a, b):
+                for a, b in zip(pooled, direct, strict=True):
+                    for x, y in zip(a, b, strict=True):
                         self.assertAlmostEqual(x, y, places=12)
 
     def test_unseen_pair_pools_to_unseen_pair(self) -> None:
@@ -307,7 +307,7 @@ class PoolingIdentityTest(unittest.TestCase):
             B1LookupPredictor(fine_prior).predict_probs(unseen, [0])[0]
         )
         direct = B1LookupPredictor(canon_prior).predict_probs(unseen, [0])[0]
-        for x, y in zip(pooled, direct):
+        for x, y in zip(pooled, direct, strict=True):
             self.assertAlmostEqual(x, y, places=12)
 
 

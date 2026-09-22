@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import collections
 import math
-import random
 from fractions import Fraction
 from typing import Any, Iterable, Sequence
 
@@ -48,7 +47,7 @@ def accuracy(y_true: Sequence[int], y_pred: Sequence[int]) -> float:
         raise ValueError("y_true and y_pred must have equal length")
     if not y_true:
         return float("nan")
-    return sum(1 for t, p in zip(y_true, y_pred) if t == p) / len(y_true)
+    return sum(1 for t, p in zip(y_true, y_pred, strict=True) if t == p) / len(y_true)
 
 
 def macro_recall(
@@ -67,7 +66,7 @@ def macro_recall(
         raise ValueError("y_true and y_pred must have equal length")
     totals: dict[int, int] = collections.Counter(y_true)
     hits: dict[int, int] = collections.Counter(
-        t for t, p in zip(y_true, y_pred) if t == p
+        t for t, p in zip(y_true, y_pred, strict=True) if t == p
     )
     pool = sorted(totals) if classes is None else sorted(set(classes))
     recalls = [
@@ -86,7 +85,7 @@ def mean_nll(y_true: Sequence[int], probs: Sequence[Sequence[float]]) -> float:
         return float("nan")
     floor = 1e-12
     total = 0.0
-    for truth, row in zip(y_true, probs):
+    for truth, row in zip(y_true, probs, strict=True):
         total -= math.log(max(float(row[truth]), floor))
     return total / len(y_true)
 
@@ -112,7 +111,7 @@ def recall_at_k(
         ranked = ranked_predictions(probs)
     totals: dict[int, int] = collections.Counter(y_true)
     hits: dict[int, int] = collections.Counter()
-    for truth, order in zip(y_true, ranked):
+    for truth, order in zip(y_true, ranked, strict=True):
         if truth in order[:k]:
             hits[truth] += 1
     return {c: hits.get(c, 0) / n for c, n in totals.items() if n}
@@ -147,14 +146,14 @@ def per_class_report(
     """Per-class support, recall, and mean NLL, name-keyed for joining."""
     totals: dict[int, int] = collections.Counter(y_true)
     hits: dict[int, int] = collections.Counter(
-        t for t, p in zip(y_true, y_pred) if t == p
+        t for t, p in zip(y_true, y_pred, strict=True) if t == p
     )
     predicted: dict[int, int] = collections.Counter(y_pred)
 
     nll_by_class: dict[int, float] = collections.defaultdict(float)
     if probs is not None:
         floor = 1e-12
-        for truth, row in zip(y_true, probs):
+        for truth, row in zip(y_true, probs, strict=True):
             nll_by_class[truth] -= math.log(max(float(row[truth]), floor))
 
     rows: list[dict[str, Any]] = []
@@ -197,7 +196,7 @@ def _contingency(correct_a: Sequence[int], correct_b: Sequence[int]) -> tuple[in
     if len(correct_a) != len(correct_b):
         raise ValueError("correct_a and correct_b must have equal length")
     both = a_only = b_only = neither = 0
-    for a, b in zip(correct_a, correct_b):
+    for a, b in zip(correct_a, correct_b, strict=True):
         if a and b:
             both += 1
         elif a:
@@ -304,7 +303,7 @@ def paired_mean_diff(
     """
     if len(values_a) != len(values_b):
         raise ValueError("values_a and values_b must have equal length")
-    diffs = [a - b for a, b in zip(values_a, values_b)]
+    diffs = [a - b for a, b in zip(values_a, values_b, strict=True)]
     n = len(diffs)
     if n == 0:
         return {"diff": float("nan"), "lo": float("nan"), "hi": float("nan")}

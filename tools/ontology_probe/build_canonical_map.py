@@ -296,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     for level in payload["levels"]:
         names = payload["class_names"][level]
         sizes = [len(c["vg_ids"]) for c in payload["classes"][level]]
-        merged = {n: s for n, s in zip(names, sizes) if s > 1}
+        merged = {n: s for n, s in zip(names, sizes, strict=True) if s > 1}
         print(
             f"[build_canonical_map] {level}: {len(names)} classes "
             f"({len(merged)} merged) {merged}"

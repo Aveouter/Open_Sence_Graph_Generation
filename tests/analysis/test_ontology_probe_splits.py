@@ -406,8 +406,8 @@ class AlignmentGuardTest(unittest.TestCase):
     def test_real_split_artifact_aligns_with_the_signature(self) -> None:
         """If the checked-in splits exist, they must match build_relation_table."""
         from tools.ontology_probe.common import DEFAULT_OUTPUT_ROOT, SAMPLE_ROOT
-        from tools.ontology_probe.vg_annotations import load_vg_index
         from tools.ontology_probe.splits import load_split
+        from tools.ontology_probe.vg_annotations import load_vg_index
 
         splits_dir = DEFAULT_OUTPUT_ROOT / "splits"
         if not (splits_dir / "split_pair_ood.json").exists():

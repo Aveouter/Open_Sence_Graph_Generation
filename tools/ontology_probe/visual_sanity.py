@@ -129,7 +129,6 @@ def check_determinism(
     from tools.ontology_probe.extract_features import (
         FrozenEncoder,
         encode_crops,
-        expanded_crop,
         union_crop,
     )
 
@@ -190,7 +189,6 @@ def check_alignment(
         FrozenEncoder,
         encode_crops,
         expanded_crop,
-        union_crop,
     )
 
     chosen = list(rows[:sample])
@@ -467,7 +465,7 @@ def render_contact_sheet(
     except Exception as exc:  # pragma: no cover - optional dependency
         return {"skipped": f"PIL unavailable ({exc})"}
 
-    from tools.ontology_probe.extract_features import expanded_crop, union_crop
+    from tools.ontology_probe.extract_features import union_crop
 
     chosen = list(rows[:n])
     if not chosen:
@@ -475,7 +473,6 @@ def render_contact_sheet(
     tile = 160
     rows_n = math.ceil(len(chosen) / cols)
     sheet = Image.new("RGB", (cols * tile, rows_n * tile), (20, 20, 20))
-    draw = ImageDraw.Draw(sheet)
 
     palette = [(255, 80, 80), (80, 200, 255), (255, 220, 80)]
     for i, row in enumerate(chosen):
