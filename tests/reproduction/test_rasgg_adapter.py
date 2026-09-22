@@ -5,6 +5,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
+from tests._optional import require_modules
+
+require_modules("numpy", "torch", "lightning")
+
 import numpy as np
 import torch
 

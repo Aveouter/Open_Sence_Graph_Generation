@@ -4,10 +4,14 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import torch
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+
+from tests._optional import require_modules
+
+require_modules("torch", "lightning")
+
+import torch
 
 from src.exp import (
     infer_checkpoint_mode,

@@ -1,9 +1,13 @@
 import sys
 from pathlib import Path
 
-import torch
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tests._optional import require_modules
+
+require_modules("torch")
+
+import torch
 
 from src.models.penet import PENetContext
 

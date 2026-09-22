@@ -3,6 +3,10 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+from tests._optional import require_modules
+
+require_modules("torch")
+
 import torch
 
 from src.methods import method_maps

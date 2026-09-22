@@ -56,8 +56,15 @@ def artifact_kind(blocker: str) -> str:
 
 
 def public_blocker(blocker: str) -> str:
+    """Reduce a local filesystem path to its basename so manifests stay public.
+
+    ``Path.is_absolute()`` is platform-dependent: on Windows a rooted path such
+    as ``\\redacted\\datasets\\vg\\x.h5`` has no drive and so is *not* absolute,
+    yet it still leaks a local layout and must be redacted. ``root`` is truthy
+    for rooted paths on both POSIX and Windows.
+    """
     path = Path(blocker)
-    if path.is_absolute():
+    if path.is_absolute() or path.root:
         return path.name
     return blocker
 
