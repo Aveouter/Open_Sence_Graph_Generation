@@ -1,0 +1,1612 @@
+{
+  "_meta": {
+    "status": "diagnostic_experiment",
+    "not_a_reproduction": true,
+    "scope": "vg150_predicate_ontology_cross_pair_generalization",
+    "description": "Canonical predicate label spaces for the VG150 cross-pair generalization diagnostic. L1_noise merges within-lemma surface variants only; L2_entail adds the frozen strong entailment mappings. Comparing Δ_ontology between the two separates annotation noise from semantic entailment.",
+    "created_from": {
+      "rel.json": "ab5d435745d5683b4f672311a2ec8618d9126909d291b663deaf406c6497d32f",
+      "pob_strong_mappings.json": "7c8255b73a30e994dcb4b3443d037fc15171a9bbfbc1847906fb6c7fe22fa79c",
+      "predicate_semantic_map_vg150.json": "8cf8a230ae8c35be12b04db0617a4d5d1ac537b780b706f5a633b535933e8ebe"
+    },
+    "total_vg_classes": 50,
+    "predicate_names": [
+      "__background__",
+      "above",
+      "across",
+      "against",
+      "along",
+      "and",
+      "at",
+      "attached to",
+      "behind",
+      "belonging to",
+      "between",
+      "carrying",
+      "covered in",
+      "covering",
+      "eating",
+      "flying in",
+      "for",
+      "from",
+      "growing on",
+      "hanging from",
+      "has",
+      "holding",
+      "in",
+      "in front of",
+      "laying on",
+      "looking at",
+      "lying on",
+      "made of",
+      "mounted on",
+      "near",
+      "of",
+      "on",
+      "on back of",
+      "over",
+      "painted on",
+      "parked on",
+      "part of",
+      "playing",
+      "riding",
+      "says",
+      "sitting on",
+      "standing on",
+      "to",
+      "under",
+      "using",
+      "walking in",
+      "walking on",
+      "watching",
+      "wearing",
+      "wears",
+      "with"
+    ],
+    "class_counts": {
+      "L1_noise": 48,
+      "L2_entail": 41
+    },
+    "excluded_pairs_note": "see excluded_pairs for pairs deliberately NOT merged",
+    "levels": [
+      "L1_noise",
+      "L2_entail"
+    ]
+  },
+  "levels": [
+    "L1_noise",
+    "L2_entail"
+  ],
+  "noise_merge_rules": [
+    {
+      "members": [
+        "laying on",
+        "lying on"
+      ],
+      "canonical": "lying on",
+      "evidence": "spelling variant of the same lemma (lie/lay); the two are used interchangeably in VG annotations and carry the same visual relation"
+    },
+    {
+      "members": [
+        "wears",
+        "wearing"
+      ],
+      "canonical": "wearing",
+      "evidence": "tense variant of the same lemma; same visual relation"
+    }
+  ],
+  "excluded_pairs": [
+    {
+      "pair": "holding | carrying",
+      "reason": "distinct actions (grasp in hand vs transport); not surface variants"
+    },
+    {
+      "pair": "looking at | watching",
+      "reason": "distinct (gaze target vs sustained attention over time)"
+    },
+    {
+      "pair": "covering | covered in",
+      "reason": "different semantic frames (active agent vs stative coverage)"
+    },
+    {
+      "pair": "on | on back of",
+      "reason": "on-back-of adds an anatomical location, so merging loses information"
+    },
+    {
+      "pair": "of | part of | made of",
+      "reason": "different meronymy frames (ownership vs composition vs material)"
+    },
+    {
+      "pair": "behind | in front of | under | above | over | near",
+      "reason": "directional predicates: merging them destroys the axis information that a visual model can actually learn"
+    }
+  ],
+  "entailment_edges": [
+    {
+      "child": "sitting on",
+      "child_id": 40,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + sitting posture modifier"
+    },
+    {
+      "child": "standing on",
+      "child_id": 41,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + standing posture modifier"
+    },
+    {
+      "child": "lying on",
+      "child_id": 26,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + lying posture modifier"
+    },
+    {
+      "child": "laying on",
+      "child_id": 24,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation; variant spelling of lying on"
+    },
+    {
+      "child": "walking on",
+      "child_id": 46,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + walking action modifier"
+    },
+    {
+      "child": "parked on",
+      "child_id": 35,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + parked state modifier"
+    },
+    {
+      "child": "mounted on",
+      "child_id": 28,
+      "parent": "on",
+      "parent_id": 31,
+      "confidence": "strong",
+      "group": "primary_on_family",
+      "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + attachment semantics"
+    },
+    {
+      "child": "covered in",
+      "child_id": 12,
+      "parent": "in",
+      "parent_id": 22,
+      "confidence": "strong",
+      "group": "boundary_in_family",
+      "evidence": "lexical entailment (phrase-includes 'in') + containment/surface coverage relation"
+    }
+  ],
+  "classes": {
+    "L1_noise": [
+      {
+        "class_id": 0,
+        "canonical": "above",
+        "kind": "singleton",
+        "vg_ids": [
+          1
+        ],
+        "vg_names": [
+          "above"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 1,
+        "canonical": "across",
+        "kind": "singleton",
+        "vg_ids": [
+          2
+        ],
+        "vg_names": [
+          "across"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 2,
+        "canonical": "against",
+        "kind": "singleton",
+        "vg_ids": [
+          3
+        ],
+        "vg_names": [
+          "against"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 3,
+        "canonical": "along",
+        "kind": "singleton",
+        "vg_ids": [
+          4
+        ],
+        "vg_names": [
+          "along"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 4,
+        "canonical": "and",
+        "kind": "singleton",
+        "vg_ids": [
+          5
+        ],
+        "vg_names": [
+          "and"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 5,
+        "canonical": "at",
+        "kind": "singleton",
+        "vg_ids": [
+          6
+        ],
+        "vg_names": [
+          "at"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 6,
+        "canonical": "attached to",
+        "kind": "singleton",
+        "vg_ids": [
+          7
+        ],
+        "vg_names": [
+          "attached to"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 7,
+        "canonical": "behind",
+        "kind": "singleton",
+        "vg_ids": [
+          8
+        ],
+        "vg_names": [
+          "behind"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 8,
+        "canonical": "belonging to",
+        "kind": "singleton",
+        "vg_ids": [
+          9
+        ],
+        "vg_names": [
+          "belonging to"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 9,
+        "canonical": "between",
+        "kind": "singleton",
+        "vg_ids": [
+          10
+        ],
+        "vg_names": [
+          "between"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 10,
+        "canonical": "carrying",
+        "kind": "singleton",
+        "vg_ids": [
+          11
+        ],
+        "vg_names": [
+          "carrying"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 11,
+        "canonical": "covered in",
+        "kind": "singleton",
+        "vg_ids": [
+          12
+        ],
+        "vg_names": [
+          "covered in"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 12,
+        "canonical": "covering",
+        "kind": "singleton",
+        "vg_ids": [
+          13
+        ],
+        "vg_names": [
+          "covering"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 13,
+        "canonical": "eating",
+        "kind": "singleton",
+        "vg_ids": [
+          14
+        ],
+        "vg_names": [
+          "eating"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 14,
+        "canonical": "flying in",
+        "kind": "singleton",
+        "vg_ids": [
+          15
+        ],
+        "vg_names": [
+          "flying in"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 15,
+        "canonical": "for",
+        "kind": "singleton",
+        "vg_ids": [
+          16
+        ],
+        "vg_names": [
+          "for"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 16,
+        "canonical": "from",
+        "kind": "singleton",
+        "vg_ids": [
+          17
+        ],
+        "vg_names": [
+          "from"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 17,
+        "canonical": "growing on",
+        "kind": "singleton",
+        "vg_ids": [
+          18
+        ],
+        "vg_names": [
+          "growing on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 18,
+        "canonical": "hanging from",
+        "kind": "singleton",
+        "vg_ids": [
+          19
+        ],
+        "vg_names": [
+          "hanging from"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 19,
+        "canonical": "has",
+        "kind": "singleton",
+        "vg_ids": [
+          20
+        ],
+        "vg_names": [
+          "has"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 20,
+        "canonical": "holding",
+        "kind": "singleton",
+        "vg_ids": [
+          21
+        ],
+        "vg_names": [
+          "holding"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 21,
+        "canonical": "in",
+        "kind": "singleton",
+        "vg_ids": [
+          22
+        ],
+        "vg_names": [
+          "in"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 22,
+        "canonical": "in front of",
+        "kind": "singleton",
+        "vg_ids": [
+          23
+        ],
+        "vg_names": [
+          "in front of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 23,
+        "canonical": "lying on",
+        "kind": "noise_only",
+        "vg_ids": [
+          24,
+          26
+        ],
+        "vg_names": [
+          "laying on",
+          "lying on"
+        ],
+        "edges": [
+          {
+            "kind": "noise_only",
+            "members": [
+              24,
+              26
+            ],
+            "evidence": "spelling variant of the same lemma (lie/lay); the two are used interchangeably in VG annotations and carry the same visual relation"
+          }
+        ]
+      },
+      {
+        "class_id": 24,
+        "canonical": "looking at",
+        "kind": "singleton",
+        "vg_ids": [
+          25
+        ],
+        "vg_names": [
+          "looking at"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 25,
+        "canonical": "made of",
+        "kind": "singleton",
+        "vg_ids": [
+          27
+        ],
+        "vg_names": [
+          "made of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 26,
+        "canonical": "mounted on",
+        "kind": "singleton",
+        "vg_ids": [
+          28
+        ],
+        "vg_names": [
+          "mounted on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 27,
+        "canonical": "near",
+        "kind": "singleton",
+        "vg_ids": [
+          29
+        ],
+        "vg_names": [
+          "near"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 28,
+        "canonical": "of",
+        "kind": "singleton",
+        "vg_ids": [
+          30
+        ],
+        "vg_names": [
+          "of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 29,
+        "canonical": "on",
+        "kind": "singleton",
+        "vg_ids": [
+          31
+        ],
+        "vg_names": [
+          "on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 30,
+        "canonical": "on back of",
+        "kind": "singleton",
+        "vg_ids": [
+          32
+        ],
+        "vg_names": [
+          "on back of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 31,
+        "canonical": "over",
+        "kind": "singleton",
+        "vg_ids": [
+          33
+        ],
+        "vg_names": [
+          "over"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 32,
+        "canonical": "painted on",
+        "kind": "singleton",
+        "vg_ids": [
+          34
+        ],
+        "vg_names": [
+          "painted on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 33,
+        "canonical": "parked on",
+        "kind": "singleton",
+        "vg_ids": [
+          35
+        ],
+        "vg_names": [
+          "parked on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 34,
+        "canonical": "part of",
+        "kind": "singleton",
+        "vg_ids": [
+          36
+        ],
+        "vg_names": [
+          "part of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 35,
+        "canonical": "playing",
+        "kind": "singleton",
+        "vg_ids": [
+          37
+        ],
+        "vg_names": [
+          "playing"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 36,
+        "canonical": "riding",
+        "kind": "singleton",
+        "vg_ids": [
+          38
+        ],
+        "vg_names": [
+          "riding"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 37,
+        "canonical": "says",
+        "kind": "singleton",
+        "vg_ids": [
+          39
+        ],
+        "vg_names": [
+          "says"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 38,
+        "canonical": "sitting on",
+        "kind": "singleton",
+        "vg_ids": [
+          40
+        ],
+        "vg_names": [
+          "sitting on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 39,
+        "canonical": "standing on",
+        "kind": "singleton",
+        "vg_ids": [
+          41
+        ],
+        "vg_names": [
+          "standing on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 40,
+        "canonical": "to",
+        "kind": "singleton",
+        "vg_ids": [
+          42
+        ],
+        "vg_names": [
+          "to"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 41,
+        "canonical": "under",
+        "kind": "singleton",
+        "vg_ids": [
+          43
+        ],
+        "vg_names": [
+          "under"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 42,
+        "canonical": "using",
+        "kind": "singleton",
+        "vg_ids": [
+          44
+        ],
+        "vg_names": [
+          "using"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 43,
+        "canonical": "walking in",
+        "kind": "singleton",
+        "vg_ids": [
+          45
+        ],
+        "vg_names": [
+          "walking in"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 44,
+        "canonical": "walking on",
+        "kind": "singleton",
+        "vg_ids": [
+          46
+        ],
+        "vg_names": [
+          "walking on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 45,
+        "canonical": "watching",
+        "kind": "singleton",
+        "vg_ids": [
+          47
+        ],
+        "vg_names": [
+          "watching"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 46,
+        "canonical": "wearing",
+        "kind": "noise_only",
+        "vg_ids": [
+          48,
+          49
+        ],
+        "vg_names": [
+          "wearing",
+          "wears"
+        ],
+        "edges": [
+          {
+            "kind": "noise_only",
+            "members": [
+              49,
+              48
+            ],
+            "evidence": "tense variant of the same lemma; same visual relation"
+          }
+        ]
+      },
+      {
+        "class_id": 47,
+        "canonical": "with",
+        "kind": "singleton",
+        "vg_ids": [
+          50
+        ],
+        "vg_names": [
+          "with"
+        ],
+        "edges": []
+      }
+    ],
+    "L2_entail": [
+      {
+        "class_id": 0,
+        "canonical": "above",
+        "kind": "singleton",
+        "vg_ids": [
+          1
+        ],
+        "vg_names": [
+          "above"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 1,
+        "canonical": "across",
+        "kind": "singleton",
+        "vg_ids": [
+          2
+        ],
+        "vg_names": [
+          "across"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 2,
+        "canonical": "against",
+        "kind": "singleton",
+        "vg_ids": [
+          3
+        ],
+        "vg_names": [
+          "against"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 3,
+        "canonical": "along",
+        "kind": "singleton",
+        "vg_ids": [
+          4
+        ],
+        "vg_names": [
+          "along"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 4,
+        "canonical": "and",
+        "kind": "singleton",
+        "vg_ids": [
+          5
+        ],
+        "vg_names": [
+          "and"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 5,
+        "canonical": "at",
+        "kind": "singleton",
+        "vg_ids": [
+          6
+        ],
+        "vg_names": [
+          "at"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 6,
+        "canonical": "attached to",
+        "kind": "singleton",
+        "vg_ids": [
+          7
+        ],
+        "vg_names": [
+          "attached to"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 7,
+        "canonical": "behind",
+        "kind": "singleton",
+        "vg_ids": [
+          8
+        ],
+        "vg_names": [
+          "behind"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 8,
+        "canonical": "belonging to",
+        "kind": "singleton",
+        "vg_ids": [
+          9
+        ],
+        "vg_names": [
+          "belonging to"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 9,
+        "canonical": "between",
+        "kind": "singleton",
+        "vg_ids": [
+          10
+        ],
+        "vg_names": [
+          "between"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 10,
+        "canonical": "carrying",
+        "kind": "singleton",
+        "vg_ids": [
+          11
+        ],
+        "vg_names": [
+          "carrying"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 11,
+        "canonical": "in",
+        "kind": "semantic_entailment",
+        "vg_ids": [
+          12,
+          22
+        ],
+        "vg_names": [
+          "covered in",
+          "in"
+        ],
+        "edges": [
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              12,
+              22
+            ],
+            "group": "boundary_in_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'in') + containment/surface coverage relation"
+          }
+        ]
+      },
+      {
+        "class_id": 12,
+        "canonical": "covering",
+        "kind": "singleton",
+        "vg_ids": [
+          13
+        ],
+        "vg_names": [
+          "covering"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 13,
+        "canonical": "eating",
+        "kind": "singleton",
+        "vg_ids": [
+          14
+        ],
+        "vg_names": [
+          "eating"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 14,
+        "canonical": "flying in",
+        "kind": "singleton",
+        "vg_ids": [
+          15
+        ],
+        "vg_names": [
+          "flying in"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 15,
+        "canonical": "for",
+        "kind": "singleton",
+        "vg_ids": [
+          16
+        ],
+        "vg_names": [
+          "for"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 16,
+        "canonical": "from",
+        "kind": "singleton",
+        "vg_ids": [
+          17
+        ],
+        "vg_names": [
+          "from"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 17,
+        "canonical": "growing on",
+        "kind": "singleton",
+        "vg_ids": [
+          18
+        ],
+        "vg_names": [
+          "growing on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 18,
+        "canonical": "hanging from",
+        "kind": "singleton",
+        "vg_ids": [
+          19
+        ],
+        "vg_names": [
+          "hanging from"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 19,
+        "canonical": "has",
+        "kind": "singleton",
+        "vg_ids": [
+          20
+        ],
+        "vg_names": [
+          "has"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 20,
+        "canonical": "holding",
+        "kind": "singleton",
+        "vg_ids": [
+          21
+        ],
+        "vg_names": [
+          "holding"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 21,
+        "canonical": "in front of",
+        "kind": "singleton",
+        "vg_ids": [
+          23
+        ],
+        "vg_names": [
+          "in front of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 22,
+        "canonical": "on",
+        "kind": "semantic_entailment",
+        "vg_ids": [
+          24,
+          26,
+          28,
+          31,
+          35,
+          40,
+          41,
+          46
+        ],
+        "vg_names": [
+          "laying on",
+          "lying on",
+          "mounted on",
+          "on",
+          "parked on",
+          "sitting on",
+          "standing on",
+          "walking on"
+        ],
+        "edges": [
+          {
+            "kind": "noise_only",
+            "members": [
+              24,
+              26
+            ],
+            "evidence": "spelling variant of the same lemma (lie/lay); the two are used interchangeably in VG annotations and carry the same visual relation"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              40,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + sitting posture modifier"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              41,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + standing posture modifier"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              26,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + lying posture modifier"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              24,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation; variant spelling of lying on"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              46,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + walking action modifier"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              35,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + parked state modifier"
+          },
+          {
+            "kind": "semantic_entailment",
+            "members": [
+              28,
+              31
+            ],
+            "group": "primary_on_family",
+            "confidence": "strong",
+            "evidence": "lexical entailment (phrase-includes 'on') + visual support/contact relation + attachment semantics"
+          }
+        ]
+      },
+      {
+        "class_id": 23,
+        "canonical": "looking at",
+        "kind": "singleton",
+        "vg_ids": [
+          25
+        ],
+        "vg_names": [
+          "looking at"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 24,
+        "canonical": "made of",
+        "kind": "singleton",
+        "vg_ids": [
+          27
+        ],
+        "vg_names": [
+          "made of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 25,
+        "canonical": "near",
+        "kind": "singleton",
+        "vg_ids": [
+          29
+        ],
+        "vg_names": [
+          "near"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 26,
+        "canonical": "of",
+        "kind": "singleton",
+        "vg_ids": [
+          30
+        ],
+        "vg_names": [
+          "of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 27,
+        "canonical": "on back of",
+        "kind": "singleton",
+        "vg_ids": [
+          32
+        ],
+        "vg_names": [
+          "on back of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 28,
+        "canonical": "over",
+        "kind": "singleton",
+        "vg_ids": [
+          33
+        ],
+        "vg_names": [
+          "over"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 29,
+        "canonical": "painted on",
+        "kind": "singleton",
+        "vg_ids": [
+          34
+        ],
+        "vg_names": [
+          "painted on"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 30,
+        "canonical": "part of",
+        "kind": "singleton",
+        "vg_ids": [
+          36
+        ],
+        "vg_names": [
+          "part of"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 31,
+        "canonical": "playing",
+        "kind": "singleton",
+        "vg_ids": [
+          37
+        ],
+        "vg_names": [
+          "playing"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 32,
+        "canonical": "riding",
+        "kind": "singleton",
+        "vg_ids": [
+          38
+        ],
+        "vg_names": [
+          "riding"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 33,
+        "canonical": "says",
+        "kind": "singleton",
+        "vg_ids": [
+          39
+        ],
+        "vg_names": [
+          "says"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 34,
+        "canonical": "to",
+        "kind": "singleton",
+        "vg_ids": [
+          42
+        ],
+        "vg_names": [
+          "to"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 35,
+        "canonical": "under",
+        "kind": "singleton",
+        "vg_ids": [
+          43
+        ],
+        "vg_names": [
+          "under"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 36,
+        "canonical": "using",
+        "kind": "singleton",
+        "vg_ids": [
+          44
+        ],
+        "vg_names": [
+          "using"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 37,
+        "canonical": "walking in",
+        "kind": "singleton",
+        "vg_ids": [
+          45
+        ],
+        "vg_names": [
+          "walking in"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 38,
+        "canonical": "watching",
+        "kind": "singleton",
+        "vg_ids": [
+          47
+        ],
+        "vg_names": [
+          "watching"
+        ],
+        "edges": []
+      },
+      {
+        "class_id": 39,
+        "canonical": "wearing",
+        "kind": "noise_only",
+        "vg_ids": [
+          48,
+          49
+        ],
+        "vg_names": [
+          "wearing",
+          "wears"
+        ],
+        "edges": [
+          {
+            "kind": "noise_only",
+            "members": [
+              49,
+              48
+            ],
+            "evidence": "tense variant of the same lemma; same visual relation"
+          }
+        ]
+      },
+      {
+        "class_id": 40,
+        "canonical": "with",
+        "kind": "singleton",
+        "vg_ids": [
+          50
+        ],
+        "vg_names": [
+          "with"
+        ],
+        "edges": []
+      }
+    ]
+  },
+  "class_names": {
+    "L1_noise": [
+      "above",
+      "across",
+      "against",
+      "along",
+      "and",
+      "at",
+      "attached to",
+      "behind",
+      "belonging to",
+      "between",
+      "carrying",
+      "covered in",
+      "covering",
+      "eating",
+      "flying in",
+      "for",
+      "from",
+      "growing on",
+      "hanging from",
+      "has",
+      "holding",
+      "in",
+      "in front of",
+      "lying on",
+      "looking at",
+      "made of",
+      "mounted on",
+      "near",
+      "of",
+      "on",
+      "on back of",
+      "over",
+      "painted on",
+      "parked on",
+      "part of",
+      "playing",
+      "riding",
+      "says",
+      "sitting on",
+      "standing on",
+      "to",
+      "under",
+      "using",
+      "walking in",
+      "walking on",
+      "watching",
+      "wearing",
+      "with"
+    ],
+    "L2_entail": [
+      "above",
+      "across",
+      "against",
+      "along",
+      "and",
+      "at",
+      "attached to",
+      "behind",
+      "belonging to",
+      "between",
+      "carrying",
+      "in",
+      "covering",
+      "eating",
+      "flying in",
+      "for",
+      "from",
+      "growing on",
+      "hanging from",
+      "has",
+      "holding",
+      "in front of",
+      "on",
+      "looking at",
+      "made of",
+      "near",
+      "of",
+      "on back of",
+      "over",
+      "painted on",
+      "part of",
+      "playing",
+      "riding",
+      "says",
+      "to",
+      "under",
+      "using",
+      "walking in",
+      "watching",
+      "wearing",
+      "with"
+    ]
+  },
+  "id_maps": {
+    "L1_noise": {
+      "1": 0,
+      "2": 1,
+      "3": 2,
+      "4": 3,
+      "5": 4,
+      "6": 5,
+      "7": 6,
+      "8": 7,
+      "9": 8,
+      "10": 9,
+      "11": 10,
+      "12": 11,
+      "13": 12,
+      "14": 13,
+      "15": 14,
+      "16": 15,
+      "17": 16,
+      "18": 17,
+      "19": 18,
+      "20": 19,
+      "21": 20,
+      "22": 21,
+      "23": 22,
+      "24": 23,
+      "25": 24,
+      "26": 23,
+      "27": 25,
+      "28": 26,
+      "29": 27,
+      "30": 28,
+      "31": 29,
+      "32": 30,
+      "33": 31,
+      "34": 32,
+      "35": 33,
+      "36": 34,
+      "37": 35,
+      "38": 36,
+      "39": 37,
+      "40": 38,
+      "41": 39,
+      "42": 40,
+      "43": 41,
+      "44": 42,
+      "45": 43,
+      "46": 44,
+      "47": 45,
+      "48": 46,
+      "49": 46,
+      "50": 47
+    },
+    "L2_entail": {
+      "1": 0,
+      "2": 1,
+      "3": 2,
+      "4": 3,
+      "5": 4,
+      "6": 5,
+      "7": 6,
+      "8": 7,
+      "9": 8,
+      "10": 9,
+      "11": 10,
+      "12": 11,
+      "13": 12,
+      "14": 13,
+      "15": 14,
+      "16": 15,
+      "17": 16,
+      "18": 17,
+      "19": 18,
+      "20": 19,
+      "21": 20,
+      "22": 11,
+      "23": 21,
+      "24": 22,
+      "25": 23,
+      "26": 22,
+      "27": 24,
+      "28": 22,
+      "29": 25,
+      "30": 26,
+      "31": 22,
+      "32": 27,
+      "33": 28,
+      "34": 29,
+      "35": 22,
+      "36": 30,
+      "37": 31,
+      "38": 32,
+      "39": 33,
+      "40": 22,
+      "41": 22,
+      "42": 34,
+      "43": 35,
+      "44": 36,
+      "45": 37,
+      "46": 22,
+      "47": 38,
+      "48": 39,
+      "49": 39,
+      "50": 40
+    }
+  }
+}
