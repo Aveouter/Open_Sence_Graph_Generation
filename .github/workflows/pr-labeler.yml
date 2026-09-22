@@ -4,19 +4,36 @@ on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
 
+# Label writes need an explicit grant: the default token permissions for
+# pull_request_target do not include issues/pull-requests write on every repo
+# configuration, and a missing grant fails the job with a bare HTTP 401.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   label:
     runs-on: ubuntu-latest
     steps:
       - name: Label PR by title prefix
         env:
-          TOKEN: ${{ secrets.LABELER_TOKEN }}
+          # Prefer a dedicated token when one is configured, but fall back to
+          # the workflow's own token. The job previously used secrets.LABELER_TOKEN
+          # alone, so an unset or stale secret failed every PR with a 401 while
+          # looking like a code problem.
+          TOKEN: ${{ secrets.LABELER_TOKEN || github.token }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           REPO: ${{ github.repository }}
         run: |
           TITLE="$PR_TITLE"
           echo "PR title: $TITLE"
+
+          if [ -z "$TOKEN" ]; then
+            echo "::error::No API token available; set LABELER_TOKEN or grant issues:write."
+            exit 1
+          fi
 
           if echo "$TITLE" | grep -qiE '^(fix|bug)'; then
             LABEL="bug"
