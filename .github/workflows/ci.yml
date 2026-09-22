@@ -162,7 +162,11 @@ jobs:
 
       - name: Run unit tests
         if: steps.check-changes.outputs.needs_validate == 'true'
-        run: python -m unittest discover -s tests -v
+        # -t . is required: without it Python 3.10 treats tests/ as the top-level
+        # dir and silently discovers 0 tests (the subdirs are not importable).
+        # This job installs no third-party packages, so tests that need
+        # torch/numpy skip themselves via tests/_optional.require_modules.
+        run: python -m unittest discover -s tests -t . -v
 
   # ============================================================
   # Job 4: Smoke Test — slow (~15 min), only on model/config changes

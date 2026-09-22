@@ -8,6 +8,10 @@ import types
 import unittest
 from pathlib import Path
 
+from tests._optional import require_modules
+
+require_modules("numpy", "torch")
+
 import numpy as np
 import torch
 
