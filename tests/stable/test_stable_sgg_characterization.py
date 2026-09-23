@@ -98,12 +98,19 @@ class CoreEvaluatorTest(unittest.TestCase):
 
 
 class SmokeContractTest(unittest.TestCase):
+    @skip_unless("torch")
     def test_main_smoke_contract(self) -> None:
         """The smoke test must still resolve changed files to registered methods.
 
         ``detect_changed_methods`` is what decides which methods the slow smoke
         job exercises, so a regression here silently narrows CI coverage rather
         than failing it.
+
+        Guarded because ``tools/ci_smoke_test.py`` imports torch at module scope,
+        so the module cannot be loaded on the dependency-free ``validate`` job.
+        The functions under test do not need torch, but the import does; the
+        alternative would be stubbing a fake torch, which would test against
+        something that is not the real module.
         """
         smoke = _load_script("opensgg_ci_smoke_test", "tools/ci_smoke_test.py")
 
