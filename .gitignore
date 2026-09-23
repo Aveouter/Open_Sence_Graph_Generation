@@ -12,6 +12,12 @@ CLAUDE.md
 .vscode/
 .idea/
 
+# Skills installed locally via `npx skills add` (see skills-lock.json for the
+# upstream source of each). The lockfile is local provenance only; it is not
+# part of the reproduction evidence in `reproduction/`.
+.agents/
+skills-lock.json
+
 ckpts/
 weights/
 checkpoints/
@@ -79,6 +85,7 @@ build.ninja
 .ninja_deps
 .ninja_log
 
-# Reports
-reports/
+# Reports. Anchored to the repository root on purpose: an unanchored `reports/`
+# also matches `outputs/reports/`, which the block above says is tracked.
+/reports/
 migration_report.md

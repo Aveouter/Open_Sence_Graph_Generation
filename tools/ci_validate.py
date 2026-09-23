@@ -30,6 +30,14 @@ from typing import Dict, List, Set
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# This script is part of the required pre-PR workflow on whatever platform a
+# contributor uses, and its progress output contains a few non-ASCII glyphs
+# (arrows, em dashes). On a cp1252 console those raise UnicodeEncodeError and the
+# whole check dies before it can report anything. Pinning the stream encoding
+# fixes every glyph at once, including ones added later.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # ---------------------------------------------------------------------------
 # AST helpers
 # ---------------------------------------------------------------------------
