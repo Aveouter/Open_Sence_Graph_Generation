@@ -15,7 +15,7 @@ research repository has been created.
 | Preservation tag | `research-preservation/phase1-pre-extraction` |
 | Preservation commit | `e2613e24466833570bc162afe738ea80414d1b2d` |
 | Extracted copy | `.research-extraction/Relational_Representation_Research` (gitignored) |
-| Extracted tip | `3dcbe4d350842a8b19091ce92b8997ff7bcdbd12` |
+| Extracted tip | `c312c54cb036a9a5639735f983e5ac1f09c0f8df` |
 | Planned remote | `Aveouter/Relational_Representation_Research` — not created |
 
 Machine-readable records live beside this file:
@@ -33,10 +33,17 @@ Machine-readable records live beside this file:
 ## Why there are two integrity records
 
 The extraction copies history and then deliberately rewrites part of it: 17
-relative links were repointed at the new layout, and the `CONTEXT.md` pointer to
-`reproduction/glossary.md` became a citation because that document stays here.
-Comparing rewritten blobs against source hashes would compare two different
-things, so the two stages are recorded separately and never cross-checked.
+relative links were repointed at the new layout, the `CONTEXT.md` pointer to
+`reproduction/glossary.md` became a citation because that document stays here,
+and every `tools.relational_emergence` reference became `src.relational_research`
+— including the documented `python -m` run commands. Comparing rewritten blobs
+against source hashes would compare two different things, so the two stages are
+recorded separately and never cross-checked.
+
+`tests/_optional.py` was copied in and a `tests/__init__.py` added, so the
+extracted suite runs without anything from this repository on the path. It is
+checked with `unittest discover -s tests -t .` from the extracted root: 196
+tests, no dependency on a file that exists only here.
 
 `--stage raw` must run against the tree *as filtered*, before any content
 changes. Running it afterwards fails, by design, and it will not overwrite a

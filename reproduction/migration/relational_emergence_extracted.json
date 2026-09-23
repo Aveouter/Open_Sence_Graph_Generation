@@ -1,6 +1,6 @@
 {
-  "extracted_tip": "3dcbe4d350842a8b19091ce92b8997ff7bcdbd12",
-  "file_count": 76,
+  "extracted_tip": "c312c54cb036a9a5639735f983e5ac1f09c0f8df",
+  "file_count": 78,
   "files": [
     {
       "bytes": 545,
@@ -18,9 +18,9 @@
       "sha256": "41ca58009b72fec25bf48f69c12d94a7de5aaddeec48c9a74a601254c8afa287"
     },
     {
-      "bytes": 6865,
+      "bytes": 6862,
       "path": "protocols/0006-development-vs-audit-world-protocol.md",
-      "sha256": "c89f304755e3de8146c2dca12b85abcee3875125b7755ed3de4c3de868f0f87a"
+      "sha256": "23762ebad69443749f25f15c7fdcbcdf0e7058723bb2fca05452ada52286a075"
     },
     {
       "bytes": 12093,
@@ -43,24 +43,24 @@
       "sha256": "2eea3bd4ffb620c2d1f77288f59034253eb4dd007651457b19b613aa0baec3d0"
     },
     {
-      "bytes": 19712,
+      "bytes": 19706,
       "path": "reports/01_phase1a_gate.md",
-      "sha256": "44a6a884130324394146fc169bccfea5e9bd45a40d68713a0f1e70809e13e59c"
+      "sha256": "ff28e29c089cf6af6675c9be2dcedfd790ccf832424901949a094708a8c66eeb"
     },
     {
-      "bytes": 9653,
+      "bytes": 9644,
       "path": "reports/02_phase1a_level2.md",
-      "sha256": "bac5cdaa07e0918d150d0793987634cbbdb018e0fc6bc8f0fe6a3a042a28867c"
+      "sha256": "97f8bcdacb27806f1c263f894f72e830f59c7dd35ba632be24a527f34e508bae"
     },
     {
-      "bytes": 28556,
+      "bytes": 28553,
       "path": "reports/03_phase1b_factorial.md",
-      "sha256": "315c1969fecfed984d3dd380cbdd888ae986e6faa40bb638d37fa0b59e50fee1"
+      "sha256": "0bfb7d6e3413d7babd4d1ec281731bf881fd7553aea96f0b13f7dba371b5e39b"
     },
     {
-      "bytes": 11408,
+      "bytes": 11405,
       "path": "reports/04_phase1b_audit_world.md",
-      "sha256": "81850513c66dc985284f56b70f28c1c48aa1e7bec753c44b51dd8b70d31a0de5"
+      "sha256": "97da57eb4821ec3f8c0555b9604ccd315d5f0131bb360f09d17eaa252c3b4cb7"
     },
     {
       "bytes": 1820,
@@ -68,9 +68,9 @@
       "sha256": "dde8e675c22e0a6f9fd3f3420ab8b8589c84649147314f12fd29eb38d9e12b56"
     },
     {
-      "bytes": 7498,
+      "bytes": 7495,
       "path": "reports/v2/01_development_gate.md",
-      "sha256": "62cad0ca8d5a302c6df30ce97482cf36713535cf6fa1f492c51bcce2e222487c"
+      "sha256": "9ab3dd0e91f737a34df2867676ebb94fe41050dd29c91601d010e49ada55ccdd"
     },
     {
       "bytes": 111255,
@@ -78,9 +78,9 @@
       "sha256": "7afa80fe0a3bea8df8c4e8347b702aa598da63028b5676259635e88df64a8a16"
     },
     {
-      "bytes": 9245,
+      "bytes": 9218,
       "path": "src/relational_research/README.md",
-      "sha256": "18130b071b7deaa7a73b7eb84752093653cd1c97cdfbbe3bfecbb83a4db27ff8"
+      "sha256": "7f37d79a995db9889410cd5da1ce45af428b75b38caf0969be48a7c19083bd8a"
     },
     {
       "bytes": 619,
@@ -173,9 +173,9 @@
       "sha256": "d75728e570546376c2b5d43afa487a117fe0048e4db13841314921c05f44068d"
     },
     {
-      "bytes": 7582,
+      "bytes": 7564,
       "path": "src/relational_research/experiments/run_level2.py",
-      "sha256": "9eb1a250e1ecff7bb0ba22808a13fe0089e535e03608b86827e37a5488c2cb83"
+      "sha256": "20c3e41d41d617818de9403c79c0a7105c702f474e96cbacf075208d935c85af"
     },
     {
       "bytes": 15950,
@@ -193,9 +193,9 @@
       "sha256": "4f10db5bfcd0fc060329067158b1903d700db80764198feea4f4db2c00635bae"
     },
     {
-      "bytes": 1112,
+      "bytes": 1106,
       "path": "src/relational_research/models/__init__.py",
-      "sha256": "e015f4bd05dff9f008f835d1850292df83e852a4180e9230ddb68c3aaa3cbbfd"
+      "sha256": "889f252fa748194030ad1776665c2f9b696a774f300449ea8541d8299f40747b"
     },
     {
       "bytes": 7861,
@@ -203,9 +203,9 @@
       "sha256": "9f54e9cb6223cdbb6b12159a02d3d8326c9cbe5af9c585d1de02a265a6fb4870"
     },
     {
-      "bytes": 43851,
+      "bytes": 43845,
       "path": "src/relational_research/models/oracles.py",
-      "sha256": "71e2b7644f6ff8427d68dbff40ee6947024921036cad43834a0c1e0299563477"
+      "sha256": "0f768ec20ae0b04c90b15eaeb2b2a6c466fc6751da028c83d0307197e542bd9e"
     },
     {
       "bytes": 19714,
@@ -298,9 +298,9 @@
       "sha256": "3f00e6c4242ba09dd79383c4cf4bc330dcc2f992ae79b9e6858e8b37e5c78e6e"
     },
     {
-      "bytes": 4075,
+      "bytes": 4072,
       "path": "src/relational_research/v2/README.md",
-      "sha256": "0f85d5e37157908d96517d19c051ba79da72c2f8e214c017a0ea0c3ad5c887e2"
+      "sha256": "c3fc62370e5a748b19d1ec51beb99a317cf96c9cae0199ee6081074bb48492fb"
     },
     {
       "bytes": 79,
@@ -343,44 +343,54 @@
       "sha256": "dfb38c0237fa15b2a9a1b1bac038d9bc68dcce6727fc34ea06c9a17901d3c08e"
     },
     {
-      "bytes": 11947,
+      "bytes": 172,
+      "path": "tests/__init__.py",
+      "sha256": "9f9495b42f17c6d503a177ee2c2a39e8ec10423218a83bfa67cc97b1e44149e7"
+    },
+    {
+      "bytes": 2155,
+      "path": "tests/_optional.py",
+      "sha256": "f55c23093cb745efa80d2cef7bd19a503ad1379c04621e16ae46a9b67504b6e5"
+    },
+    {
+      "bytes": 11926,
       "path": "tests/test_relational_emergence_arms.py",
-      "sha256": "0771d2984e9281160a0047acd721321fb47b35727320a94fd11fed6680f2c120"
+      "sha256": "f9bcfb7515074c41121d2e5038699edb63dba4ee21f7de01221b063816984dfb"
     },
     {
-      "bytes": 16871,
+      "bytes": 16856,
       "path": "tests/test_relational_emergence_endpoints.py",
-      "sha256": "755d6e0ef7f501aea0e0ca9dc9c9ab064b711d3102a777e0e73d84979d37240b"
+      "sha256": "9d73612d378f39a0b5f85195370a2f74d19f2125e5051798772c06b8264d0055"
     },
     {
-      "bytes": 1816,
+      "bytes": 1813,
       "path": "tests/test_relational_emergence_gate_inputs.py",
-      "sha256": "91cfaf2298b3d4bf19ce6eca602c5b14ecc2951c6e8eee221d05eb3293a15fd3"
+      "sha256": "ba9fe853484c4fc560f7b9d4087596122421952ea02f737e9d5af4d3d83ca5a9"
     },
     {
-      "bytes": 13856,
+      "bytes": 13835,
       "path": "tests/test_relational_emergence_ontology.py",
-      "sha256": "3e1e2b0569f9841a41413339a33fc47d8a5fe903a478e0878e2a68631b01af97"
+      "sha256": "668c02b385a98730b2be40427e187b5b824ba80c106b250bceb6b94a7e5bf271"
     },
     {
-      "bytes": 15494,
+      "bytes": 15482,
       "path": "tests/test_relational_emergence_oracles.py",
-      "sha256": "528242dedddf43cad4112aece63fc6adc952504f41f79fb6ae40ede45aacbbe0"
+      "sha256": "311ac9bbf0b66662541b18a244538633a5f8a23b0882bced19efe5939aed6f11"
     },
     {
-      "bytes": 52491,
+      "bytes": 52431,
       "path": "tests/test_relational_emergence_simulator.py",
-      "sha256": "2e2f6dcd3149f3fe52b92040ddc9bbb123b195c8f4506dadf269a0247c78c57a"
+      "sha256": "b2b77aaf97d5f439b1093a32327df7917b289d39994abaafb9cd68c5319ff156"
     },
     {
-      "bytes": 16986,
+      "bytes": 16968,
       "path": "tests/test_relational_emergence_v2.py",
-      "sha256": "db22fcd02b8c92b5a846735d0e80d532cacac83fb03ed95ced6947ae1d81df3b"
+      "sha256": "6e47a640d1b83df7ef1a85c7359f6d51328c6555ca4f2f6137adf45308aefb8f"
     },
     {
-      "bytes": 3043,
+      "bytes": 3031,
       "path": "tests/test_relational_emergence_v2_protocol.py",
-      "sha256": "1e164ad96f1258f51c616491e8b7b2042ef7137f2d94f8d5193fb89ec0bcfa30"
+      "sha256": "40b278ae5b223e911e7170cc2fb69ae430b5d448875d976dd0abf1c19b515082"
     }
   ],
   "raw_verification": {

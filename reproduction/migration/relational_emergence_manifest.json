@@ -12,11 +12,13 @@
     "content_changes_after_copy": [
       "17 relative links repointed at the new layout",
       "the CONTEXT.md reference to reproduction/glossary.md became a citation, because that document stays in the SGG repository",
-      "a .gitignore was added; it was not among the selected paths"
+      "a .gitignore was added; it was not among the selected paths",
+      "every tools.relational_emergence reference renamed to src.relational_research, including the documented `python -m` run commands",
+      "tests/_optional.py copied in and tests/__init__.py added, so the suite runs without anything from the SGG repository on the path"
     ],
     "extracted_main_parent": "0bc7355acb9eb7e23f189aee50f122addc233673",
-    "extracted_tip": "3dcbe4d350842a8b19091ce92b8997ff7bcdbd12",
-    "file_count": 76,
+    "extracted_tip": "c312c54cb036a9a5639735f983e5ac1f09c0f8df",
+    "file_count": 78,
     "method": "git filter-repo",
     "paths_from_file": "reproduction/migration/relational_emergence_paths.txt",
     "records": {

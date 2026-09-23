@@ -595,6 +595,34 @@ class ExtractionRecordTest(unittest.TestCase):
             "the transformed manifest no longer describes the extracted tree",
         )
 
+    def test_extracted_tree_names_no_main_only_paths(self) -> None:
+        """The extraction has to stand alone.
+
+        The package moved to ``src/relational_research/`` and ``tests/_optional.py``
+        exists here but was not among the frozen paths.  Either left unrepointed
+        would make the extracted suite depend on a file that exists only in this
+        repository -- the thing issue #113's exit criterion forbids.
+        """
+        listing = _run_git(EXTRACTION, "ls-files", "-z").stdout
+        offenders: list[str] = []
+        for relative in listing.split("\0"):
+            if not relative:
+                continue
+            path = EXTRACTION / relative
+            if path.suffix not in {".py", ".md", ".txt"}:
+                continue
+            if "tools.relational_emergence" in path.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                offenders.append(relative)
+
+        self.assertEqual(
+            offenders,
+            [],
+            "the extraction still names the SGG repository's layout: "
+            + ", ".join(offenders),
+        )
+
     def test_raw_record_is_the_one_the_transformed_manifest_cites(self) -> None:
         raw_bytes = (
             MIGRATION_DIR / "relational_emergence_raw_verification.json"
