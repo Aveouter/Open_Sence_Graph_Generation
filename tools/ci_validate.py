@@ -62,7 +62,7 @@ def extract_method_maps(path: Path) -> Dict[str, str]:
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == "method_maps":
                     if isinstance(node.value, ast.Dict):
-                        for key, value in zip(node.value.keys, node.value.values):
+                        for key, value in zip(node.value.keys, node.value.values, strict=True):
                             if isinstance(key, ast.Constant):
                                 name = key.value
                                 cls = (
