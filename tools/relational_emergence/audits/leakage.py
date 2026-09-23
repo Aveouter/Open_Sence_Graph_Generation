@@ -141,9 +141,7 @@ def fit_linear_probe(
             cross[a][label] += row[a]
     for index in range(width - 1):
         gram[index][index] += ridge
-    weights: list[list[float]] = []
-    for dimension in range(width):
-        weights.append([0.0] * n_classes)
+    weights: list[list[float]] = [[0.0] * n_classes for _ in range(width)]
     for klass in range(n_classes):
         column = _solve([row[:] for row in gram], [cross[a][klass] for a in range(width)])
         for a in range(width):
