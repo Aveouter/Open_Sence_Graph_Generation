@@ -83,7 +83,15 @@ python tools/reproduction/run_reproduction_guardrails.py
 
 This aggregate guardrail compiles reproduction tools, checks tracked report
 completeness, runs reproduction guardrail unit tests, and scans claim-bearing
-text. It does not run model evaluation or rewrite evidence JSON files.
+text. When `tools/relational_emergence/` is present, it also runs the existing
+Phase IA protocol validator against `outputs/analysis/relational_emergence/`.
+Protocol violations fail the guardrail. To validate another isolated analysis
+root, pass `--protocol-root <path>`. Repository-boundary, artifact-provenance,
+documentation, and claim checks also run through this entrypoint. It does not run
+model evaluation.
+
+CI invokes this same entrypoint after its unit-test step, so checker failures
+fail the validation job rather than relying on indirect test coverage.
 
 Missing artifact manifest:
 

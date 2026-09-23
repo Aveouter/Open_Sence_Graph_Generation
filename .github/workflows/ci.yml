@@ -187,6 +187,10 @@ jobs:
         # torch/numpy skip themselves via tests/_optional.require_modules.
         run: python -m unittest discover -s tests -t . -v
 
+      - name: Run repository research and reproduction guardrails
+        if: steps.check-changes.outputs.needs_validate == 'true'
+        run: python tools/reproduction/run_reproduction_guardrails.py
+
   # ============================================================
   # Job 4: Smoke Test — slow (~15 min), only on model/config changes
   # ============================================================
