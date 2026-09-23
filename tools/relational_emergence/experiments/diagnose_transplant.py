@@ -21,13 +21,14 @@ transplant endpoint is specified.
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from pathlib import Path
 
 from ..common import DEFAULT_OUTPUT_ROOT
 from ..eval import design
 from ..simulator.splits import DEFAULT_SPLIT_SEED, build_split
 from .run_phase1a import build_groups
-from .run_phase1b import TRANSPLANT_HORIZON, _frame_scale, _rows_for, oracle_codes, standardise_latents
+from .run_phase1b import TRANSPLANT_HORIZON, _rows_for, oracle_codes, standardise_latents
 
 MAX_STEPS = TRANSPLANT_HORIZON
 
@@ -102,7 +103,6 @@ def main(argv: list[str] | None = None) -> int:
         for position, row in enumerate(test_rows)
     }
     keys = sorted(part_index)
-    scale = list(_frame_scale(fit_rows, MAX_STEPS))
 
     for code in ("oracle", "learned"):
         if code == "oracle":
@@ -174,22 +174,24 @@ def main(argv: list[str] | None = None) -> int:
                         actions = [action_vector(row, t) for t in range(MAX_STEPS)]
                         structural = torch.tensor([row["filler_structural"]], dtype=torch.float32)
 
-                        def roll(index: int, steps: int) -> list[list[float]]:
-                            return roll_from_state(
+                        for steps in (1, 2, 3, 5, MAX_STEPS):
+                            roll = partial(
+                                roll_from_state,
                                 decoder,
                                 initial_state=list(series[0]),
                                 structural=structural,
                                 actions=actions,
-                                latent_vector=codes[index],
                                 steps=steps,
                             )
-
-                        for steps in (1, 2, 3, 5, MAX_STEPS):
                             moved = [
                                 a - b
                                 for a, b in zip(
-                                    flatten(roll(part_index[source_cf], steps)),
-                                    flatten(roll(part_index[source_fa], steps)),
+                                    flatten(
+                                        roll(latent_vector=codes[part_index[source_cf]])
+                                    ),
+                                    flatten(
+                                        roll(latent_vector=codes[part_index[source_fa]])
+                                    ),
                                     strict=True,
                                 )
                             ]
