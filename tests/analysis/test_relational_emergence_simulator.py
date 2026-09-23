@@ -423,7 +423,7 @@ class NoiseTwinTest(unittest.TestCase):
         twin_velocity = twin.x0.i.vel + twin.x0.j.vel
         # All four components differ for this construction; one is enough to make
         # the twin a different run, zero would make the null floor identically 0.
-        self.assertEqual(sum(1 for a, b in zip(base_velocity, twin_velocity) if a != b), 4)
+        self.assertEqual(sum(1 for a, b in zip(base_velocity, twin_velocity, strict=True) if a != b), 4)
         self.assertNotEqual(base_velocity, twin_velocity)
 
     def test_zero_offset_reproduces_the_base_group(self) -> None:
@@ -815,9 +815,9 @@ class LeakageProbeTest(unittest.TestCase):
             [(r.tuple_key, r.mechanism, r.filler_vector) for r in records],
             [(r.tuple_key, r.mechanism, r.filler_vector) for r in control],
         )
-        shifted = sum(1 for a, b in zip(records, control) if a.x0_vector != b.x0_vector)
+        shifted = sum(1 for a, b in zip(records, control, strict=True) if a.x0_vector != b.x0_vector)
         unshifted = sum(
-            1 for a, b in zip(records, control) if a.x0_vector[1:] != b.x0_vector[1:]
+            1 for a, b in zip(records, control, strict=True) if a.x0_vector[1:] != b.x0_vector[1:]
         )
         self.assertEqual(unshifted, 0)
         self.assertEqual(shifted, len(records) - len(groups))
