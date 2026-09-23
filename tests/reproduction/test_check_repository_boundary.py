@@ -12,9 +12,8 @@ fails on each.  The fixture repos are real, because the checker reads the index
 and the worktree through git rather than through the filesystem.
 
 ``RepositorySatisfiesBoundaryTest`` runs the checker end-to-end against the real
-repository.  That is the only invocation CI performs: the guardrail runner
-``run_reproduction_guardrails.py`` is not wired into any workflow, so a boundary
-test that only called the checker's helpers would never fail in CI.
+repository. CI also invokes the aggregate guardrail runner, which executes this
+checker directly; fixture tests independently verify its rejection behavior.
 """
 
 from __future__ import annotations

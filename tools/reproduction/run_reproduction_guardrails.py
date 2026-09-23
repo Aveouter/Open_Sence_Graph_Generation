@@ -63,6 +63,14 @@ def main() -> int:
         dest="claim_paths",
         help="Additional claim-bearing file or directory to scan",
     )
+    parser.add_argument(
+        "--protocol-root",
+        type=Path,
+        help=(
+            "Relational-emergence analysis root to validate; defaults to "
+            "outputs/analysis/relational_emergence when that research surface exists"
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -112,6 +120,27 @@ def main() -> int:
             ],
         ),
     ]
+
+    research_surface = root / "tools" / "relational_emergence"
+    if research_surface.is_dir():
+        protocol_root = args.protocol_root
+        if protocol_root is None:
+            protocol_root = root / "outputs" / "analysis" / "relational_emergence"
+        elif not protocol_root.is_absolute():
+            protocol_root = root / protocol_root
+        steps.append(
+            (
+                "Run relational-emergence protocol validation",
+                [
+                    sys.executable,
+                    "-S",
+                    "-m",
+                    "tools.relational_emergence.audits.protocol_validator",
+                    "--root",
+                    str(protocol_root),
+                ],
+            )
+        )
 
     for name, command in steps:
         returncode = run_step(name, command, root)
