@@ -122,7 +122,10 @@ def build_manifest(root: Path, summary_path: Path) -> dict[str, Any]:
             "This manifest lists missing official artifacts only. It does not "
             "prove method, checkpoint, config, inference, or evaluator parity."
         ),
-        "source_summary": str(summary_path.relative_to(root)),
+        # as_posix, not str: on Windows `str(Path)` yields backslashes, so
+        # running the guardrail would rewrite this tracked file with a
+        # platform-specific separator and leave a dirty tree behind.
+        "source_summary": summary_path.relative_to(root).as_posix(),
         "status": summary.get("status", "UNKNOWN"),
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
