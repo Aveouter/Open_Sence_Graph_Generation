@@ -11,8 +11,10 @@ prediction at the first step.
 from __future__ import annotations
 
 import argparse
+from functools import partial
 
 from ..eval import design
+from ..eval.transplant import flatten
 from ..simulator.splits import DEFAULT_SPLIT_SEED, build_split
 from .run_phase1a import build_groups
 from .run_phase1b import TRANSPLANT_HORIZON, _rows_for, oracle_codes, standardise_latents
@@ -117,21 +119,24 @@ def main(argv: list[str] | None = None) -> int:
             structural = torch.tensor([row["filler_structural"]], dtype=torch.float32)
             actions = [action_vector(row, t) for t in range(TRANSPLANT_HORIZON)]
 
-            def roll(index: int) -> list[float]:
-                return [
-                    value
-                    for state in roll_from_state(
-                        decoder,
-                        initial_state=list(series[0]),
-                        structural=structural,
-                        actions=actions,
-                        latent_vector=codes[index],
-                        steps=1,
-                    )
-                    for value in state
-                ]
-
-            delta = [a - b for a, b in zip(roll(position), roll(other), strict=True)]
+            # Bind the per-row state eagerly so loop variables cannot be captured
+            # by reference.
+            roll = partial(
+                roll_from_state,
+                decoder,
+                initial_state=list(series[0]),
+                structural=structural,
+                actions=actions,
+                steps=1,
+            )
+            delta = [
+                a - b
+                for a, b in zip(
+                    flatten(roll(latent_vector=codes[position])),
+                    flatten(roll(latent_vector=codes[other])),
+                    strict=True,
+                )
+            ]
             norm = sum(value * value for value in delta) ** 0.5
             if norm == 0.0:
                 zero += 1
