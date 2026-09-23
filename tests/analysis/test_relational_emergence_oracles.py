@@ -94,7 +94,7 @@ class DatasetContractTest(TempDirTest):
     def test_a_ragged_dataset_is_rejected(self) -> None:
         rows = _rows_for(1)
         rows[1]["filler_nuisance"] = rows[1]["filler_nuisance"][:-1]
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             oracles.load_oracle_dataset(_write(self.tmp / "ragged.jsonl", rows))
 
     def test_hash_is_stable_and_content_sensitive(self) -> None:
