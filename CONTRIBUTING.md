@@ -21,8 +21,33 @@ For reproduction-related changes, also run:
 ```bash
 python tools/reproduction/check_reproduction_claims.py \
   --changed-from origin/main \
-  AGENTS.md reproduction docs/reproduction tools/reproduction README.md
+  AGENTS.md reproduction tools/reproduction README.md
 ```
+
+## Where Does This File Belong
+
+`main` holds the stable SGG system. Exploratory analysis, protocol-specific
+research runners, and the artifacts they generate do not belong here. Two
+questions decide it:
+
+1. Is this stable SGG functionality, or research-only experimentation?
+2. Which supported component will import or reuse this file?
+
+If no supported component imports it and it serves a single experiment or PR, it
+belongs in the research repository. That covers one-off diagnostics
+(`diagnose_*.py`), phase drivers (`run_phase*.py`, `summarise_phase*.py`),
+versioned research trees, generated reports and figures, and the decision
+records for a research protocol. If a research result later becomes a supported
+feature, reintroduce a distilled implementation with tests rather than moving
+the experiment harness across.
+
+`tools/reproduction/check_repository_boundary.py` enforces this mechanically. It
+is a ratchet: the research surface currently in `main` is frozen by path and
+blob hash, and the check fails when that surface changes -- not only when
+something new is added, but when a frozen file is edited, staged or not. A
+deliberate change is recorded in
+`reproduction/migration/relational_emergence_migration.json` and re-frozen with
+`--print-baseline`.
 
 ## Reproduction Standard
 

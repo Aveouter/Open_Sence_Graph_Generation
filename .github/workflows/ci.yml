@@ -18,6 +18,15 @@ on:
       - '.github/workflows/**'
       - 'tools/**'
       - 'tests/**'
+      # Policy and decision-record paths. Without these a PR that only edits a
+      # decision record or the repository policy starts no workflow at all, so
+      # the boundary check never runs on exactly the changes it exists to catch.
+      - 'reproduction/**'
+      - 'outputs/reports/**'
+      - 'CONTEXT.md'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
+      - '.gitignore'
   push:
     branches: [main]
     paths:
@@ -31,6 +40,15 @@ on:
       - '.github/workflows/**'
       - 'tools/**'
       - 'tests/**'
+      # Policy and decision-record paths. Without these a PR that only edits a
+      # decision record or the repository policy starts no workflow at all, so
+      # the boundary check never runs on exactly the changes it exists to catch.
+      - 'reproduction/**'
+      - 'outputs/reports/**'
+      - 'CONTEXT.md'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
+      - '.gitignore'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -145,7 +163,8 @@ jobs:
           NEEDS_VALIDATE="false"
           for f in $FILES; do
             case "$f" in
-              src/*|configs/*|utils/*|tools/*|train.py|data/*|lib/*|tests/*)
+              src/*|configs/*|utils/*|tools/*|train.py|data/*|lib/*|tests/*|\
+              reproduction/*|outputs/reports/*|CONTEXT.md|AGENTS.md|CONTRIBUTING.md|.gitignore)
                 NEEDS_VALIDATE="true"; break ;;
             esac
           done
@@ -154,7 +173,7 @@ jobs:
 
       - name: Skip validation (no relevant changes)
         if: steps.check-changes.outputs.needs_validate != 'true'
-        run: echo "Skipping validation — no src/config/utils/tools changes."
+        run: echo "Skipping validation — no code, config, tool, test, or policy changes."
 
       - name: Run validation script
         if: steps.check-changes.outputs.needs_validate == 'true'

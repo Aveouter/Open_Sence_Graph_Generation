@@ -14,7 +14,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 DEFAULT_CLAIM_PATHS = (
     "AGENTS.md",
     "reproduction",
@@ -89,6 +88,10 @@ def main() -> int:
         (
             "Run reproduction unit tests",
             [sys.executable, "-m", "unittest", "discover", "-s", "tests/reproduction"],
+        ),
+        (
+            "Check repository boundary",
+            [sys.executable, "tools/reproduction/check_repository_boundary.py"],
         ),
         (
             "Build missing-artifact manifest",

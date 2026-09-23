@@ -34,6 +34,12 @@ outputs/analysis/
 # outputs/reports/ holds the hand-written analysis reports and is tracked on
 # purpose, unlike the generated artifacts under outputs/analysis/. Anything that
 # is not a report (a stray figure, csv or json) is still ignored.
+#
+# One tracked file violates the rule below rather than proving it:
+# outputs/reports/relational_emergence/v2/development_evidence.json is a
+# generated artifact that was force-added. It is frozen by
+# tools/reproduction/check_repository_boundary.py (rule R2) so it cannot change,
+# and it leaves the repository with the rest of the research surface.
 outputs/reports/**/*.csv
 outputs/reports/**/*.json
 outputs/reports/**/*.png
@@ -62,6 +68,16 @@ __pycache__/
 *.pth
 *.pt
 *.ckpt
+# Array dumps are always generated, never authored: they belong in an artifact
+# backend, with only the URI and its hash tracked.
+*.npy
+*.npz
+
+# Local staging area for the research extraction (issue #113). The extracted
+# repository is a git repository of its own, so it must never be committed here;
+# this entry has to exist before the clone, or `git add -A` would record it as a
+# gitlink.
+.research-extraction/
 
 .env
 .venv/

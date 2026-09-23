@@ -1,0 +1,403 @@
+{
+  "extracted_tip": "c312c54cb036a9a5639735f983e5ac1f09c0f8df",
+  "file_count": 78,
+  "files": [
+    {
+      "bytes": 545,
+      "path": ".gitignore",
+      "sha256": "19bdbd2b0dd2046142525a2fd2ff313f14f17b3e545a2bd2ba09c2beb77e46d8"
+    },
+    {
+      "bytes": 1860,
+      "path": "CONTEXT.md",
+      "sha256": "495a23b1c676fa2b8a7243a04555f54f4d46f793f9cb442d8075a69d6ac29d13"
+    },
+    {
+      "bytes": 9264,
+      "path": "protocols/0005-phase1-data-generating-process.md",
+      "sha256": "41ca58009b72fec25bf48f69c12d94a7de5aaddeec48c9a74a601254c8afa287"
+    },
+    {
+      "bytes": 6862,
+      "path": "protocols/0006-development-vs-audit-world-protocol.md",
+      "sha256": "23762ebad69443749f25f15c7fdcbcdf0e7058723bb2fca05452ada52286a075"
+    },
+    {
+      "bytes": 12093,
+      "path": "protocols/0007-emergence-evidence-criteria.md",
+      "sha256": "3ba62ad0cab9e5767e4d30c6873e23822f38618945cb26560c1fda483d8fe2a8"
+    },
+    {
+      "bytes": 10501,
+      "path": "protocols/0008-phase1b-endpoint-specification.md",
+      "sha256": "15ab6cf8250d3fcc41f38a0c455838b2c1a6c75b470f8feabea28170935a3ae0"
+    },
+    {
+      "bytes": 5934,
+      "path": "protocols/0009-phase1b-protocol-freeze.md",
+      "sha256": "728abd0a254091b87e4ef5d273689ae685279722a05de43d85a150de6aca4a36"
+    },
+    {
+      "bytes": 4404,
+      "path": "protocols/0010-phase1-v2-development-boundary.md",
+      "sha256": "2eea3bd4ffb620c2d1f77288f59034253eb4dd007651457b19b613aa0baec3d0"
+    },
+    {
+      "bytes": 19706,
+      "path": "reports/01_phase1a_gate.md",
+      "sha256": "ff28e29c089cf6af6675c9be2dcedfd790ccf832424901949a094708a8c66eeb"
+    },
+    {
+      "bytes": 9644,
+      "path": "reports/02_phase1a_level2.md",
+      "sha256": "97f8bcdacb27806f1c263f894f72e830f59c7dd35ba632be24a527f34e508bae"
+    },
+    {
+      "bytes": 28553,
+      "path": "reports/03_phase1b_factorial.md",
+      "sha256": "0bfb7d6e3413d7babd4d1ec281731bf881fd7553aea96f0b13f7dba371b5e39b"
+    },
+    {
+      "bytes": 11405,
+      "path": "reports/04_phase1b_audit_world.md",
+      "sha256": "97da57eb4821ec3f8c0555b9604ccd315d5f0131bb360f09d17eaa252c3b4cb7"
+    },
+    {
+      "bytes": 1820,
+      "path": "reports/README.md",
+      "sha256": "dde8e675c22e0a6f9fd3f3420ab8b8589c84649147314f12fd29eb38d9e12b56"
+    },
+    {
+      "bytes": 7495,
+      "path": "reports/v2/01_development_gate.md",
+      "sha256": "9ab3dd0e91f737a34df2867676ebb94fe41050dd29c91601d010e49ada55ccdd"
+    },
+    {
+      "bytes": 111255,
+      "path": "reports/v2/development_evidence.json",
+      "sha256": "7afa80fe0a3bea8df8c4e8347b702aa598da63028b5676259635e88df64a8a16"
+    },
+    {
+      "bytes": 9218,
+      "path": "src/relational_research/README.md",
+      "sha256": "7f37d79a995db9889410cd5da1ce45af428b75b38caf0969be48a7c19083bd8a"
+    },
+    {
+      "bytes": 619,
+      "path": "src/relational_research/__init__.py",
+      "sha256": "6e858e5021c128055ecd9cffc752fe377dafb938342909c14a726085adc35144"
+    },
+    {
+      "bytes": 82,
+      "path": "src/relational_research/audits/__init__.py",
+      "sha256": "e13fe0e391f4c3bf644eeb1882e6f26217e170813f9bc55588c239aaccec3791"
+    },
+    {
+      "bytes": 11662,
+      "path": "src/relational_research/audits/identifiability.py",
+      "sha256": "93edb9c3a50d1db3813bc108e918506d86023829529e22a6dcf8c69852f47630"
+    },
+    {
+      "bytes": 16794,
+      "path": "src/relational_research/audits/leakage.py",
+      "sha256": "7a8980f80d261fa022fd6ac953060e7a7a8cee3faa5b2846a0edf7b4bc59ee5a"
+    },
+    {
+      "bytes": 3299,
+      "path": "src/relational_research/audits/ontology_audit.py",
+      "sha256": "d3333e3d704797594bf7c6b5d2bfca96c0dd30f07f6763a623c8e5e533acb77b"
+    },
+    {
+      "bytes": 10367,
+      "path": "src/relational_research/audits/protocol.py",
+      "sha256": "7e80770ea0c43307f4539661620c50d61aedcccbf7bce1845c27a66825976521"
+    },
+    {
+      "bytes": 7280,
+      "path": "src/relational_research/audits/protocol_validator.py",
+      "sha256": "57161d034a62ca48793b4dc4fdf5ceb782761cfcd5d597ac1b96197aba2c6773"
+    },
+    {
+      "bytes": 2642,
+      "path": "src/relational_research/common.py",
+      "sha256": "e51d0d059c7ff8a5dd1f83a70258e282212be8a02c94cfd9bfeb126dddb277ff"
+    },
+    {
+      "bytes": 6254,
+      "path": "src/relational_research/config.py",
+      "sha256": "de6baca907d790e937d414d3266b575e8ac7e0d9c01b3655ff67fcc6ef1fab2d"
+    },
+    {
+      "bytes": 398,
+      "path": "src/relational_research/eval/__init__.py",
+      "sha256": "6b735027a6138e18ad7d42ca1f3842e48e06555fe244ce667445c092ac1d9120"
+    },
+    {
+      "bytes": 12175,
+      "path": "src/relational_research/eval/design.py",
+      "sha256": "8ea1b1b50ae8cebe8fcf664341f5fb990d1936d9ac46c6b2b01b43c4fd26529c"
+    },
+    {
+      "bytes": 10147,
+      "path": "src/relational_research/eval/endpoints.py",
+      "sha256": "a87d4bb59eb8bc41e05e63ae16ab2ea4c6651473504623042ffd9ae105f3a6dc"
+    },
+    {
+      "bytes": 6675,
+      "path": "src/relational_research/eval/linalg.py",
+      "sha256": "257cd3477e0fa4ec2e8f416f1aa136b3ab37fe886e63c50d58fc7215c6586537"
+    },
+    {
+      "bytes": 19068,
+      "path": "src/relational_research/eval/transplant.py",
+      "sha256": "6547343d1af2d35af124493ce69ac003040432044d847f5aea8d03f620108fe8"
+    },
+    {
+      "bytes": 74,
+      "path": "src/relational_research/experiments/__init__.py",
+      "sha256": "0a99db780d424f61b9dea3ab972644e9ef610825246d3e719e85552c63117af7"
+    },
+    {
+      "bytes": 5874,
+      "path": "src/relational_research/experiments/diagnose_codes.py",
+      "sha256": "8471b8ff30051f8afd98155696d7f877807a95a2844ed4e01dbe2dd48a13968b"
+    },
+    {
+      "bytes": 3505,
+      "path": "src/relational_research/experiments/diagnose_horizon.py",
+      "sha256": "2de892a5b7da6edc03390e2c36d23965fdafe5a351db4e596112b2e08c90ea6a"
+    },
+    {
+      "bytes": 10083,
+      "path": "src/relational_research/experiments/diagnose_transplant.py",
+      "sha256": "d75728e570546376c2b5d43afa487a117fe0048e4db13841314921c05f44068d"
+    },
+    {
+      "bytes": 7564,
+      "path": "src/relational_research/experiments/run_level2.py",
+      "sha256": "20c3e41d41d617818de9403c79c0a7105c702f474e96cbacf075208d935c85af"
+    },
+    {
+      "bytes": 15950,
+      "path": "src/relational_research/experiments/run_phase1a.py",
+      "sha256": "dc8805109686532f8b80391bb5929a9d8f0b74712995690b8a91b8e5b5fa02ed"
+    },
+    {
+      "bytes": 37535,
+      "path": "src/relational_research/experiments/run_phase1b.py",
+      "sha256": "fa2fca6502428d7e7a340e6a487071f059c4e81c0b7a05fece0ddb6c38c72fb7"
+    },
+    {
+      "bytes": 7959,
+      "path": "src/relational_research/experiments/summarise_phase1b.py",
+      "sha256": "4f10db5bfcd0fc060329067158b1903d700db80764198feea4f4db2c00635bae"
+    },
+    {
+      "bytes": 1106,
+      "path": "src/relational_research/models/__init__.py",
+      "sha256": "889f252fa748194030ad1776665c2f9b696a774f300449ea8541d8299f40747b"
+    },
+    {
+      "bytes": 7861,
+      "path": "src/relational_research/models/batch_stream.py",
+      "sha256": "9f54e9cb6223cdbb6b12159a02d3d8326c9cbe5af9c585d1de02a265a6fb4870"
+    },
+    {
+      "bytes": 43845,
+      "path": "src/relational_research/models/oracles.py",
+      "sha256": "0f768ec20ae0b04c90b15eaeb2b2a6c466fc6751da028c83d0307197e542bd9e"
+    },
+    {
+      "bytes": 19714,
+      "path": "src/relational_research/models/representation.py",
+      "sha256": "1efe7661762c9c1479d2f9e7560dee14243e3a1033f9119781274f5030569fd2"
+    },
+    {
+      "bytes": 14975,
+      "path": "src/relational_research/models/rollout_oracle.py",
+      "sha256": "4ef2f211347af78f61c33f2901e34d972e1331eb05390e92fb07b20575c97cdf"
+    },
+    {
+      "bytes": 8675,
+      "path": "src/relational_research/models/transplant.py",
+      "sha256": "be429973f4938af7140e1ab82f56d5ebb13b0313ea61883383f64dd5bbb4814c"
+    },
+    {
+      "bytes": 332,
+      "path": "src/relational_research/simulator/__init__.py",
+      "sha256": "dac654bf4649a06b554d295a922ce0dc3baf7e701bc4db90ad20efeb5a909468"
+    },
+    {
+      "bytes": 6008,
+      "path": "src/relational_research/simulator/actions.py",
+      "sha256": "b135594ab0b8682b9d34c79366bb4697ac5b5c6ea38df3050dca3d8f3c77e90e"
+    },
+    {
+      "bytes": 5414,
+      "path": "src/relational_research/simulator/compatibility.py",
+      "sha256": "0d0012f7179d7161ae2b34b827cd31ac3c3ad4ba25ccec83e633848fa5c29995"
+    },
+    {
+      "bytes": 3803,
+      "path": "src/relational_research/simulator/counterfactuals.py",
+      "sha256": "edda4bbac04d5ef8348f5a46a045d48f691a68854273f5116504c5f0241bcccb"
+    },
+    {
+      "bytes": 8702,
+      "path": "src/relational_research/simulator/dataset.py",
+      "sha256": "74404460fa5e5159db2f3f50b69ad9b9314abe8a17ea071f43735de696202bb0"
+    },
+    {
+      "bytes": 3472,
+      "path": "src/relational_research/simulator/factors.py",
+      "sha256": "e373f2eed6b1de65e86e1d1906780b029a08d67a173a5a94ff56d571023ffed5"
+    },
+    {
+      "bytes": 5306,
+      "path": "src/relational_research/simulator/fillers.py",
+      "sha256": "092a01d432a87e6ac6f46bae5c2c26f5b2f39684bad3d67dcbc0a8f304bdf1f0"
+    },
+    {
+      "bytes": 8692,
+      "path": "src/relational_research/simulator/geometry.py",
+      "sha256": "571b620d05bec699c68c45634b15b949b8fa3610a1631e5ba5eb3aceb2d5f935"
+    },
+    {
+      "bytes": 1656,
+      "path": "src/relational_research/simulator/labeling.py",
+      "sha256": "bebef143e41efce74a499a8c0ef7c2d1151fb2134c8bc2b8d8c6e21bc23ddad4"
+    },
+    {
+      "bytes": 16561,
+      "path": "src/relational_research/simulator/mechanisms.py",
+      "sha256": "6a7e726ea982e8e9c239381581a686c97e6b1e9caff8fb7dec1d2455881c545f"
+    },
+    {
+      "bytes": 5098,
+      "path": "src/relational_research/simulator/roles.py",
+      "sha256": "3eb2cc76e2e787af3cc083653152e22937fed2c7c25886e211bca779a01c2d88"
+    },
+    {
+      "bytes": 5129,
+      "path": "src/relational_research/simulator/sampling.py",
+      "sha256": "a3f209e3b30be369e29ba5fc44a516621bff2bde049f9aadd130d0edb503557c"
+    },
+    {
+      "bytes": 10516,
+      "path": "src/relational_research/simulator/splits.py",
+      "sha256": "150e58fd013e42d646f9b3e202d9eb5d95fd3b4e74c0559640b592f9e7db85d5"
+    },
+    {
+      "bytes": 2680,
+      "path": "src/relational_research/simulator/state.py",
+      "sha256": "06eea055137ccdd4a947d68462aadfdb479f34bf302ff9b15a1548d96af281d0"
+    },
+    {
+      "bytes": 9079,
+      "path": "src/relational_research/simulator/world.py",
+      "sha256": "3f00e6c4242ba09dd79383c4cf4bc330dcc2f992ae79b9e6858e8b37e5c78e6e"
+    },
+    {
+      "bytes": 4072,
+      "path": "src/relational_research/v2/README.md",
+      "sha256": "c3fc62370e5a748b19d1ec51beb99a317cf96c9cae0199ee6081074bb48492fb"
+    },
+    {
+      "bytes": 79,
+      "path": "src/relational_research/v2/__init__.py",
+      "sha256": "4525e24b1288e52dc02f6cdc2b93e2bdb6f48e8b8d9e8d707ff013b6022e176b"
+    },
+    {
+      "bytes": 12500,
+      "path": "src/relational_research/v2/data.py",
+      "sha256": "c7167b4a55607c29a259b42dd2159c7045cdb736927e3298c78654c32b6c950b"
+    },
+    {
+      "bytes": 11647,
+      "path": "src/relational_research/v2/leakage.py",
+      "sha256": "bc0a9f74419c3a1f9338c7b29e65112e88032df5e36013b354b5662d2c462921"
+    },
+    {
+      "bytes": 10633,
+      "path": "src/relational_research/v2/model.py",
+      "sha256": "e2710a29efc934eccde63fb8f8308f075613571993565ac8029bf9258c5c50d3"
+    },
+    {
+      "bytes": 4216,
+      "path": "src/relational_research/v2/protocol.py",
+      "sha256": "c3fe898a2f443b95c1917ac71de02c87166aafb5281e696fc61d966fef991817"
+    },
+    {
+      "bytes": 4064,
+      "path": "src/relational_research/v2/run.py",
+      "sha256": "a31f11b1a1910b78d6869842771eed0fa168714f1523346954387068a2fb8df6"
+    },
+    {
+      "bytes": 7168,
+      "path": "src/relational_research/v2/transplant.py",
+      "sha256": "0eccb6b9d50c4169084c605250161c6533891349a7e3bbe6f36c2b04f887959a"
+    },
+    {
+      "bytes": 8656,
+      "path": "src/relational_research/v2/validation.py",
+      "sha256": "dfb38c0237fa15b2a9a1b1bac038d9bc68dcce6727fc34ea06c9a17901d3c08e"
+    },
+    {
+      "bytes": 172,
+      "path": "tests/__init__.py",
+      "sha256": "9f9495b42f17c6d503a177ee2c2a39e8ec10423218a83bfa67cc97b1e44149e7"
+    },
+    {
+      "bytes": 2155,
+      "path": "tests/_optional.py",
+      "sha256": "f55c23093cb745efa80d2cef7bd19a503ad1379c04621e16ae46a9b67504b6e5"
+    },
+    {
+      "bytes": 11926,
+      "path": "tests/test_relational_emergence_arms.py",
+      "sha256": "f9bcfb7515074c41121d2e5038699edb63dba4ee21f7de01221b063816984dfb"
+    },
+    {
+      "bytes": 16856,
+      "path": "tests/test_relational_emergence_endpoints.py",
+      "sha256": "9d73612d378f39a0b5f85195370a2f74d19f2125e5051798772c06b8264d0055"
+    },
+    {
+      "bytes": 1813,
+      "path": "tests/test_relational_emergence_gate_inputs.py",
+      "sha256": "ba9fe853484c4fc560f7b9d4087596122421952ea02f737e9d5af4d3d83ca5a9"
+    },
+    {
+      "bytes": 13835,
+      "path": "tests/test_relational_emergence_ontology.py",
+      "sha256": "668c02b385a98730b2be40427e187b5b824ba80c106b250bceb6b94a7e5bf271"
+    },
+    {
+      "bytes": 15482,
+      "path": "tests/test_relational_emergence_oracles.py",
+      "sha256": "311ac9bbf0b66662541b18a244538633a5f8a23b0882bced19efe5939aed6f11"
+    },
+    {
+      "bytes": 52431,
+      "path": "tests/test_relational_emergence_simulator.py",
+      "sha256": "b2b77aaf97d5f439b1093a32327df7917b289d39994abaafb9cd68c5319ff156"
+    },
+    {
+      "bytes": 16968,
+      "path": "tests/test_relational_emergence_v2.py",
+      "sha256": "6e47a640d1b83df7ef1a85c7359f6d51328c6555ca4f2f6137adf45308aefb8f"
+    },
+    {
+      "bytes": 3031,
+      "path": "tests/test_relational_emergence_v2_protocol.py",
+      "sha256": "40b278ae5b223e911e7170cc2fb69ae430b5d448875d976dd0abf1c19b515082"
+    }
+  ],
+  "raw_verification": {
+    "checked": 75,
+    "matched": 75,
+    "record": "reproduction/migration/relational_emergence_raw_verification.json",
+    "sha256": "3bae4ec00845731c90ab36c061161119753d4c784bd6b566221bc6229be27ce0"
+  },
+  "stage": "transformed"
+}
