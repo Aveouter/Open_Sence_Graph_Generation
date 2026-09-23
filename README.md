@@ -393,11 +393,17 @@ Configs use a two-layer system: **CLI arguments** override **per-method config f
 
 GitHub Actions runs on every PR and push to `main`:
 
+- **Validation** — AST registration checks plus the unit test suite
 - **Smoke tests** — forward pass + loss convergence on all 17 methods with synthetic data
 - **LLM code review** — automated review via Claude/DeepSeek API on changed files
 
-Trigger paths include code, configs, tools, reproduction guardrails, reproduction
-reports, `AGENTS.md`, and workflow files.
+Trigger paths include code, configs, tools, tests, reproduction guardrails,
+reproduction reports, `AGENTS.md`, `CONTRIBUTING.md`, `CONTEXT.md`, and
+workflow files.
+
+The test suite includes `tools/reproduction/check_repository_boundary.py`, which
+keeps research-only work out of this repository. See
+[AGENTS.md](AGENTS.md#repository-boundary) for the rule.
 
 PRs that touch reproduction claims must preserve the status language in
 `AGENTS.md` and `reproduction/README.md`; random-init, tiny-slice, all-zero, or
