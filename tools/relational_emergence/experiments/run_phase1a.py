@@ -244,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         for probe in ("linear", "random_feature")
     }
-    for probe, result in control_by_probe.items():
+    for result in control_by_probe.values():
         result["fired"] = (
             result["accuracy"] > result["compatibility_aware_baseline"]
             and result["permutation_p_value"] < 0.05
