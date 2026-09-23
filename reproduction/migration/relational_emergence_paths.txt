@@ -1,0 +1,105 @@
+# Path selection and rewriting for the relational-emergence extraction (issue #113).
+#
+# Consumed by `git filter-repo --paths-from-file`. Literal paths and the
+# trailing-slash directory forms select history; the rename lines at the end
+# rewrite the selected paths into the research repository layout.
+#
+# The rename separator is '==>' with NO surrounding whitespace: filter-repo
+# splits on the literal and does not strip, so 'A/ ==> B/' would leave a
+# trailing space on the old name and be rejected as a mismatched rename pair.
+#
+# Renames compose in order and apply to already-renamed paths, which is why
+# there is no separate `experiments/phase1/` rule: it cannot coexist with the
+# package rename, so those drivers land at src/relational_research/experiments/.
+
+# --- selection ---
+# surface group: decision_records
+reproduction/adr/0005-phase1-data-generating-process.md
+reproduction/adr/0006-development-vs-audit-world-protocol.md
+reproduction/adr/0007-emergence-evidence-criteria.md
+reproduction/adr/0008-phase1b-endpoint-specification.md
+reproduction/adr/0009-phase1b-protocol-freeze.md
+reproduction/adr/0010-phase1-v2-development-boundary.md
+
+# surface group: glossary
+CONTEXT.md
+
+# surface group: package
+tools/relational_emergence/README.md
+tools/relational_emergence/__init__.py
+tools/relational_emergence/audits/__init__.py
+tools/relational_emergence/audits/identifiability.py
+tools/relational_emergence/audits/leakage.py
+tools/relational_emergence/audits/ontology_audit.py
+tools/relational_emergence/audits/protocol.py
+tools/relational_emergence/audits/protocol_validator.py
+tools/relational_emergence/common.py
+tools/relational_emergence/config.py
+tools/relational_emergence/eval/__init__.py
+tools/relational_emergence/eval/design.py
+tools/relational_emergence/eval/endpoints.py
+tools/relational_emergence/eval/linalg.py
+tools/relational_emergence/eval/transplant.py
+tools/relational_emergence/experiments/__init__.py
+tools/relational_emergence/experiments/diagnose_codes.py
+tools/relational_emergence/experiments/diagnose_horizon.py
+tools/relational_emergence/experiments/diagnose_transplant.py
+tools/relational_emergence/experiments/run_level2.py
+tools/relational_emergence/experiments/run_phase1a.py
+tools/relational_emergence/experiments/run_phase1b.py
+tools/relational_emergence/experiments/summarise_phase1b.py
+tools/relational_emergence/models/__init__.py
+tools/relational_emergence/models/batch_stream.py
+tools/relational_emergence/models/oracles.py
+tools/relational_emergence/models/representation.py
+tools/relational_emergence/models/rollout_oracle.py
+tools/relational_emergence/models/transplant.py
+tools/relational_emergence/simulator/__init__.py
+tools/relational_emergence/simulator/actions.py
+tools/relational_emergence/simulator/compatibility.py
+tools/relational_emergence/simulator/counterfactuals.py
+tools/relational_emergence/simulator/dataset.py
+tools/relational_emergence/simulator/factors.py
+tools/relational_emergence/simulator/fillers.py
+tools/relational_emergence/simulator/geometry.py
+tools/relational_emergence/simulator/labeling.py
+tools/relational_emergence/simulator/mechanisms.py
+tools/relational_emergence/simulator/roles.py
+tools/relational_emergence/simulator/sampling.py
+tools/relational_emergence/simulator/splits.py
+tools/relational_emergence/simulator/state.py
+tools/relational_emergence/simulator/world.py
+tools/relational_emergence/v2/README.md
+tools/relational_emergence/v2/__init__.py
+tools/relational_emergence/v2/data.py
+tools/relational_emergence/v2/leakage.py
+tools/relational_emergence/v2/model.py
+tools/relational_emergence/v2/protocol.py
+tools/relational_emergence/v2/run.py
+tools/relational_emergence/v2/transplant.py
+tools/relational_emergence/v2/validation.py
+
+# surface group: reports
+outputs/reports/relational_emergence/01_phase1a_gate.md
+outputs/reports/relational_emergence/02_phase1a_level2.md
+outputs/reports/relational_emergence/03_phase1b_factorial.md
+outputs/reports/relational_emergence/04_phase1b_audit_world.md
+outputs/reports/relational_emergence/README.md
+outputs/reports/relational_emergence/v2/01_development_gate.md
+outputs/reports/relational_emergence/v2/development_evidence.json
+
+# surface group: tests
+tests/analysis/test_relational_emergence_arms.py
+tests/analysis/test_relational_emergence_endpoints.py
+tests/analysis/test_relational_emergence_gate_inputs.py
+tests/analysis/test_relational_emergence_ontology.py
+tests/analysis/test_relational_emergence_oracles.py
+tests/analysis/test_relational_emergence_simulator.py
+tests/analysis/test_relational_emergence_v2.py
+tests/analysis/test_relational_emergence_v2_protocol.py
+
+# --- renames ---
+tools/relational_emergence/==>src/relational_research/
+tests/analysis/==>tests/
+outputs/reports/relational_emergence/==>reports/
+reproduction/adr/==>protocols/

@@ -14,7 +14,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 DEFAULT_CLAIM_PATHS = (
     "AGENTS.md",
     "reproduction",

@@ -18,6 +18,7 @@ needing torch is guarded through ``tests._optional``.
 from __future__ import annotations
 
 import importlib.util
+import posixpath
 import re
 import sys
 import unittest
@@ -145,6 +146,8 @@ class ReproductionWorkflowIndependenceTest(unittest.TestCase):
         re.compile(r"\bCONTEXT\.md\b"),
     )
 
+    _MARKDOWN_LINK = re.compile(r"\]\(([^)\s]+)\)")
+
     _EXCLUDED_ADR_PREFIXES = tuple(
         f"reproduction/adr/{number:04d}" for number in range(5, 11)
     )
@@ -159,11 +162,39 @@ class ReproductionWorkflowIndependenceTest(unittest.TestCase):
     )
 
     @classmethod
-    def _scan_for_phase1_references(cls, text: str) -> list[str]:
+    def _dependency_hits(cls, posix_path: str, text: str) -> list[str]:
+        """Citations that would break if the Phase I records were removed.
+
+        The distinction this draws is the whole point of the test.  A markdown
+        *link*, or a path a script consumes, is a dependency.  A bare mention in
+        prose is not, and neither is a CI change-trigger: the workflow lists
+        ``CONTEXT.md`` so that a policy edit *runs the boundary check*, which
+        still works if the file is gone -- the trigger simply stops firing.
+
+        Without that distinction the check would be unusable, because the
+        migration record has to name these files in order to describe the
+        migration that moves them.
+        """
         hits: list[str] = []
+
+        if posix_path.endswith(".py"):
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if any(
+                    pattern.search(line) for pattern in cls._PHASE1_REFERENCE_PATTERNS
+                ):
+                    hits.append(f"{posix_path}:{lineno}: {line.strip()}")
+            return hits
+
+        base = posix_path.rsplit("/", 1)[0] if "/" in posix_path else ""
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if any(pattern.search(line) for pattern in cls._PHASE1_REFERENCE_PATTERNS):
-                hits.append(f"line {lineno}: {line.strip()}")
+            for target in cls._MARKDOWN_LINK.findall(line):
+                if target.startswith(("http://", "https://", "#", "mailto:")):
+                    continue
+                resolved = posixpath.normpath(posixpath.join(base, target))
+                if any(
+                    pattern.search(resolved) for pattern in cls._PHASE1_REFERENCE_PATTERNS
+                ):
+                    hits.append(f"{posix_path}:{lineno}: links to {target}")
         return hits
 
     @classmethod
@@ -190,16 +221,23 @@ class ReproductionWorkflowIndependenceTest(unittest.TestCase):
             kept.append(path)
         return kept
 
-    def test_scanner_detects_references(self) -> None:
-        """Positive control: the scanner fires on text that does reference them."""
-        control = (
-            "See [ADR 0005](reproduction/adr/0005-phase1-data-generating-process.md)\n"
-            "The vocabulary lives in CONTEXT.md.\n"
+    def test_scanner_separates_links_from_mentions(self) -> None:
+        """Positive control, both directions.
+
+        A scanner that matched nothing would pass the real assertion for the
+        wrong reason, and one that matched every mention would flag the
+        migration record for describing itself.
+        """
+        linked = "See [ADR 0005](reproduction/adr/0005-phase1-data-generating-process.md).\n"
+        mentioned = (
+            "ADR 0005 and `reproduction/adr/0005-phase1-data-generating-process.md`\n"
+            "are discussed, and so is CONTEXT.md.\n"
         )
+        scripted = "RECORD = 'reproduction/adr/0010-phase1-v2-development-boundary.md'\n"
 
-        hits = self._scan_for_phase1_references(control)
-
-        self.assertEqual(len(hits), 2, hits)
+        self.assertEqual(len(self._dependency_hits("reports/README.md", linked)), 1)
+        self.assertEqual(self._dependency_hits("reports/README.md", mentioned), [])
+        self.assertEqual(len(self._dependency_hits("tools/reproduction/tool.py", scripted)), 1)
 
     def test_boundary_policy_exemption_is_load_bearing(self) -> None:
         """The exemption must cover a file that really does name them.
@@ -213,25 +251,25 @@ class ReproductionWorkflowIndependenceTest(unittest.TestCase):
                     encoding="utf-8", errors="replace"
                 )
                 self.assertTrue(
-                    self._scan_for_phase1_references(text),
+                    self._dependency_hits(relative, text),
                     f"{relative} no longer names these paths; drop the exemption",
                 )
 
     def test_reproduction_workflow_does_not_depend_on_phase1_decision_records(self) -> None:
-        """No supported workflow file may point at the Phase I decision records."""
+        """No supported workflow file may consume the Phase I decision records."""
         offenders: list[str] = []
         for path in self._generic_workflow_texts():
-            hits = self._scan_for_phase1_references(
-                path.read_text(encoding="utf-8", errors="replace")
-            )
             posix = path.relative_to(REPO_ROOT).as_posix()
-            offenders.extend(f"{posix}: {hit}" for hit in hits)
+            hits = self._dependency_hits(
+                posix, path.read_text(encoding="utf-8", errors="replace")
+            )
+            offenders.extend(hits)
 
         self.assertEqual(
             offenders,
             [],
-            "the generic reproduction workflow references Phase I research records; "
-            "extracting them would break these paths:\n" + "\n".join(offenders),
+            "the generic reproduction workflow depends on Phase I research records; "
+            "extracting them would break these:\n" + "\n".join(offenders),
         )
 
     def test_reproduction_checkers_import_without_research_packages(self) -> None:

@@ -15,7 +15,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
 BASELINES: dict[str, dict[str, Any]] = {
     "freq": {
         "label": "FREQ",
@@ -64,6 +63,7 @@ REQUIRED_REPRODUCTION_DOCS = (
 
 REQUIRED_TOOLS = (
     "build_artifact_manifest.py",
+    "build_research_extraction_manifest.py",
     "check_reproduction_claims.py",
     "check_reproduction_docs.py",
     "check_repository_boundary.py",

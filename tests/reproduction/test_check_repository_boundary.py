@@ -19,6 +19,7 @@ test that only called the checker's helpers would never fail in CI.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -488,6 +489,137 @@ class FrozenSurfaceSnapshotTest(unittest.TestCase):
             mismatched,
             [],
             "the preservation record does not describe the preserved commit any more",
+        )
+
+
+MIGRATION_DIR = REPO_ROOT / "reproduction" / "migration"
+BASELINE_PATH = REPO_ROOT / boundary.BASELINE_PATH
+# Gitignored and local-only by decision (issue #113): no remote research
+# repository exists, so the extraction is present only on the machine that built
+# it. Tests that need it skip elsewhere; see MigrationRecordTest.
+EXTRACTION = REPO_ROOT / ".research-extraction" / "Relational_Representation_Research"
+
+
+def _read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _head_blob_sha256(repo: Path) -> dict[str, str]:
+    """Return ``{path: sha256}`` for every blob at ``repo``'s HEAD."""
+    listing = _run_git(repo, "ls-tree", "-r", "-z", "HEAD").stdout
+    blobs: dict[str, str] = {}
+    for record in listing.split("\0"):
+        if not record:
+            continue
+        meta, _, path = record.partition("\t")
+        fields = meta.split()
+        if len(fields) == 3 and fields[1] == "blob" and path:
+            blobs[path] = fields[2]
+    digests = boundary.blob_digests(repo, list(blobs.values()))
+    return {path: digests[oid][0] for path, oid in blobs.items()}
+
+
+class MigrationRecordTest(unittest.TestCase):
+    """The records must describe the freeze, not a surface that has since moved."""
+
+    def setUp(self) -> None:
+        self.manifest = _read_json(MIGRATION_DIR / "relational_emergence_manifest.json")
+        self.baseline = _read_json(BASELINE_PATH)
+
+    def test_paths_file_selects_exactly_the_frozen_surface(self) -> None:
+        """The filter-repo directive list and the freeze must not drift apart.
+
+        If they do, either the extraction copied something the ratchet does not
+        guard, or the ratchet guards something the extraction left behind.
+        """
+        selected = set()
+        for line in (
+            MIGRATION_DIR / "relational_emergence_paths.txt"
+        ).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "==>" in line:
+                continue
+            selected.add(line)
+
+        self.assertEqual(selected, set(self.baseline["frozen_surface"]))
+
+    def test_manifest_agrees_with_the_freeze(self) -> None:
+        self.assertEqual(
+            self.manifest["preserved_commit"], self.baseline["preserved_commit"]
+        )
+        self.assertEqual(self.manifest["preserved_tag"], self.baseline["preserved_tag"])
+
+        groups = self.manifest["extraction"]["selected_path_groups"]
+        self.assertEqual(
+            sum(len(paths) for paths in groups.values()),
+            len(self.baseline["frozen_surface"]),
+        )
+
+    def test_removal_is_recorded_as_deferred(self) -> None:
+        """Nothing leaves main until the extraction verifies and someone approves."""
+        self.assertEqual(self.manifest["removal_from_main"]["status"], "deferred")
+        self.assertFalse(
+            (self.manifest["destination"].get("status") or "").startswith("created")
+        )
+
+
+class ExtractionRecordTest(unittest.TestCase):
+    """The records must still describe the extracted tree on disk.
+
+    These skip where the extraction is absent -- which is the case in CI, since
+    the path is gitignored and there is no remote. That is a real limit worth
+    stating plainly: only the machine holding the extraction re-checks these
+    bytes. What CI can check is covered by FrozenSurfaceSnapshotTest, which
+    verifies the freeze against the preserved commit.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if not (EXTRACTION / ".git").exists():
+            raise unittest.SkipTest(
+                "no local extraction; it is gitignored and local-only by "
+                "decision (issue #113)"
+            )
+
+    def test_transformed_manifest_describes_the_extraction(self) -> None:
+        record = _read_json(MIGRATION_DIR / "relational_emergence_extracted.json")
+
+        tip = _run_git(EXTRACTION, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(record["extracted_tip"], tip)
+
+        actual = _head_blob_sha256(EXTRACTION)
+        self.assertEqual(record["file_count"], len(actual))
+        self.assertEqual(
+            {entry["path"]: entry["sha256"] for entry in record["files"]},
+            actual,
+            "the transformed manifest no longer describes the extracted tree",
+        )
+
+    def test_raw_record_is_the_one_the_transformed_manifest_cites(self) -> None:
+        raw_bytes = (
+            MIGRATION_DIR / "relational_emergence_raw_verification.json"
+        ).read_bytes()
+        transformed = _read_json(MIGRATION_DIR / "relational_emergence_extracted.json")
+
+        self.assertEqual(
+            hashlib.sha256(raw_bytes).hexdigest(),
+            transformed["raw_verification"]["sha256"],
+            "the transformed manifest cites a different raw record than the one on disk",
+        )
+
+        raw = json.loads(raw_bytes.decode("utf-8"))
+        self.assertEqual(raw["mismatched"], [])
+        self.assertEqual(raw["checked"], raw["matched"])
+
+        # The raw stage must describe an earlier state than the rewrite: it
+        # compares source blobs, which rewriting deliberately invalidates.
+        ancestry = _run_git(
+            EXTRACTION, "merge-base", "--is-ancestor", raw["extracted_tip"], "HEAD"
+        )
+        self.assertEqual(
+            ancestry.returncode,
+            0,
+            "the raw record postdates the link rewriting; it must be taken first",
         )
 
 

@@ -1,0 +1,154 @@
+{
+  "date": "2026-09-23",
+  "destination": {
+    "local_path": ".research-extraction/Relational_Representation_Research",
+    "note": "The local path is gitignored. Because it is untracked, the durable records are the preservation tag in this repository's history and the two extraction records under reproduction/migration/.",
+    "planned_repository": "Aveouter/Relational_Representation_Research",
+    "status": "not created; this extraction is local only and has not been pushed",
+    "tracked_by_git": false
+  },
+  "extraction": {
+    "clone": "git clone --no-local, filtered out of tree, then relocated",
+    "content_changes_after_copy": [
+      "17 relative links repointed at the new layout",
+      "the CONTEXT.md reference to reproduction/glossary.md became a citation, because that document stays in the SGG repository",
+      "a .gitignore was added; it was not among the selected paths"
+    ],
+    "extracted_main_parent": "0bc7355acb9eb7e23f189aee50f122addc233673",
+    "extracted_tip": "3dcbe4d350842a8b19091ce92b8997ff7bcdbd12",
+    "file_count": 76,
+    "method": "git filter-repo",
+    "paths_from_file": "reproduction/migration/relational_emergence_paths.txt",
+    "records": {
+      "raw_verification": "reproduction/migration/relational_emergence_raw_verification.json",
+      "transformed_manifest": "reproduction/migration/relational_emergence_extracted.json"
+    },
+    "renames": [
+      "tools/relational_emergence/ ==> src/relational_research/",
+      "tests/analysis/ ==> tests/",
+      "outputs/reports/relational_emergence/ ==> reports/",
+      "reproduction/adr/ ==> protocols/"
+    ],
+    "selected_path_groups": {
+      "decision_records": [
+        "reproduction/adr/0005-phase1-data-generating-process.md",
+        "reproduction/adr/0006-development-vs-audit-world-protocol.md",
+        "reproduction/adr/0007-emergence-evidence-criteria.md",
+        "reproduction/adr/0008-phase1b-endpoint-specification.md",
+        "reproduction/adr/0009-phase1b-protocol-freeze.md",
+        "reproduction/adr/0010-phase1-v2-development-boundary.md"
+      ],
+      "glossary": [
+        "CONTEXT.md"
+      ],
+      "package": [
+        "tools/relational_emergence/README.md",
+        "tools/relational_emergence/__init__.py",
+        "tools/relational_emergence/audits/__init__.py",
+        "tools/relational_emergence/audits/identifiability.py",
+        "tools/relational_emergence/audits/leakage.py",
+        "tools/relational_emergence/audits/ontology_audit.py",
+        "tools/relational_emergence/audits/protocol.py",
+        "tools/relational_emergence/audits/protocol_validator.py",
+        "tools/relational_emergence/common.py",
+        "tools/relational_emergence/config.py",
+        "tools/relational_emergence/eval/__init__.py",
+        "tools/relational_emergence/eval/design.py",
+        "tools/relational_emergence/eval/endpoints.py",
+        "tools/relational_emergence/eval/linalg.py",
+        "tools/relational_emergence/eval/transplant.py",
+        "tools/relational_emergence/experiments/__init__.py",
+        "tools/relational_emergence/experiments/diagnose_codes.py",
+        "tools/relational_emergence/experiments/diagnose_horizon.py",
+        "tools/relational_emergence/experiments/diagnose_transplant.py",
+        "tools/relational_emergence/experiments/run_level2.py",
+        "tools/relational_emergence/experiments/run_phase1a.py",
+        "tools/relational_emergence/experiments/run_phase1b.py",
+        "tools/relational_emergence/experiments/summarise_phase1b.py",
+        "tools/relational_emergence/models/__init__.py",
+        "tools/relational_emergence/models/batch_stream.py",
+        "tools/relational_emergence/models/oracles.py",
+        "tools/relational_emergence/models/representation.py",
+        "tools/relational_emergence/models/rollout_oracle.py",
+        "tools/relational_emergence/models/transplant.py",
+        "tools/relational_emergence/simulator/__init__.py",
+        "tools/relational_emergence/simulator/actions.py",
+        "tools/relational_emergence/simulator/compatibility.py",
+        "tools/relational_emergence/simulator/counterfactuals.py",
+        "tools/relational_emergence/simulator/dataset.py",
+        "tools/relational_emergence/simulator/factors.py",
+        "tools/relational_emergence/simulator/fillers.py",
+        "tools/relational_emergence/simulator/geometry.py",
+        "tools/relational_emergence/simulator/labeling.py",
+        "tools/relational_emergence/simulator/mechanisms.py",
+        "tools/relational_emergence/simulator/roles.py",
+        "tools/relational_emergence/simulator/sampling.py",
+        "tools/relational_emergence/simulator/splits.py",
+        "tools/relational_emergence/simulator/state.py",
+        "tools/relational_emergence/simulator/world.py",
+        "tools/relational_emergence/v2/README.md",
+        "tools/relational_emergence/v2/__init__.py",
+        "tools/relational_emergence/v2/data.py",
+        "tools/relational_emergence/v2/leakage.py",
+        "tools/relational_emergence/v2/model.py",
+        "tools/relational_emergence/v2/protocol.py",
+        "tools/relational_emergence/v2/run.py",
+        "tools/relational_emergence/v2/transplant.py",
+        "tools/relational_emergence/v2/validation.py"
+      ],
+      "reports": [
+        "outputs/reports/relational_emergence/01_phase1a_gate.md",
+        "outputs/reports/relational_emergence/02_phase1a_level2.md",
+        "outputs/reports/relational_emergence/03_phase1b_factorial.md",
+        "outputs/reports/relational_emergence/04_phase1b_audit_world.md",
+        "outputs/reports/relational_emergence/README.md",
+        "outputs/reports/relational_emergence/v2/01_development_gate.md",
+        "outputs/reports/relational_emergence/v2/development_evidence.json"
+      ],
+      "tests": [
+        "tests/analysis/test_relational_emergence_arms.py",
+        "tests/analysis/test_relational_emergence_endpoints.py",
+        "tests/analysis/test_relational_emergence_gate_inputs.py",
+        "tests/analysis/test_relational_emergence_ontology.py",
+        "tests/analysis/test_relational_emergence_oracles.py",
+        "tests/analysis/test_relational_emergence_simulator.py",
+        "tests/analysis/test_relational_emergence_v2.py",
+        "tests/analysis/test_relational_emergence_v2_protocol.py"
+      ]
+    },
+    "source_path_count": 75,
+    "tool_version": "2.47.0"
+  },
+  "issue": "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/113",
+  "migration": "relational_emergence_extraction",
+  "not_extracted": {
+    "outputs/analysis/relational_emergence/": "Local generated artifacts; untracked and gitignored, so there is nothing in git to extract.",
+    "reproduction/adr/0001-0004": "Documents the reproduction standard, not Phase I.",
+    "reproduction/glossary.md": "Generic reproduction vocabulary.",
+    "tests/analysis/test_ontology_probe*": "Belongs to the ontology-probe work.",
+    "tools/ontology_probe": "Stays in main; tracked as its own issue."
+  },
+  "preserved_commit": "e2613e24466833570bc162afe738ea80414d1b2d",
+  "preserved_tag": "research-preservation/phase1-pre-extraction",
+  "references": {
+    "related_issues": [
+      "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/106",
+      "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/107",
+      "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/108",
+      "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/110",
+      "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/111",
+      "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/112"
+    ],
+    "v1_diagnostic_record_commit": "148b25663a40f8f4b2385956166859efebec8a81",
+    "v1_diagnostic_record_pr": "https://github.com/Aveouter/Open_Sence_Graph_Generation/pull/106"
+  },
+  "removal_from_main": {
+    "gate": "independent verification of this extraction against both records, plus explicit approval. Not gated on publishing a remote repository.",
+    "note": "The 75 source paths are frozen by path and blob SHA-256. Removing them later means deleting their lines from the baseline, which is the one edit the ratchet is designed to require.",
+    "ratchet": "reproduction/evidence/repository_boundary_baseline.json",
+    "ratchet_tool": "tools/reproduction/check_repository_boundary.py",
+    "status": "deferred"
+  },
+  "supersedes": null,
+  "version": 1
+}
