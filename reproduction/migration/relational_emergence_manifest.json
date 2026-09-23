@@ -130,8 +130,14 @@
     "tests/analysis/test_ontology_probe*": "Belongs to the ontology-probe work.",
     "tools/ontology_probe": "Stays in main; tracked as its own issue."
   },
-  "preserved_commit": "e2613e24466833570bc162afe738ea80414d1b2d",
-  "preserved_tag": "research-preservation/phase1-pre-extraction",
+  "preservation": {
+    "main_anchor_commit": "2075472c20427e27fc27608cbbd0b28a5db6e953",
+    "main_anchor_note": "PR #108 reached main as a squash merge, which rewrites the commit: the content is in main's history while the source commit is not in its ancestry. Reachability is asserted against this anchor. Verified equivalent by comparing the full recursive tree of both commits: identical, all 388 paths, not only the 75 frozen ones.",
+    "merge_mode": "squash",
+    "preserved_tag": "research-preservation/phase1-pre-extraction",
+    "source_commit": "e2613e24466833570bc162afe738ea80414d1b2d",
+    "source_commit_note": "Research-branch commit the freeze and the extraction describe. It was the tip of codex/issue-107-phase1-v2."
+  },
   "references": {
     "related_issues": [
       "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/106",

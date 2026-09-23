@@ -115,6 +115,18 @@ def blob_digests(repo: Path, oids: list[str]) -> dict[str, tuple[str, int]]:
     return digests
 
 
+def content_sha256(path: Path) -> str:
+    """SHA-256 of a file's logical content, independent of its line endings.
+
+    Git's ``core.autocrlf`` rewrites worktree files on checkout, so the same
+    committed content has different bytes on disk depending on the platform and
+    on whether git has touched the file since it was written.  Hashing those
+    bytes would make a citation of one record by another change for reasons that
+    have nothing to do with either record.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     """Write deterministic JSON with LF endings.
 
@@ -243,7 +255,7 @@ def run_transformed(root: Path, extraction: Path) -> int:
         # rewritten and are never checked against the source hashes again.
         "raw_verification": {
             "record": RAW_RECORD.as_posix(),
-            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "sha256": content_sha256(raw_path),
             "checked": raw_record["checked"],
             "matched": raw_record["matched"],
         },

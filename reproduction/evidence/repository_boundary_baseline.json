@@ -376,6 +376,8 @@
       "surface": "package"
     }
   },
+  "main_anchor_commit": "2075472c20427e27fc27608cbbd0b28a5db6e953",
+  "main_anchor_merge_mode": "squash",
   "preserved_commit": "e2613e24466833570bc162afe738ea80414d1b2d",
   "preserved_tag": "research-preservation/phase1-pre-extraction",
   "surface_groups": {
@@ -385,5 +387,5 @@
     "reports": "Research reports under outputs/reports/relational_emergence/.",
     "tests": "Research test modules under tests/analysis/."
   },
-  "version": 1
+  "version": 2
 }

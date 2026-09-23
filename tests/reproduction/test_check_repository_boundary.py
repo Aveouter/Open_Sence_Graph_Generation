@@ -433,10 +433,16 @@ class RepositorySatisfiesBoundaryTest(unittest.TestCase):
 class FrozenSurfaceSnapshotTest(unittest.TestCase):
     """The freeze must still describe the tree it claims to describe.
 
-    The baseline records a blob hash per research-surface path at the
-    preservation commit.  If main's content for one of those paths has drifted
-    since, the preservation record no longer describes what is in the repository
-    and an extraction built from it would silently carry the wrong bytes.
+    The baseline records a blob hash per research-surface path, plus the commits
+    that record is anchored to.  If main's content for one of those paths has
+    drifted since, the preservation record no longer describes what is in the
+    repository and an extraction built from it would silently carry the wrong
+    bytes.
+
+    Two commits are involved and they are not interchangeable: the source commit
+    is where the extraction came from, and the main anchor is the squash-merged
+    commit that put the same content into ``main``.  Squash merging rewrites the
+    commit, so only the anchor is in ``main``'s ancestry.
     """
 
     @classmethod
@@ -446,35 +452,54 @@ class FrozenSurfaceSnapshotTest(unittest.TestCase):
         )
         cls.frozen = cls.baseline["frozen_surface"]
 
-    def test_preserved_commit_is_reachable_history(self) -> None:
-        """The preservation record must be verifiable from the branch itself.
+    @classmethod
+    def _frozen_blob_oids(cls, commit: str) -> dict[str, str]:
+        """Return ``{path: blob oid}`` for the frozen surface at *commit*."""
+        listing = _run_git(REPO_ROOT, "ls-tree", "-r", "-z", commit)
+        blobs: dict[str, str] = {}
+        for record in listing.stdout.split("\0"):
+            if not record:
+                continue
+            meta, _, path = record.partition("\t")
+            fields = meta.split()
+            if len(fields) == 3 and fields[1] == "blob" and path in cls.frozen:
+                blobs[path] = fields[2]
+        return blobs
 
-        Keyed on the recorded commit rather than the tag.  A tag is an alias that
-        exists only once someone publishes it, so requiring it would make this
-        check depend on an outward-facing step rather than on the record; the
-        commit, by contrast, is an ancestor of this branch and is therefore
-        present in any full clone.  That is what lets CI verify the freeze
-        without the tag having been pushed.
+    def test_main_anchor_is_reachable_history(self) -> None:
+        """Reachability is asserted against the anchor, not the source commit.
+
+        The surface is described by a research-branch commit, but #108 reached
+        ``main`` as a squash merge, which rewrites the commit: the content is in
+        ``main`` while the commit object is not in its ancestry.  So
+        ``preserved_commit is an ancestor of HEAD`` is false by construction and
+        asserting it would fail for a reason that says nothing about integrity.
+
+        The anchor is the squash-merged commit that does live in ``main``.  It is
+        an ancestor of this branch and therefore present in any full clone, which
+        is what lets CI verify the freeze against durable history rather than
+        against a feature branch that may be deleted.
         """
-        commit = self.baseline["preserved_commit"]
-        self.assertTrue(commit, "the baseline records no preserved commit")
+        anchor = self.baseline["main_anchor_commit"]
+        self.assertTrue(anchor, "the baseline records no main anchor commit")
 
-        resolved = _run_git(REPO_ROOT, "rev-parse", "--verify", f"{commit}^{{commit}}")
+        resolved = _run_git(REPO_ROOT, "rev-parse", "--verify", f"{anchor}^{{commit}}")
         self.assertEqual(
-            resolved.returncode, 0, f"preserved commit {commit} is not a commit object"
+            resolved.returncode, 0, f"main anchor {anchor} is not a commit object"
         )
-        self.assertEqual(resolved.stdout.strip(), commit)
+        self.assertEqual(resolved.stdout.strip(), anchor)
 
-        reachable = _run_git(REPO_ROOT, "merge-base", "--is-ancestor", commit, "HEAD")
+        reachable = _run_git(REPO_ROOT, "merge-base", "--is-ancestor", anchor, "HEAD")
         self.assertEqual(
             reachable.returncode,
             0,
-            "the preserved commit is not an ancestor of HEAD, so a full clone of "
-            "this branch could not verify the freeze against it",
+            "the main anchor is not an ancestor of HEAD, so a full clone of this "
+            "branch could not verify the freeze against main's history",
         )
 
-        # The tag is a convenience alias for the same commit.  It is checked when
-        # present, but not required: requiring it would gate this on publication.
+        # The tag names the source commit, which squash merging left outside
+        # main.  It is checked for agreement when present, but not required:
+        # requiring it would gate this on publishing an alias.
         tag = self.baseline["preserved_tag"]
         if tag:
             # --verify so an absent tag is an error rather than a literal echoed
@@ -484,23 +509,44 @@ class FrozenSurfaceSnapshotTest(unittest.TestCase):
             if tagged.returncode == 0:
                 self.assertEqual(
                     tagged.stdout.strip(),
-                    commit,
-                    f"tag {tag!r} points somewhere other than the preserved commit",
+                    self.baseline["preserved_commit"],
+                    f"tag {tag!r} points somewhere other than the source commit",
                 )
 
-    def test_frozen_surface_matches_the_preserved_commit(self) -> None:
-        commit = self.baseline["preserved_commit"]
-        listing = _run_git(REPO_ROOT, "ls-tree", "-r", "-z", commit)
-        self.assertEqual(listing.returncode, 0, listing.stderr)
+    def test_source_commit_agrees_with_the_main_anchor(self) -> None:
+        """The two commits must still hold the same frozen content.
 
-        committed: dict[str, str] = {}
-        for record in listing.stdout.split("\0"):
-            if not record:
-                continue
-            meta, _, path = record.partition("\t")
-            fields = meta.split()
-            if len(fields) == 3 and fields[1] == "blob":
-                committed[path] = fields[2]
+        The anchor is only a valid stand-in for the source commit while their
+        content agrees; that equivalence is why reachability can be checked
+        against the anchor at all.  The source commit lives on feature branches
+        rather than in main, so this skips where it has not been fetched.
+        """
+        source = self.baseline["preserved_commit"]
+        anchor = self.baseline["main_anchor_commit"]
+        present = _run_git(REPO_ROOT, "rev-parse", "--verify", f"{source}^{{commit}}")
+        if present.returncode != 0:
+            raise unittest.SkipTest(
+                f"source commit {source[:8]} is not in this clone; it lives on the "
+                "research branch, not in main"
+            )
+
+        source_blobs = self._frozen_blob_oids(source)
+        anchor_blobs = self._frozen_blob_oids(anchor)
+        differing = sorted(
+            path
+            for path in self.frozen
+            if source_blobs.get(path) != anchor_blobs.get(path)
+        )
+        self.assertEqual(
+            differing,
+            [],
+            "the source commit and the main anchor no longer hold the same frozen "
+            "content, so the anchor is not a valid stand-in",
+        )
+
+    def test_frozen_surface_matches_the_main_anchor(self) -> None:
+        commit = self.baseline["main_anchor_commit"]
+        committed = self._frozen_blob_oids(commit)
 
         missing = sorted(path for path in self.frozen if path not in committed)
         self.assertEqual(missing, [], f"frozen paths absent from {commit}")
@@ -530,6 +576,17 @@ EXTRACTION = REPO_ROOT / ".research-extraction" / "Relational_Representation_Res
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _content_sha256(path: Path) -> str:
+    """SHA-256 of logical content, ignoring line-ending translation.
+
+    ``core.autocrlf`` rewrites worktree files on checkout, so hashing raw
+    worktree bytes makes the same committed content hash differently depending
+    on the platform and on whether git has touched the file since it was
+    written.  This mirrors the tool that writes the citation.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _head_blob_sha256(repo: Path) -> dict[str, str]:
@@ -572,10 +629,23 @@ class MigrationRecordTest(unittest.TestCase):
         self.assertEqual(selected, set(self.baseline["frozen_surface"]))
 
     def test_manifest_agrees_with_the_freeze(self) -> None:
+        """The migration index and the ratchet baseline must name the same commits.
+
+        They describe the same preservation record from two directions, so a
+        disagreement means one of them has drifted -- and the two-commit model
+        is exactly the kind of thing that drifts quietly.
+        """
+        preservation = self.manifest["preservation"]
         self.assertEqual(
-            self.manifest["preserved_commit"], self.baseline["preserved_commit"]
+            preservation["source_commit"], self.baseline["preserved_commit"]
         )
-        self.assertEqual(self.manifest["preserved_tag"], self.baseline["preserved_tag"])
+        self.assertEqual(
+            preservation["main_anchor_commit"], self.baseline["main_anchor_commit"]
+        )
+        self.assertEqual(preservation["merge_mode"], self.baseline["main_anchor_merge_mode"])
+        self.assertEqual(
+            preservation["preserved_tag"], self.baseline["preserved_tag"]
+        )
 
         groups = self.manifest["extraction"]["selected_path_groups"]
         self.assertEqual(
@@ -652,18 +722,16 @@ class ExtractionRecordTest(unittest.TestCase):
         )
 
     def test_raw_record_is_the_one_the_transformed_manifest_cites(self) -> None:
-        raw_bytes = (
-            MIGRATION_DIR / "relational_emergence_raw_verification.json"
-        ).read_bytes()
+        raw_path = MIGRATION_DIR / "relational_emergence_raw_verification.json"
         transformed = _read_json(MIGRATION_DIR / "relational_emergence_extracted.json")
 
         self.assertEqual(
-            hashlib.sha256(raw_bytes).hexdigest(),
+            _content_sha256(raw_path),
             transformed["raw_verification"]["sha256"],
             "the transformed manifest cites a different raw record than the one on disk",
         )
 
-        raw = json.loads(raw_bytes.decode("utf-8"))
+        raw = _read_json(raw_path)
         self.assertEqual(raw["mismatched"], [])
         self.assertEqual(raw["checked"], raw["matched"])
 

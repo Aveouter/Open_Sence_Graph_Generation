@@ -61,6 +61,19 @@ if hasattr(sys.stdout, "reconfigure"):
 BASELINE_PATH = Path("reproduction") / "evidence" / "repository_boundary_baseline.json"
 MIGRATION_PATH = Path("reproduction") / "migration" / "relational_emergence_migration.json"
 
+# 2 added the main-anchor fields: the surface is described by a research-branch
+# commit, but reachability has to be asserted against the squash-merged commit
+# that actually lives in main. See build_baseline.
+BASELINE_VERSION = 2
+
+# Provenance carried through a re-freeze rather than recomputed. See build_baseline.
+BASELINE_PROVENANCE_FIELDS = (
+    "preserved_tag",
+    "preserved_commit",
+    "main_anchor_commit",
+    "main_anchor_merge_mode",
+)
+
 RESEARCH_PACKAGE = "tools.relational_emergence"
 
 # R1 scope.  An explicit tuple on purpose: widening this to every tracked .py
@@ -394,13 +407,34 @@ def authorized_changes(root: Path, findings: list[str]) -> dict[str, str]:
 
 def build_baseline(
     freeze: dict[str, dict[str, Any]],
-    preserved_tag: str | None,
-    preserved_commit: str | None,
+    provenance: dict[str, Any],
 ) -> dict[str, Any]:
+    """Assemble the baseline, carrying provenance through unchanged.
+
+    Two commits describe the preserved surface, and conflating them is a trap:
+
+    ``preserved_commit``
+        Where the freeze and the extraction actually come from -- a research
+        branch commit.  It is what the extraction was filtered from, so it is
+        the truthful source, but it is *not* in ``main``'s history.
+
+    ``main_anchor_commit``
+        A commit in ``main``'s history with byte-identical content, produced by
+        a squash merge.  Squash merging rewrites the commit, so the source
+        commit is not an ancestor of ``main`` even though its content is.  Any
+        assertion of the form ``preserved_commit is an ancestor of HEAD`` is
+        therefore false by construction, which is why reachability is asserted
+        against this anchor instead.
+
+    ``main_anchor_merge_mode`` records how the two relate, so a future reader
+    knows the equivalence is by content and not by ancestry.
+    """
     return {
-        "version": 1,
-        "preserved_tag": preserved_tag,
-        "preserved_commit": preserved_commit,
+        "version": BASELINE_VERSION,
+        "preserved_tag": provenance.get("preserved_tag"),
+        "preserved_commit": provenance.get("preserved_commit"),
+        "main_anchor_commit": provenance.get("main_anchor_commit"),
+        "main_anchor_merge_mode": provenance.get("main_anchor_merge_mode"),
         "surface_groups": SURFACE_GROUPS,
         "frozen_surface": {path: freeze[path] for path in sorted(freeze)},
     }
@@ -528,8 +562,21 @@ def main() -> int:
         action="store_true",
         help="Emit a refreshed baseline for the current tree on stdout and exit",
     )
-    parser.add_argument("--preserved-tag", help="Preservation tag to record in the baseline")
-    parser.add_argument("--preserved-commit", help="Preservation commit to record in the baseline")
+    parser.add_argument(
+        "--preserved-tag", help="Preservation tag naming the source commit"
+    )
+    parser.add_argument(
+        "--preserved-commit",
+        help="Research-branch commit the freeze and extraction describe",
+    )
+    parser.add_argument(
+        "--main-anchor-commit",
+        help="Content-equivalent commit in main's history (reachability anchor)",
+    )
+    parser.add_argument(
+        "--main-anchor-merge-mode",
+        help="How the source and anchor relate, e.g. 'squash'",
+    )
     args = parser.parse_args()
 
     try:
@@ -552,11 +599,14 @@ def main() -> int:
             for path, oid in sorted(blobs.items())
             if surface_group(path) is not None
         }
-        baseline = build_baseline(
-            freeze,
-            args.preserved_tag or existing.get("preserved_tag"),
-            args.preserved_commit or existing.get("preserved_commit"),
-        )
+        # Re-freezing refreshes hashes only; the provenance of what is being
+        # frozen is not something a re-freeze should silently rewrite, so it is
+        # carried from the existing baseline unless given explicitly.
+        provenance = {
+            field: getattr(args, field) or existing.get(field)
+            for field in BASELINE_PROVENANCE_FIELDS
+        }
+        baseline = build_baseline(freeze, provenance)
         # Written by the caller. json.dumps is deterministic (sorted keys), so
         # two runs over the same tree produce byte-identical output -- but only
         # if the newlines are too. Text-mode stdout translates "\n" to os.linesep,

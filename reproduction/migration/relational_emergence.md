@@ -12,29 +12,41 @@ research repository has been created.
 
 | | |
 |---|---|
-| Preservation tag | `research-preservation/phase1-pre-extraction` |
-| Preservation commit | `e2613e24466833570bc162afe738ea80414d1b2d` |
+| Source commit | `e2613e24466833570bc162afe738ea80414d1b2d` — what the extraction came from |
+| Main anchor | `2075472c20427e27fc27608cbbd0b28a5db6e953` — the same content, in `main` |
+| Preservation tag | `research-preservation/phase1-pre-extraction` — names the source commit |
 | Extracted copy | `.research-extraction/Relational_Representation_Research` (gitignored) |
 | Extracted tip | `c312c54cb036a9a5639735f983e5ac1f09c0f8df` |
 | Planned remote | `Aveouter/Relational_Representation_Research` — not created |
 
-The **commit** is the load-bearing record, not the tag. The commit is an ancestor
-of this branch and is therefore present in any full clone, so
-`reproduction/evidence/repository_boundary_baseline.json` verifies the freeze
-against it directly; the tag is a convenience alias that is checked only when it
-happens to be present. Publishing the tag is optional and does not gate anything.
+### Two commits, not one
+
+`#108` reached `main` as a **squash merge**, which rewrites the commit. The
+content is in `main`; the source commit is not in `main`'s ancestry. So
+`source_commit is an ancestor of HEAD` is false by construction and is not what
+the record asserts.
+
+The **main anchor** is the property that matters: it is in `main`'s history, so
+it survives the research branches being deleted and is present in any full
+clone. `reproduction/evidence/repository_boundary_baseline.json` verifies the
+frozen hashes against the anchor, and asserts the anchor is an ancestor of HEAD.
+The two commits are held equivalent by content — their full recursive trees are
+identical, verified over all 388 paths, not only the 75 frozen ones.
+
+The tag is a convenience alias for the source commit and is checked only when
+present. Publishing it is optional and gates nothing.
 
 > **Warning:** the extracted copy is gitignored, so `git clean -xdf` (or `-Xdf`)
 > will delete it, and it is not recoverable from any remote. The durable records
-> are the preserved commit in this repository's history and the files below; the
+> are the main anchor in this repository's history and the files below; the
 > extraction can be rebuilt from them with the procedure in
 > `relational_emergence_manifest.json`.
 
 Machine-readable records live beside this file:
 
-- `relational_emergence_manifest.json` — the migration index: preserved
-  tag and commit, the five selected path groups, renames, both integrity
-  records, and what was deliberately left behind.
+- `relational_emergence_manifest.json` — the migration index: both commits of
+  the preservation record, the five selected path groups, renames, both
+  integrity records, and what was deliberately left behind.
 - `relational_emergence_paths.txt` — the directive list handed to
   `git filter-repo`.
 - `relational_emergence_raw_verification.json` — the extracted tree as
