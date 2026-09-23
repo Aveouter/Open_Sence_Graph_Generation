@@ -91,6 +91,10 @@ def main() -> int:
             [sys.executable, "-m", "unittest", "discover", "-s", "tests/reproduction"],
         ),
         (
+            "Check repository boundary",
+            [sys.executable, "tools/reproduction/check_repository_boundary.py"],
+        ),
+        (
             "Build missing-artifact manifest",
             [sys.executable, "tools/reproduction/build_artifact_manifest.py"],
         ),

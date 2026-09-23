@@ -1,0 +1,389 @@
+{
+  "frozen_surface": {
+    "CONTEXT.md": {
+      "bytes": 1802,
+      "sha256": "2eaa042554a027a1c2de52b192069b65d369afd682b1f4f82a9423fb46b0e84a",
+      "surface": "glossary"
+    },
+    "outputs/reports/relational_emergence/01_phase1a_gate.md": {
+      "bytes": 19712,
+      "sha256": "44a6a884130324394146fc169bccfea5e9bd45a40d68713a0f1e70809e13e59c",
+      "surface": "reports"
+    },
+    "outputs/reports/relational_emergence/02_phase1a_level2.md": {
+      "bytes": 9653,
+      "sha256": "bac5cdaa07e0918d150d0793987634cbbdb018e0fc6bc8f0fe6a3a042a28867c",
+      "surface": "reports"
+    },
+    "outputs/reports/relational_emergence/03_phase1b_factorial.md": {
+      "bytes": 28595,
+      "sha256": "e7b7a9a3f0e0d9c602867afed4e164281aaf9eb31458eb5a8b7a60db63ba72ab",
+      "surface": "reports"
+    },
+    "outputs/reports/relational_emergence/04_phase1b_audit_world.md": {
+      "bytes": 11421,
+      "sha256": "6c6c353ced9f00d1942baaea455c580a59ab23a54a2db3ec96bed66b477ed29a",
+      "surface": "reports"
+    },
+    "outputs/reports/relational_emergence/README.md": {
+      "bytes": 1885,
+      "sha256": "b8015fee8990c9c36779db05f23cb23df80465a7412d3189264cdd1fbf01d06d",
+      "surface": "reports"
+    },
+    "outputs/reports/relational_emergence/v2/01_development_gate.md": {
+      "bytes": 7498,
+      "sha256": "62cad0ca8d5a302c6df30ce97482cf36713535cf6fa1f492c51bcce2e222487c",
+      "surface": "reports"
+    },
+    "outputs/reports/relational_emergence/v2/development_evidence.json": {
+      "bytes": 111255,
+      "sha256": "7afa80fe0a3bea8df8c4e8347b702aa598da63028b5676259635e88df64a8a16",
+      "surface": "reports"
+    },
+    "reproduction/adr/0005-phase1-data-generating-process.md": {
+      "bytes": 9264,
+      "sha256": "41ca58009b72fec25bf48f69c12d94a7de5aaddeec48c9a74a601254c8afa287",
+      "surface": "decision_records"
+    },
+    "reproduction/adr/0006-development-vs-audit-world-protocol.md": {
+      "bytes": 6865,
+      "sha256": "c89f304755e3de8146c2dca12b85abcee3875125b7755ed3de4c3de868f0f87a",
+      "surface": "decision_records"
+    },
+    "reproduction/adr/0007-emergence-evidence-criteria.md": {
+      "bytes": 12093,
+      "sha256": "3ba62ad0cab9e5767e4d30c6873e23822f38618945cb26560c1fda483d8fe2a8",
+      "surface": "decision_records"
+    },
+    "reproduction/adr/0008-phase1b-endpoint-specification.md": {
+      "bytes": 10501,
+      "sha256": "15ab6cf8250d3fcc41f38a0c455838b2c1a6c75b470f8feabea28170935a3ae0",
+      "surface": "decision_records"
+    },
+    "reproduction/adr/0009-phase1b-protocol-freeze.md": {
+      "bytes": 5934,
+      "sha256": "728abd0a254091b87e4ef5d273689ae685279722a05de43d85a150de6aca4a36",
+      "surface": "decision_records"
+    },
+    "reproduction/adr/0010-phase1-v2-development-boundary.md": {
+      "bytes": 4436,
+      "sha256": "c26d382814779fc95701722b4fa9c5428b7978b8775e9cc8b0e7b657307919d1",
+      "surface": "decision_records"
+    },
+    "tests/analysis/test_relational_emergence_arms.py": {
+      "bytes": 11947,
+      "sha256": "0771d2984e9281160a0047acd721321fb47b35727320a94fd11fed6680f2c120",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_endpoints.py": {
+      "bytes": 16871,
+      "sha256": "755d6e0ef7f501aea0e0ca9dc9c9ab064b711d3102a777e0e73d84979d37240b",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_gate_inputs.py": {
+      "bytes": 1816,
+      "sha256": "91cfaf2298b3d4bf19ce6eca602c5b14ecc2951c6e8eee221d05eb3293a15fd3",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_ontology.py": {
+      "bytes": 13856,
+      "sha256": "3e1e2b0569f9841a41413339a33fc47d8a5fe903a478e0878e2a68631b01af97",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_oracles.py": {
+      "bytes": 15494,
+      "sha256": "528242dedddf43cad4112aece63fc6adc952504f41f79fb6ae40ede45aacbbe0",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_simulator.py": {
+      "bytes": 52491,
+      "sha256": "2e2f6dcd3149f3fe52b92040ddc9bbb123b195c8f4506dadf269a0247c78c57a",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_v2.py": {
+      "bytes": 16986,
+      "sha256": "db22fcd02b8c92b5a846735d0e80d532cacac83fb03ed95ced6947ae1d81df3b",
+      "surface": "tests"
+    },
+    "tests/analysis/test_relational_emergence_v2_protocol.py": {
+      "bytes": 3043,
+      "sha256": "1e164ad96f1258f51c616491e8b7b2042ef7137f2d94f8d5193fb89ec0bcfa30",
+      "surface": "tests"
+    },
+    "tools/relational_emergence/README.md": {
+      "bytes": 9309,
+      "sha256": "5d4925be0e035f207df392e48b354b51a5995ed389168a37e8cccfbd5b178ac9",
+      "surface": "package"
+    },
+    "tools/relational_emergence/__init__.py": {
+      "bytes": 619,
+      "sha256": "6e858e5021c128055ecd9cffc752fe377dafb938342909c14a726085adc35144",
+      "surface": "package"
+    },
+    "tools/relational_emergence/audits/__init__.py": {
+      "bytes": 82,
+      "sha256": "e13fe0e391f4c3bf644eeb1882e6f26217e170813f9bc55588c239aaccec3791",
+      "surface": "package"
+    },
+    "tools/relational_emergence/audits/identifiability.py": {
+      "bytes": 11662,
+      "sha256": "93edb9c3a50d1db3813bc108e918506d86023829529e22a6dcf8c69852f47630",
+      "surface": "package"
+    },
+    "tools/relational_emergence/audits/leakage.py": {
+      "bytes": 16794,
+      "sha256": "7a8980f80d261fa022fd6ac953060e7a7a8cee3faa5b2846a0edf7b4bc59ee5a",
+      "surface": "package"
+    },
+    "tools/relational_emergence/audits/ontology_audit.py": {
+      "bytes": 3299,
+      "sha256": "d3333e3d704797594bf7c6b5d2bfca96c0dd30f07f6763a623c8e5e533acb77b",
+      "surface": "package"
+    },
+    "tools/relational_emergence/audits/protocol.py": {
+      "bytes": 10367,
+      "sha256": "7e80770ea0c43307f4539661620c50d61aedcccbf7bce1845c27a66825976521",
+      "surface": "package"
+    },
+    "tools/relational_emergence/audits/protocol_validator.py": {
+      "bytes": 7280,
+      "sha256": "57161d034a62ca48793b4dc4fdf5ceb782761cfcd5d597ac1b96197aba2c6773",
+      "surface": "package"
+    },
+    "tools/relational_emergence/common.py": {
+      "bytes": 2642,
+      "sha256": "e51d0d059c7ff8a5dd1f83a70258e282212be8a02c94cfd9bfeb126dddb277ff",
+      "surface": "package"
+    },
+    "tools/relational_emergence/config.py": {
+      "bytes": 6254,
+      "sha256": "de6baca907d790e937d414d3266b575e8ac7e0d9c01b3655ff67fcc6ef1fab2d",
+      "surface": "package"
+    },
+    "tools/relational_emergence/eval/__init__.py": {
+      "bytes": 398,
+      "sha256": "6b735027a6138e18ad7d42ca1f3842e48e06555fe244ce667445c092ac1d9120",
+      "surface": "package"
+    },
+    "tools/relational_emergence/eval/design.py": {
+      "bytes": 12175,
+      "sha256": "8ea1b1b50ae8cebe8fcf664341f5fb990d1936d9ac46c6b2b01b43c4fd26529c",
+      "surface": "package"
+    },
+    "tools/relational_emergence/eval/endpoints.py": {
+      "bytes": 10147,
+      "sha256": "a87d4bb59eb8bc41e05e63ae16ab2ea4c6651473504623042ffd9ae105f3a6dc",
+      "surface": "package"
+    },
+    "tools/relational_emergence/eval/linalg.py": {
+      "bytes": 6675,
+      "sha256": "257cd3477e0fa4ec2e8f416f1aa136b3ab37fe886e63c50d58fc7215c6586537",
+      "surface": "package"
+    },
+    "tools/relational_emergence/eval/transplant.py": {
+      "bytes": 19068,
+      "sha256": "6547343d1af2d35af124493ce69ac003040432044d847f5aea8d03f620108fe8",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/__init__.py": {
+      "bytes": 74,
+      "sha256": "0a99db780d424f61b9dea3ab972644e9ef610825246d3e719e85552c63117af7",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/diagnose_codes.py": {
+      "bytes": 5874,
+      "sha256": "8471b8ff30051f8afd98155696d7f877807a95a2844ed4e01dbe2dd48a13968b",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/diagnose_horizon.py": {
+      "bytes": 3505,
+      "sha256": "2de892a5b7da6edc03390e2c36d23965fdafe5a351db4e596112b2e08c90ea6a",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/diagnose_transplant.py": {
+      "bytes": 10083,
+      "sha256": "d75728e570546376c2b5d43afa487a117fe0048e4db13841314921c05f44068d",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/run_level2.py": {
+      "bytes": 7582,
+      "sha256": "9eb1a250e1ecff7bb0ba22808a13fe0089e535e03608b86827e37a5488c2cb83",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/run_phase1a.py": {
+      "bytes": 15950,
+      "sha256": "dc8805109686532f8b80391bb5929a9d8f0b74712995690b8a91b8e5b5fa02ed",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/run_phase1b.py": {
+      "bytes": 37535,
+      "sha256": "fa2fca6502428d7e7a340e6a487071f059c4e81c0b7a05fece0ddb6c38c72fb7",
+      "surface": "package"
+    },
+    "tools/relational_emergence/experiments/summarise_phase1b.py": {
+      "bytes": 7959,
+      "sha256": "4f10db5bfcd0fc060329067158b1903d700db80764198feea4f4db2c00635bae",
+      "surface": "package"
+    },
+    "tools/relational_emergence/models/__init__.py": {
+      "bytes": 1112,
+      "sha256": "e015f4bd05dff9f008f835d1850292df83e852a4180e9230ddb68c3aaa3cbbfd",
+      "surface": "package"
+    },
+    "tools/relational_emergence/models/batch_stream.py": {
+      "bytes": 7861,
+      "sha256": "9f54e9cb6223cdbb6b12159a02d3d8326c9cbe5af9c585d1de02a265a6fb4870",
+      "surface": "package"
+    },
+    "tools/relational_emergence/models/oracles.py": {
+      "bytes": 43851,
+      "sha256": "71e2b7644f6ff8427d68dbff40ee6947024921036cad43834a0c1e0299563477",
+      "surface": "package"
+    },
+    "tools/relational_emergence/models/representation.py": {
+      "bytes": 19714,
+      "sha256": "1efe7661762c9c1479d2f9e7560dee14243e3a1033f9119781274f5030569fd2",
+      "surface": "package"
+    },
+    "tools/relational_emergence/models/rollout_oracle.py": {
+      "bytes": 14975,
+      "sha256": "4ef2f211347af78f61c33f2901e34d972e1331eb05390e92fb07b20575c97cdf",
+      "surface": "package"
+    },
+    "tools/relational_emergence/models/transplant.py": {
+      "bytes": 8675,
+      "sha256": "be429973f4938af7140e1ab82f56d5ebb13b0313ea61883383f64dd5bbb4814c",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/__init__.py": {
+      "bytes": 332,
+      "sha256": "dac654bf4649a06b554d295a922ce0dc3baf7e701bc4db90ad20efeb5a909468",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/actions.py": {
+      "bytes": 6008,
+      "sha256": "b135594ab0b8682b9d34c79366bb4697ac5b5c6ea38df3050dca3d8f3c77e90e",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/compatibility.py": {
+      "bytes": 5414,
+      "sha256": "0d0012f7179d7161ae2b34b827cd31ac3c3ad4ba25ccec83e633848fa5c29995",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/counterfactuals.py": {
+      "bytes": 3803,
+      "sha256": "edda4bbac04d5ef8348f5a46a045d48f691a68854273f5116504c5f0241bcccb",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/dataset.py": {
+      "bytes": 8702,
+      "sha256": "74404460fa5e5159db2f3f50b69ad9b9314abe8a17ea071f43735de696202bb0",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/factors.py": {
+      "bytes": 3472,
+      "sha256": "e373f2eed6b1de65e86e1d1906780b029a08d67a173a5a94ff56d571023ffed5",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/fillers.py": {
+      "bytes": 5306,
+      "sha256": "092a01d432a87e6ac6f46bae5c2c26f5b2f39684bad3d67dcbc0a8f304bdf1f0",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/geometry.py": {
+      "bytes": 8692,
+      "sha256": "571b620d05bec699c68c45634b15b949b8fa3610a1631e5ba5eb3aceb2d5f935",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/labeling.py": {
+      "bytes": 1656,
+      "sha256": "bebef143e41efce74a499a8c0ef7c2d1151fb2134c8bc2b8d8c6e21bc23ddad4",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/mechanisms.py": {
+      "bytes": 16561,
+      "sha256": "6a7e726ea982e8e9c239381581a686c97e6b1e9caff8fb7dec1d2455881c545f",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/roles.py": {
+      "bytes": 5098,
+      "sha256": "3eb2cc76e2e787af3cc083653152e22937fed2c7c25886e211bca779a01c2d88",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/sampling.py": {
+      "bytes": 5129,
+      "sha256": "a3f209e3b30be369e29ba5fc44a516621bff2bde049f9aadd130d0edb503557c",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/splits.py": {
+      "bytes": 10516,
+      "sha256": "150e58fd013e42d646f9b3e202d9eb5d95fd3b4e74c0559640b592f9e7db85d5",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/state.py": {
+      "bytes": 2680,
+      "sha256": "06eea055137ccdd4a947d68462aadfdb479f34bf302ff9b15a1548d96af281d0",
+      "surface": "package"
+    },
+    "tools/relational_emergence/simulator/world.py": {
+      "bytes": 9079,
+      "sha256": "3f00e6c4242ba09dd79383c4cf4bc330dcc2f992ae79b9e6858e8b37e5c78e6e",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/README.md": {
+      "bytes": 4111,
+      "sha256": "f7cf3bcb8c2eb77ebd6ef9f9af48cc65b4aa356ebdb1ed55c8904f4e32c2149d",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/__init__.py": {
+      "bytes": 79,
+      "sha256": "4525e24b1288e52dc02f6cdc2b93e2bdb6f48e8b8d9e8d707ff013b6022e176b",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/data.py": {
+      "bytes": 12500,
+      "sha256": "c7167b4a55607c29a259b42dd2159c7045cdb736927e3298c78654c32b6c950b",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/leakage.py": {
+      "bytes": 11647,
+      "sha256": "bc0a9f74419c3a1f9338c7b29e65112e88032df5e36013b354b5662d2c462921",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/model.py": {
+      "bytes": 10633,
+      "sha256": "e2710a29efc934eccde63fb8f8308f075613571993565ac8029bf9258c5c50d3",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/protocol.py": {
+      "bytes": 4216,
+      "sha256": "c3fe898a2f443b95c1917ac71de02c87166aafb5281e696fc61d966fef991817",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/run.py": {
+      "bytes": 4064,
+      "sha256": "a31f11b1a1910b78d6869842771eed0fa168714f1523346954387068a2fb8df6",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/transplant.py": {
+      "bytes": 7168,
+      "sha256": "0eccb6b9d50c4169084c605250161c6533891349a7e3bbe6f36c2b04f887959a",
+      "surface": "package"
+    },
+    "tools/relational_emergence/v2/validation.py": {
+      "bytes": 8656,
+      "sha256": "dfb38c0237fa15b2a9a1b1bac038d9bc68dcce6727fc34ea06c9a17901d3c08e",
+      "surface": "package"
+    }
+  },
+  "preserved_commit": "e2613e24466833570bc162afe738ea80414d1b2d",
+  "preserved_tag": "research-preservation/phase1-pre-extraction",
+  "surface_groups": {
+    "decision_records": "Phase I ADRs, the retired reproduction/adr/0005-0010 band.",
+    "glossary": "The relational-emergence glossary at CONTEXT.md.",
+    "package": "Research package code under tools/relational_emergence/.",
+    "reports": "Research reports under outputs/reports/relational_emergence/.",
+    "tests": "Research test modules under tests/analysis/."
+  },
+  "version": 1
+}

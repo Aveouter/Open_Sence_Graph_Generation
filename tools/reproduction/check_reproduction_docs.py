@@ -66,6 +66,7 @@ REQUIRED_TOOLS = (
     "build_artifact_manifest.py",
     "check_reproduction_claims.py",
     "check_reproduction_docs.py",
+    "check_repository_boundary.py",
     "run_evidence_gate_checks.py",
     "run_reproduction_guardrails.py",
 )
@@ -74,6 +75,7 @@ REQUIRED_TESTS = (
     "tests/reproduction/test_build_artifact_manifest.py",
     "tests/reproduction/test_check_reproduction_claims.py",
     "tests/reproduction/test_check_reproduction_docs.py",
+    "tests/reproduction/test_check_repository_boundary.py",
     "tests/reproduction/test_run_evidence_gate_checks.py",
 )
 

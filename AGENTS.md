@@ -64,6 +64,8 @@ A PR is appropriate only when it does one of the following:
 - adds an audit/deferred status report with explicit evidence
 - adds guardrails that prevent random-init/tiny-slice outputs from being
   mistaken for reproduction evidence
+- moves code, reports, or decision records across the stable/research boundary
+  and records the move under `reproduction/migration/`
 
 PR titles and bodies must not imply successful reproduction unless the evidence
 meets the full standard above.
@@ -87,3 +89,33 @@ claim-bearing files. It does not inspect GitHub metadata automatically. Passing
 these checks does not prove reproduction. The aggregate guardrail script runs
 the lightweight syntax, documentation, and claim-boundary checks without running
 model evaluation or rewriting evidence JSON files.
+
+## Repository Boundary
+
+`main` holds the stable SGG system: training, evaluation, registered methods,
+and the reproduction contracts under `reproduction/`. Exploratory analysis,
+one-off diagnostics, protocol-specific research runners, generated reports, and
+experimental artifacts belong in the research repository, not here.
+
+The practical rule:
+
+> If a file serves only one experiment or PR and no supported main component
+> imports it, default it to the research repository.
+
+Before adding a file to `main`, answer:
+
+- Is this stable SGG functionality, or research-only experimentation?
+- Which supported component will import or reuse this file?
+- Does this change add generated reports, figures, or artifacts to git?
+
+If a research result later becomes a supported SGG feature, reintroduce a
+distilled implementation with its own tests, not the experiment harness.
+
+`tools/reproduction/check_repository_boundary.py` enforces this and runs both in
+`run_reproduction_guardrails.py` and in the CI `validate` job. It is a ratchet
+rather than a clean-slate rule: the research surface currently present in `main`
+is frozen by path and blob SHA-256, and the check fails when that surface
+changes -- a new research path, an edit to a frozen file, or a frozen entry that
+has gone stale. A deliberate change is recorded in
+`reproduction/migration/relational_emergence_migration.json` and re-frozen with
+`--print-baseline`; nothing else authorizes an edit to the frozen surface.
