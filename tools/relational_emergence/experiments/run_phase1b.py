@@ -43,6 +43,7 @@ import argparse
 import math
 import random
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -415,19 +416,27 @@ def _transplant(
         structural = _structural_tensor(target_row)
         truth = [list(entry) for entry in series[1 : TRANSPLANT_HORIZON + 1]]
 
-        def roll(latent_index: int) -> list[list[float]]:
-            return roll_from_state(
-                decoder,
-                initial_state=list(series[0]),
-                structural=structural,
-                actions=actions,
-                latent_vector=latents[latent_index],
-                steps=TRANSPLANT_HORIZON,
-            )
+        # Bind the per-trial state eagerly. A closure here would capture loop
+        # variables by reference, which Ruff correctly flags as B023.
+        roll = partial(
+            roll_from_state,
+            decoder,
+            initial_state=list(series[0]),
+            structural=structural,
+            actions=actions,
+            steps=TRANSPLANT_HORIZON,
+        )
 
-        self_error = trajectory_error(roll(self_index), truth, list(scale))
-        correct_error = trajectory_error(roll(correct_index), truth, list(scale))
-        wrong_errors = [trajectory_error(roll(index), truth, list(scale)) for index in wrong_indices]
+        self_error = trajectory_error(
+            roll(latent_vector=latents[self_index]), truth, list(scale)
+        )
+        correct_error = trajectory_error(
+            roll(latent_vector=latents[correct_index]), truth, list(scale)
+        )
+        wrong_errors = [
+            trajectory_error(roll(latent_vector=latents[index]), truth, list(scale))
+            for index in wrong_indices
+        ]
         entry = {
             "target": trial.target_key,
             "source": trial.source_key,
@@ -463,8 +472,8 @@ def _transplant(
             moved = [
                 a - b
                 for a, b in zip(
-                    flatten(roll(correct_index)),
-                    flatten(roll(source_factual)),
+                    flatten(roll(latent_vector=latents[correct_index])),
+                    flatten(roll(latent_vector=latents[source_factual])),
                     strict=True,
                 )
             ]
