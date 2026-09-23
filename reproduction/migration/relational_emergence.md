@@ -18,6 +18,12 @@ research repository has been created.
 | Extracted tip | `c312c54cb036a9a5639735f983e5ac1f09c0f8df` |
 | Planned remote | `Aveouter/Relational_Representation_Research` — not created |
 
+> **Warning:** the extracted copy is gitignored, so `git clean -xdf` (or `-Xdf`)
+> will delete it, and it is not recoverable from any remote. The durable records
+> are the preservation tag in this repository's history and the files below; the
+> extraction can be rebuilt from them with the procedure in
+> `relational_emergence_manifest.json`.
+
 Machine-readable records live beside this file:
 
 - `relational_emergence_manifest.json` — the migration index: preserved
