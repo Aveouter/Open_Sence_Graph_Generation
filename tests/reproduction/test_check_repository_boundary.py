@@ -446,19 +446,47 @@ class FrozenSurfaceSnapshotTest(unittest.TestCase):
         )
         cls.frozen = cls.baseline["frozen_surface"]
 
-    def test_preservation_tag_resolves_to_recorded_commit(self) -> None:
-        tag = self.baseline["preserved_tag"]
-        self.assertTrue(tag, "the baseline records no preservation tag")
+    def test_preserved_commit_is_reachable_history(self) -> None:
+        """The preservation record must be verifiable from the branch itself.
 
-        result = _run_git(REPO_ROOT, "rev-parse", f"{tag}^{{commit}}")
+        Keyed on the recorded commit rather than the tag.  A tag is an alias that
+        exists only once someone publishes it, so requiring it would make this
+        check depend on an outward-facing step rather than on the record; the
+        commit, by contrast, is an ancestor of this branch and is therefore
+        present in any full clone.  That is what lets CI verify the freeze
+        without the tag having been pushed.
+        """
+        commit = self.baseline["preserved_commit"]
+        self.assertTrue(commit, "the baseline records no preserved commit")
 
+        resolved = _run_git(REPO_ROOT, "rev-parse", "--verify", f"{commit}^{{commit}}")
         self.assertEqual(
-            result.returncode,
-            0,
-            f"preservation tag {tag!r} is not in this repository; publish it "
-            "with `git push --follow-tags`",
+            resolved.returncode, 0, f"preserved commit {commit} is not a commit object"
         )
-        self.assertEqual(result.stdout.strip(), self.baseline["preserved_commit"])
+        self.assertEqual(resolved.stdout.strip(), commit)
+
+        reachable = _run_git(REPO_ROOT, "merge-base", "--is-ancestor", commit, "HEAD")
+        self.assertEqual(
+            reachable.returncode,
+            0,
+            "the preserved commit is not an ancestor of HEAD, so a full clone of "
+            "this branch could not verify the freeze against it",
+        )
+
+        # The tag is a convenience alias for the same commit.  It is checked when
+        # present, but not required: requiring it would gate this on publication.
+        tag = self.baseline["preserved_tag"]
+        if tag:
+            # --verify so an absent tag is an error rather than a literal echoed
+            # back on stdout, which is what bare rev-parse does with an
+            # unresolvable revision.
+            tagged = _run_git(REPO_ROOT, "rev-parse", "--verify", f"{tag}^{{commit}}")
+            if tagged.returncode == 0:
+                self.assertEqual(
+                    tagged.stdout.strip(),
+                    commit,
+                    f"tag {tag!r} points somewhere other than the preserved commit",
+                )
 
     def test_frozen_surface_matches_the_preserved_commit(self) -> None:
         commit = self.baseline["preserved_commit"]

@@ -18,9 +18,15 @@ research repository has been created.
 | Extracted tip | `c312c54cb036a9a5639735f983e5ac1f09c0f8df` |
 | Planned remote | `Aveouter/Relational_Representation_Research` — not created |
 
+The **commit** is the load-bearing record, not the tag. The commit is an ancestor
+of this branch and is therefore present in any full clone, so
+`reproduction/evidence/repository_boundary_baseline.json` verifies the freeze
+against it directly; the tag is a convenience alias that is checked only when it
+happens to be present. Publishing the tag is optional and does not gate anything.
+
 > **Warning:** the extracted copy is gitignored, so `git clean -xdf` (or `-Xdf`)
 > will delete it, and it is not recoverable from any remote. The durable records
-> are the preservation tag in this repository's history and the files below; the
+> are the preserved commit in this repository's history and the files below; the
 > extraction can be rebuilt from them with the procedure in
 > `relational_emergence_manifest.json`.
 
