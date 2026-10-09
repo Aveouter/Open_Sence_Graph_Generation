@@ -48,8 +48,6 @@ result belongs in the JSON, where it can be cited.
 from __future__ import annotations
 
 import argparse
-import collections
-import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -62,7 +60,6 @@ if str(_PROJECT_ROOT) not in sys.path:
 from tools.ontology_probe.common import (  # noqa: E402
     DEFAULT_DATA_ROOT,
     DEFAULT_OUTPUT_ROOT,
-    NUM_VG_OBJECT_SLOTS,
     sha256_file,
     status_block,
     write_json,

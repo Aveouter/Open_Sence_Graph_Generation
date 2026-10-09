@@ -46,7 +46,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
@@ -303,8 +303,14 @@ def verify_alignment(
             "aligned": bool(rows_ok and labels_ok and len(labels) == len(expected_rows)),
         }
         if not rows_ok:
+            # strict=False on purpose: a length mismatch is one of the cases
+            # this is here to detect, so zip must not raise on it first.
             entry["first_row_mismatch_index"] = next(
-                (i for i, (a, b) in enumerate(zip(rows, expected_rows)) if a != b),
+                (
+                    i
+                    for i, (a, b) in enumerate(zip(rows, expected_rows, strict=False))
+                    if a != b
+                ),
                 None,
             )
         report[cell] = entry
@@ -363,12 +369,15 @@ def _rescue_block(
         "confidence_convention": "strict '>' on B2 max prob, matching rescue_rate.py",
     }
     block["vrr_ci"] = cluster_bootstrap_ratio_ci(
-        [1.0 if (w and c) else 0.0 for w, c in zip(base_wrong, vis_correct)],
+        [1.0 if (w and c) else 0.0 for w, c in zip(base_wrong, vis_correct, strict=True)],
         [1.0 if w else 0.0 for w in base_wrong],
         sub_images,
     )
     block["harm_ci"] = cluster_bootstrap_ratio_ci(
-        [1.0 if (b and not c) else 0.0 for b, c in zip(base_correct, vis_correct)],
+        [
+            1.0 if (b and not c) else 0.0
+            for b, c in zip(base_correct, vis_correct, strict=True)
+        ],
         [1.0 if b else 0.0 for b in base_correct],
         sub_images,
     )
@@ -634,7 +643,16 @@ def run_rescore(
         # Selection-bias diagnostic: if the two cohorts differ in predicate mix
         # or in per-predicate difficulty, the level gap is not attributable to
         # contamination and the paired delta is the only defensible comparison.
-        def shares(idx: Sequence[int]) -> dict[str, float]:
+        #
+        # labels/names are bound as defaults rather than closed over: this sits
+        # inside the per-level loop, and a late-bound reference would silently
+        # read the last level's arrays if the call ever moved out of the
+        # iteration (ruff B023).
+        def shares(
+            idx: Sequence[int],
+            labels: Sequence[int] = labels,
+            names: Sequence[str] = names,
+        ) -> dict[str, float]:
             counts: dict[int, int] = {}
             for j in idx:
                 counts[labels[j]] = counts.get(labels[j], 0) + 1
