@@ -73,6 +73,18 @@ class RegistryCompletenessTest(unittest.TestCase):
                     f"{spec.key} names a missing module: {spec.method_module}",
                 )
 
+    def test_cli_and_config_names_resolve_to_the_same_spec(self) -> None:
+        from src.method_registry import BY_CLI_NAME, BY_KEY, METHODS, key_for_config_stem
+
+        self.assertEqual(len(BY_CLI_NAME), len(METHODS))
+        self.assertEqual(len(BY_KEY), len(METHODS))
+        for spec in METHODS:
+            with self.subTest(method=spec.key):
+                self.assertIs(BY_CLI_NAME[spec.cli_name], spec)
+                self.assertIs(BY_KEY[spec.key], spec)
+                for stem in spec.config_stems:
+                    self.assertEqual(key_for_config_stem(stem), spec.key)
+
     def test_every_method_module_is_registered(self) -> None:
         from src.method_registry import METHODS
 

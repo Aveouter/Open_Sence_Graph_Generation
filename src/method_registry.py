@@ -102,6 +102,7 @@ METHODS: tuple[MethodSpec, ...] = (
 )
 
 BY_KEY: dict[str, MethodSpec] = {spec.key: spec for spec in METHODS}
+BY_CLI_NAME: dict[str, MethodSpec] = {spec.cli_name: spec for spec in METHODS}
 
 
 def resolve(spec: MethodSpec):
