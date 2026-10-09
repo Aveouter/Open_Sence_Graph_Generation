@@ -51,6 +51,22 @@ OpenSGG provides a unified training and evaluation framework for Scene Graph Gen
 
 ---
 
+## Planned Reproductions
+
+| Work | Publication | Official code | Scope | OpenSGG status |
+|---|---|---|---|---|
+| [RelateAnything: Real-Time Open-Vocabulary Relation Prediction From Any Inputs](https://arxiv.org/abs/2609.12552) | arXiv 2026 | [Maelic/RelateAnything](https://github.com/Maelic/RelateAnything) | Predicts relations from images and supplied object regions with an inference-time predicate vocabulary | Code port and inference parity verified; full reproduction `not_reproduction_ready`; [issue #124](https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/124) |
+
+RelateAnything is registered for checkpoint-backed supplied-region prediction
+and gated A1/A3 evaluation. Its complete relation model is ported from the Apache
+source parent recorded in [ADR 0013](reproduction/adr/0013-relateanything-apache-source-boundary.md).
+Use the [isolated runtime and CLI instructions](reproduction/USAGE.md#relateanything-ported-runtime).
+Official API comparison has passed with released weights; full benchmark
+reproduction remains `not_reproduction_ready`. Its separate region metrics
+must be audited before comparison with SGDet / SGCls / PredCls results.
+
+---
+
 ## Installation
 
 ```bash

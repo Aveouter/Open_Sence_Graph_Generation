@@ -199,3 +199,143 @@ metric result.
 
 The audit commands report blockers. A blocker is not a failure to hide; it is
 the evidence needed to keep the reproduction claim honest.
+
+## RelateAnything input preflight (issue #124)
+
+This supported input checker audits external official source, a release snapshot,
+and the VG150 test pack. It imports neither upstream code nor PyTorch, loads no
+weights, downloads nothing, and runs no metrics. Keep its JSON output, external
+load/split reports, downloaded assets and official checkout outside this repository.
+
+```bash
+python tools/reproduction/check_relateanything_official_inputs.py \
+  --official-root <external-official-checkout> \
+  --snapshot <external-model-snapshot> \
+  --data-root <external-packed-vg150> \
+  --protocol A1 \
+  --evidence <external-input-evidence.json> \
+  --output <external-output-dir>/relateanything-preflight.json
+```
+
+Omit `--evidence` for initial inventory: absent evidence is a blocker. Exit `2`
+means blocked; exit `0` and `can_evaluate=true` mean the **input gate** passes
+against the supplied external attestations. The checker does not independently
+rerun the strict loader or dataset audit, authenticate the report's author, or
+prove revision-to-file provenance from the Hub. `reproduction_ready` stays false:
+method/config/inference/evaluator parity, paper-table identity, environment and
+license decisions remain separate gates before an official baseline run.
+
+The source must be a clean Git checkout at issue #124's pinned commit
+`06766fdf56752ca535fc9b971fca99ce563676d0`. `--official-commit` permits an explicitly
+recorded revision change; record its compatibility decision in an ADR. The checker
+always resolves `text_student.pt` beside `model.pth`, and emits an argv list in
+`reference_command` with `--split test --graph_constraint --limit 0`. This list is
+a proposed command, not an executed or fully validated reference invocation.
+Other upstream defaults must still be recorded in the evaluation protocol.
+
+The evidence JSON has these fields. Populate them from real official load and
+full-input-audit logs, never from a smoke run or just the inventory:
+
+- `official_commit`: full source SHA, matching the clean checkout.
+- `snapshot_revision`, `data_revision`: full 40-character Hub revisions.
+- `snapshot_sha256`: SHA256 mapping for `model.pth`, `text_student.pt`,
+  `tokenizer.json`, `tokenizer_config.json`.
+- `strict_load`: `strict=true`; `missing_keys`, `unexpected_keys`,
+  `shape_mismatches`, `remapped_keys` all empty arrays; `model_sha256` and
+  `text_student_sha256` matching current files; `source_sha256` mapping for
+  `benchmark/eval_zeroshot.py`, `relsgg/checkpoint.py`, `relsgg/eval/evaluator.py`,
+  `relsgg/data/dataset.py`, `pyproject.toml`, `LICENSE`, `NOTICE`.
+- `full_split`: `dataset="vg150"`, `split="test"`; `expected_images`,
+  `loaded_images`, `valid_input_images` all exactly **26,404** for this official
+  pack; `failed_images=0`, `limit=0`; `pack_sha256` mapping for `test/meta.json`,
+  `file_names.json`, `img_meta.npy`, `boxes.npy`, `box_cats.npy`, `rels.npy`, with
+  keys relative to `test/` (including `meta.json`). The external input audit must
+  actually decode every image and inspect relations under the official caps;
+  these are pre-inference counts, not scored denominators. Scored counts and
+  trimming must be reconciled after evaluation. The expected count comes from
+  the [pinned official SPEC](https://github.com/Maelic/RelateAnything/blob/06766fdf56752ca535fc9b971fca99ce563676d0/benchmark/SPEC.md).
+
+Current hashes are reported in `artifact_sha256`; their presence does not prove a
+strict load, full split, provenance, or reproduction. Local input hash changes
+invalidate the corresponding supplied load/split attestation. Raw-image content
+is not hashed by this checker, so a pack audit must be rerun if its image assets
+change even when the pack arrays are unchanged.
+
+For A3, add `--protocol A3 --tau-calibration <external-matcher-tau.json>`.
+Deployment `calibration.json` is **not** the synonym-matcher calibration. The
+matcher JSON must contain `pred_embeds` identifying this snapshot's
+`predicate_embeddings.npz`, and a finite cosine threshold in `chosen.tau`.
+Relative `pred_embeds` paths resolve beside the calibration file, never against
+the caller's working directory; prefer an absolute path in upstream-compatible
+calibration records. The pinned runner expects NPZ fields `predicates` and
+`embeddings`; the release fields `names`/`W` are rejected, never silently converted.
+Archive member inspection checks layout only, not array values or dimensions.
+An A3 `a3` evidence object must additionally bind `embedding_sha256`,
+`calibration_sha256`, and absolute `checkpoint_pred_embeds`; it must attest
+`vocabulary_order_verified=true` and `runner_layout_verified=true` against the
+same source/model/student identified above. This does not repair the pinned
+runner's released-layout incompatibility or establish matcher/inverse-mask parity.
+
+Behavior tests use temporary synthetic files and attestations solely to exercise
+the preflight decision, not as model evaluation or baseline evidence:
+
+```bash
+python -m unittest discover -s tests/reproduction -p test_relateanything_inputs.py
+```
+
+## RelateAnything ported runtime
+
+The complete relation network, text student, scoring, region encoding, loss and
+evaluator live under `src/modules/relateanything`. This Apache-2.0 component
+retains its license and notices, with source identity in `UPSTREAM.json`.
+Object detection and upstream research/deployment runners are separate.
+
+Create an isolated Python 3.13 environment and install
+`requirements-relateanything.txt`. Keep the existing OpenSGG environment intact.
+Select the appropriate CUDA PyTorch wheels separately for GPU execution; the
+recorded local verification used CPU. Run all commands below from the repo root.
+
+```bash
+conda create -p <external-runtime> python=3.13 pip
+conda run -p <external-runtime> python -m pip install -r requirements-relateanything.txt
+conda run -p <external-runtime> python train.py --method RelateAnything --test \
+  --ckpt_path <external-snapshot>/model.pth --device cpu \
+  --image <image.png> --regions <regions.json> \
+  --predicate_vocabulary <predicates.json> --relation_output <external-output>/prediction.json
+```
+
+`regions.json` is a list of original-image pixel xyxy boxes; `predicates.json`
+is a nonempty unique string list. Object labels are not inputs. The snapshot
+must contain the released text student and tokenizer sidecars. Alternatively,
+`--full_vocabulary` selects the released predicate bank. Optional `.npy` binary
+masks, confidence JSON and decomposition use `--relation_masks`,
+`--relation_box_scores` and `--relation_decompose`. Python callers use
+`src.relateanything.RelateAnythingModel.from_checkpoint(...).predict(...)`.
+
+Evaluation without `--image` requires the full official pack and actual external
+load/split evidence. Use `--relation_official_root`, `--relation_evidence`,
+`--data_root`, and `--relation_protocol A1|A3`. The CLI invokes the checker with
+`--consumer opensgg --official-commit 4a07de9d06f2e3f14309753b7907cf1d3a263b08`.
+This Apache parent has no `NOTICE` file; omit that key from its source evidence.
+The evidence must additionally bind `consumer_sha256` to the current three
+`src/relateanything*.py` facade/CLI/evaluation files reported by the checker.
+For this consumer, A3 accepts the release `names`/`W` NPZ layout; the default
+official-runner consumer retains the legacy schema requirement described above.
+A3 still requires `--relation_tau_calibration` and bound matcher evidence.
+
+Metrics are explicitly named `regions_A1_*` or `regions_A3_*`. Subset evaluation,
+non-`model.pth` checkpoints and silent denominator losses are rejected. Outputs
+retain `reproduced=false`; passing an input gate does not establish paper parity.
+Full split data and matcher calibration remain prerequisites for baseline runs.
+
+Code parity tests can include external release assets:
+
+```bash
+# Set these environment variables using your shell's syntax first:
+# RELATEANYTHING_TEST_CHECKPOINT=<external-snapshot>/model.pth
+# RELATEANYTHING_REFERENCE_ROOT=<external-Apache-parent-checkout>
+conda run -p <external-runtime> python -m pytest tests/reproduction/test_relateanything_port.py
+```
+
+Synthetic fixtures and small inference comparisons in these tests verify code
+behavior; they are not baseline evaluation evidence or reproduction results.
