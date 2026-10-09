@@ -1,0 +1,617 @@
+{
+  "status": "diagnostic_experiment",
+  "not_a_reproduction": true,
+  "scope": "vg150_predicate_ontology_cross_pair_generalization",
+  "stage": "issue110_input_manifest",
+  "n_files": 152,
+  "files": {
+    "data/VisualGenome/rel.json": {
+      "sha256": "ab5d435745d5683b4f672311a2ec8618d9126909d291b663deaf406c6497d32f",
+      "bytes": 7292739
+    },
+    "data/VisualGenome/test.json": {
+      "sha256": "e786550a74a2336c07139c23e6d952cdeac14bf3d04feddf2b210cdba1853238",
+      "bytes": 45790974
+    },
+    "data/VisualGenome/train.json": {
+      "sha256": "a40fdfdc3894d16349f2e9955e2cbaa199d511c36e25ba46dd6ad8a60043b440",
+      "bytes": 94329286
+    },
+    "data/VisualGenome/val.json": {
+      "sha256": "943487fad15ab61de9a1ac57c3727cd24b7c2443b1f8bd8c3a1fe96d8b56a3dd",
+      "bytes": 8671758
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B1_add__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B1_add__s0/metrics.json": {
+      "sha256": "acb9853bc4b3102a2898949cc782e15edb54829b8a3b528e587f4e86ce0d6566",
+      "bytes": 10716
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B1_add__s0/model.pt": {
+      "sha256": "eac21451ecf28e788713dc166865721e4fd52ed99311d81cc78bc7d19b47cca2",
+      "bytes": 1348158
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B1_add__s0/predictions.pt": {
+      "sha256": "afe639d8be259cf01dfb3182120f5bc0a50dfce659b0792b161128c124dddbb4",
+      "bytes": 5425648
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B2__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B2__s0/metrics.json": {
+      "sha256": "53788c86eb72931578121d0debb51065119e88756ac56194722400f92b00c731",
+      "bytes": 10740
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B2__s0/model.pt": {
+      "sha256": "d1b89c0053ff51de47d28ebc5e4983d85480baa4a7c9bbf9a45a693959568a9b",
+      "bytes": 1365172
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B2__s0/predictions.pt": {
+      "sha256": "cc7d2e7378811946a4ac19cef64cd8f020dbe8a9a566f2c705bfa81d63535f1d",
+      "bytes": 5425648
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B3__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B3__s0/metrics.json": {
+      "sha256": "b991fc08597c619e1a8ec4261caece8d00690458a0ca055fd3d27a8d42b0bf73",
+      "bytes": 10604
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B3__s0/model.pt": {
+      "sha256": "e24d1619374902c62f8e80b2190efb5399e6c375da9c399fb6c5aa4e158c65ef",
+      "bytes": 5420606
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B3__s0/predictions.pt": {
+      "sha256": "b86992ddb681fceb0d86edd434b803937615aeea688fc706c839d3344325b931",
+      "bytes": 5425648
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B4__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B4__s0/metrics.json": {
+      "sha256": "4c0d72cfcadfddad6c82c9a15722eecad7a4626e1c40200e747e21192bbd61fd",
+      "bytes": 10760
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B4__s0/model.pt": {
+      "sha256": "9133a42fde1eb4f8920c3804acfb301e9fecbd52483ffde129445a20d3473fe0",
+      "bytes": 6121878
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__iid__B4__s0/predictions.pt": {
+      "sha256": "f16c89f420ac156792b8f7a215d478ee9c50d21411466f938e0e105420ef1259",
+      "bytes": 5425648
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B1_add__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B1_add__s0/metrics.json": {
+      "sha256": "f5ff27b67c233b8f9bdba4e56b72bea1c6e00c622cdcff6480e9fca4d1c9e0c8",
+      "bytes": 10948
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B1_add__s0/model.pt": {
+      "sha256": "2a32b58ec9c7d45c0649e938a0c35b097c0986aa52e53ea37b226ea28bc7e0fa",
+      "bytes": 1555006
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B1_add__s0/predictions.pt": {
+      "sha256": "d78facf1b4d7a484ea4b4c9530b9a383100b0460ccaf91063740a465e9eb5216",
+      "bytes": 12773936
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B2__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B2__s0/metrics.json": {
+      "sha256": "662170ddb27f231316fbc45838ec282af63eb187a82a6e2449d63439b34e8813",
+      "bytes": 10967
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B2__s0/model.pt": {
+      "sha256": "a0d6e822e47aa399d0547c129d2cec4092c3ac55f1fbeaa47a40aef18aebaa45",
+      "bytes": 1572020
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B2__s0/predictions.pt": {
+      "sha256": "66c2730f4906803e5cc5224ef7ddee8f1b5a0c7b86bf18f22cd2f4dbc0731e13",
+      "bytes": 12773936
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B3__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B3__s0/metrics.json": {
+      "sha256": "8909018cf989afc762fd4498700f1ec308eb020e575e34e25cf3fb9733776f36",
+      "bytes": 10905
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B3__s0/model.pt": {
+      "sha256": "6caec565887a60486e9a95d25ba4b0777c4599b663d575c6d1ee21c4c97c85b0",
+      "bytes": 5627454
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B3__s0/predictions.pt": {
+      "sha256": "10d3f1fa38aa1cfb4466c6cdf813a8a21102d1031928d665255c26cdbd0c77b4",
+      "bytes": 12773936
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B4__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B4__s0/metrics.json": {
+      "sha256": "1118c89028c70c66b9211dec8349561602437f9b98d47be4704bed6fbb85c6bd",
+      "bytes": 11020
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B4__s0/model.pt": {
+      "sha256": "694c86bea6f2619b9dffa3322778ab3d0b53e4547144ffa0d254d4f65708e638",
+      "bytes": 6328726
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_known__B4__s0/predictions.pt": {
+      "sha256": "54bac86dc3c1b0f120e6a1e9770ceccf4087db2b348eac02c89973df8be8ee08",
+      "bytes": 12773936
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B1_add__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B1_add__s0/metrics.json": {
+      "sha256": "787257d73472ceeb3c66f2c212534380af2d6340e96ce23a75f316d26da7fb35",
+      "bytes": 10835
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B1_add__s0/model.pt": {
+      "sha256": "4f7a3ca76f90b01553b9f95cac38be318b24b6fc52fdfede40aa0c20242612e3",
+      "bytes": 1354110
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B1_add__s0/predictions.pt": {
+      "sha256": "1399eaed00bb250d6b4bcb54570aae571023df8204fd0d63cab82a3cdfdc5b73",
+      "bytes": 3828464
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B2__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B2__s0/metrics.json": {
+      "sha256": "f2a3113ee1c14a59e13fcb8f2606315dae7e758810d246a550a165105dcde9fc",
+      "bytes": 10845
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B2__s0/model.pt": {
+      "sha256": "80d5d23ef62cb6e3ae8a71438cdbc52086d6deee9ff35be73c2025f32e7f456e",
+      "bytes": 1371188
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B2__s0/predictions.pt": {
+      "sha256": "c7c58d189082eecbbd291b5cfae7f92730ae73c6007caf210045bc5155f4fe2d",
+      "bytes": 3828464
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B3__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B3__s0/metrics.json": {
+      "sha256": "2baac9e705e70b61c7120a11f215fa3697eba4423bcb6b000ae7e40043891b58",
+      "bytes": 10744
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B3__s0/model.pt": {
+      "sha256": "50c8574e632780855a4e8e4aa14103e5a7ef0e655efe98a1bb9d79239a417888",
+      "bytes": 5426622
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B3__s0/predictions.pt": {
+      "sha256": "1a9af402b421616794a13d091a151181ece5629c501e930987278ffca8b0a387",
+      "bytes": 3828464
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B4__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B4__s0/metrics.json": {
+      "sha256": "f870e402805d1daae1ee14522cb531ce845515c7042e1030b78247a5efb15634",
+      "bytes": 10868
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B4__s0/model.pt": {
+      "sha256": "9e67bc5902a9dee7ac6cf56d00f3bdedf9eb81997bc2e8c4e6bfad7de1295fec",
+      "bytes": 6127894
+    },
+    "outputs/analysis/ontology_probe/probes/L1_noise__pair_ood__B4__s0/predictions.pt": {
+      "sha256": "5e028561cd6c6ec26efb2953343e838726b5441b5a6e4e490a0b5b3e61b08921",
+      "bytes": 3828464
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B1_add__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B1_add__s0/metrics.json": {
+      "sha256": "1b486c741c8c68ec821f7fdec2e90a05fb3214b4d244194d964d8d29de5460a5",
+      "bytes": 9325
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B1_add__s0/model.pt": {
+      "sha256": "c443903e89a891df87cc291a3996fc42565fe82ffcdb0a59b06251d811a8431c",
+      "bytes": 1340990
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B1_add__s0/predictions.pt": {
+      "sha256": "afd99df8936402722a95c86682996edaea6c888ecf7d494ee83bd7ddd0514ecc",
+      "bytes": 4677424
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B2__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B2__s0/metrics.json": {
+      "sha256": "d36f96db25cdc49784ed632f1f5c0d2045a9e38f63b3d99e826588157b3d0dec",
+      "bytes": 9333
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B2__s0/model.pt": {
+      "sha256": "c00942d23e2a8050d73979b7a6ea2bafaf0de3bffd31b1e73c15f0186bc099a7",
+      "bytes": 1358004
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B2__s0/predictions.pt": {
+      "sha256": "1f1e133707991eac85845617ac8f029f38b256d0e95ef13167bd80ea6273b4b9",
+      "bytes": 4677424
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B3__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B3__s0/metrics.json": {
+      "sha256": "388021cda8a89a4b7114ec1de3e915d54a2067d56fca32346fcd3260eaadd0b8",
+      "bytes": 9229
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B3__s0/model.pt": {
+      "sha256": "24a2aa8a46d72ee17ca998638630d713625c50bb3566b2e3f718101cd21ac2b0",
+      "bytes": 5413438
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B3__s0/predictions.pt": {
+      "sha256": "e54189f6749749e2dd093ecca387eae6b4667d07d83cd7569fe437cc165db36b",
+      "bytes": 4677424
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B4__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B4__s0/metrics.json": {
+      "sha256": "d009e7160b2c1557611cbed7471eb6b9bb257dd5cb9d65baf5ba41cdb46454ac",
+      "bytes": 9326
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B4__s0/model.pt": {
+      "sha256": "ff88609b4f7952520f778178cfb824bfed808d2f52bb71fd34c857ad00e045c4",
+      "bytes": 6114710
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__iid__B4__s0/predictions.pt": {
+      "sha256": "c8db6fa57f09ff4967fab222f5b2b217141ef528f7ce1a0a3f8a9be3edc271fa",
+      "bytes": 4677424
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B1_add__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B1_add__s0/metrics.json": {
+      "sha256": "df99df83ace6d14352111c3783578c3eabac47243c4745d7df7e942944e84442",
+      "bytes": 9588
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B1_add__s0/model.pt": {
+      "sha256": "fb52cc51c5a4fee380e161cc0f37ab13a698159edcdb6a55c50a5c51f1229ee4",
+      "bytes": 1547838
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B1_add__s0/predictions.pt": {
+      "sha256": "efdac6cdf93fe990d1dbf612fd7ddd7b3af26af0acad3ccd92f5d4dd10a47a9a",
+      "bytes": 11025904
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B2__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B2__s0/metrics.json": {
+      "sha256": "03198058dfe5861edfbcbd69621cf799f28dd4a0ec401367a43e55a57a623a25",
+      "bytes": 9608
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B2__s0/model.pt": {
+      "sha256": "840fe8e4946f938aad3450e06ec81fe37561eb5b803797e62fe7cd8a0421cebd",
+      "bytes": 1564916
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B2__s0/predictions.pt": {
+      "sha256": "2e41aac6e555d876b44611ec06500bf16cf4478aa082450183b0c387e109b01e",
+      "bytes": 11025904
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B3__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B3__s0/metrics.json": {
+      "sha256": "43886eb86859f45c1f950c63f566188b2360c8915bc0b1fc14235d9676b0e505",
+      "bytes": 9517
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B3__s0/model.pt": {
+      "sha256": "dde23be2edaae22b1a231d098b4ce5328daa132b4d713926f1749524dc033d32",
+      "bytes": 5620286
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B3__s0/predictions.pt": {
+      "sha256": "461e59994760dd54cde43d4ace89e091e809183305eb0e6c4c331de1619b7fdc",
+      "bytes": 11025904
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B4__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B4__s0/metrics.json": {
+      "sha256": "b4eae6aa634fe3f8225b8b184f0bd8715ceb852ea8eb621fed6373d3a6a99102",
+      "bytes": 9575
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B4__s0/model.pt": {
+      "sha256": "51f20274fa20eed6a3eb54697ddca9a1b5e02961cfd324c2e0be250c2fbfbca4",
+      "bytes": 6321622
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_known__B4__s0/predictions.pt": {
+      "sha256": "74d0a910389a835b0474160bab833d13dd08c84d831f42af8950b8f0edf5485c",
+      "bytes": 11025904
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B1_add__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B1_add__s0/metrics.json": {
+      "sha256": "d950f47614112963fc6306ef6edceaee5363ae92c0b3f8a7d3f0a06e8e801d27",
+      "bytes": 9477
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B1_add__s0/model.pt": {
+      "sha256": "4047d428542f23c0dbe295563bc046e95b1e52490af23bbaa0eab151c49427e1",
+      "bytes": 1346942
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B1_add__s0/predictions.pt": {
+      "sha256": "9475a56177ccb46066a1c1a77d360512c00bc0b3b0d083d7c6d3049a92528981",
+      "bytes": 3304688
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B2__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B2__s0/metrics.json": {
+      "sha256": "4b8196104a3f27e5dde537f407d18e34ad8a565483a215d5287c5a6f5c07ca76",
+      "bytes": 9500
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B2__s0/model.pt": {
+      "sha256": "7235ad935c4335b8a430adea79a32aa4a73ca58c87ee997d4df4db0a2a7142ef",
+      "bytes": 1364020
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B2__s0/predictions.pt": {
+      "sha256": "0f49bc31533c33a783b98b44d8460b6450b3aa6f55ad0d25f52e2ed8cdefe62e",
+      "bytes": 3304688
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B3__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B3__s0/metrics.json": {
+      "sha256": "59635928e690c47cb6b5423429d784871b87eef12113df96aa7e6875beacc7d4",
+      "bytes": 9422
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B3__s0/model.pt": {
+      "sha256": "5480ed3e45ff1084d464ce1dcfa697e2cd4007e3221387eda8b2ee4348fab9a7",
+      "bytes": 5419454
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B3__s0/predictions.pt": {
+      "sha256": "469d126efff897ca21c42ae072d8cb17707b888032f7bc24e36775d4ab99e88e",
+      "bytes": 3304688
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B4__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B4__s0/metrics.json": {
+      "sha256": "d000abf14eed5d4366924cd1e0100be3f9bf21fe981757640974037f1b9ed80c",
+      "bytes": 9473
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B4__s0/model.pt": {
+      "sha256": "9fbad63d0ac92b5d87bcaab1bdb185f4f3723a2c24e732f4ff63b423486f7a55",
+      "bytes": 6120726
+    },
+    "outputs/analysis/ontology_probe/probes/L2_entail__pair_ood__B4__s0/predictions.pt": {
+      "sha256": "2f4fc625d838d53d2790f88eca06f19270fa737f8581f831fd2c328ec07f0d8a",
+      "bytes": 3304688
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B1_add__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B1_add__s0/metrics.json": {
+      "sha256": "a4616557c75af327f2313b494f2373c0efe8715532a8fdab60cfb62681b152ac",
+      "bytes": 11071
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B1_add__s0/model.pt": {
+      "sha256": "fac29f6ed340c25f61b24ceffe7b611f61ff5163838c16ab6457ebf2c96540f4",
+      "bytes": 1350270
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B1_add__s0/predictions.pt": {
+      "sha256": "0465ac49049ed3b10454c435c7ed85073aefae35a965e55d11a3bcdd71ab0dae",
+      "bytes": 5639408
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B2__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B2__s0/metrics.json": {
+      "sha256": "bef7789fdd9fd969682b49407b3bffc339e31402623a9558041161cd9be89460",
+      "bytes": 11095
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B2__s0/model.pt": {
+      "sha256": "24fd81373ec82730d2646d5b7c633e714eae3be88a1712f4de221f96e3e89a8f",
+      "bytes": 1367284
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B2__s0/predictions.pt": {
+      "sha256": "19f9b41d18d6940add8987d08042e809743e8a329a38d6ce8d2f5cc1430f708c",
+      "bytes": 5639408
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B3__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B3__s0/metrics.json": {
+      "sha256": "e8f044af510cae0309c62a1b775179f3704502e4c33be6c4d0f5b086c6e267d9",
+      "bytes": 10961
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B3__s0/model.pt": {
+      "sha256": "fbe2bc8a105c23ebe1134f7ddb288ddebbd9a777e947c657e6efb12330c77365",
+      "bytes": 5422718
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B3__s0/predictions.pt": {
+      "sha256": "c3fdd088d0abd8d58c89434e0d801047d4f2af875a94fde4bb5e5c3256b62b0a",
+      "bytes": 5639408
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B4__s0/inputs.pt": {
+      "sha256": "4aa71b85c04fc1036bd6408ef8e7939c4e430abb7cf2d8f764cfbd25165fbcc3",
+      "bytes": 1284301
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B4__s0/metrics.json": {
+      "sha256": "beb644bcf43342be0ea22d43d69b047f20f1652e34a3b79d2fcd64c4292b7146",
+      "bytes": 11100
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B4__s0/model.pt": {
+      "sha256": "b80cef54fc66396caf26996a88e9af0d73ca15799e38614fcb11cdf063c18680",
+      "bytes": 6123990
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__iid__B4__s0/predictions.pt": {
+      "sha256": "3f67cb940858beba976e4726b553bc751cbd37713c9d05be00d3c9f5ffb7ae4c",
+      "bytes": 5639408
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B1_add__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B1_add__s0/metrics.json": {
+      "sha256": "949de28a592122ecd7fe8077213b3e7695c3e67db29b6a8195c569cfd1fcc5ac",
+      "bytes": 11310
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B1_add__s0/model.pt": {
+      "sha256": "5ce516ea89bd0d7c53c751ac0eaebebddd609b8611eb3793ae748c319c43b8b5",
+      "bytes": 1557118
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B1_add__s0/predictions.pt": {
+      "sha256": "ae42654170baf5f3968cc7889509de7035b748b0145c9983bdc4f9d9a6f84057",
+      "bytes": 13273328
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B2__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B2__s0/metrics.json": {
+      "sha256": "5d4fe8a464cbc502fd7f96c0a4c9f62a31a5ad849ee462b1a6fb9ae73b2bce80",
+      "bytes": 11311
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B2__s0/model.pt": {
+      "sha256": "51334ab29e5f1f66d63297618ba09dc6e5963cca10ee1a77e8185acca430c674",
+      "bytes": 1574132
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B2__s0/predictions.pt": {
+      "sha256": "f7f691122d16f58c0bd9dac5f394e6cdc08e6438f02590a4a3d32a78aa001d4f",
+      "bytes": 13273328
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B3__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B3__s0/metrics.json": {
+      "sha256": "cd87551beba7959539925dbd5e3de06b0ab72cf919a800fbf4b23e0cdc1770bb",
+      "bytes": 11236
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B3__s0/model.pt": {
+      "sha256": "f5ee9a12d3340edc814f044ca637887ef1a767dee194740c2f399474891c70b8",
+      "bytes": 5629566
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B3__s0/predictions.pt": {
+      "sha256": "af5d3a7c088642951c0e5c985dd110a89b7d86864c79c41d217efc87d9d18454",
+      "bytes": 13273328
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B4__s0/inputs.pt": {
+      "sha256": "a96123dfe5666778770fd21fd19de1f29575b9b9db104a464ef98c1fa8ebd2cb",
+      "bytes": 2998157
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B4__s0/metrics.json": {
+      "sha256": "982eaca9a0f5534941e27b95c730a4425d14d6aef925f72d47973e818f18a8bc",
+      "bytes": 11369
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B4__s0/model.pt": {
+      "sha256": "01906f2c65b21f42a1775d3198d0cadf0baff6d6cdd9b340487a5f0abf3e4266",
+      "bytes": 6330838
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_known__B4__s0/predictions.pt": {
+      "sha256": "0223dcf434faca2f95cc41f501d8f8aef274a9948991edd82f77b80fcf5f4f77",
+      "bytes": 13273328
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B1_add__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B1_add__s0/metrics.json": {
+      "sha256": "32ba525360f42f0721aafac69aafc51835307a2c2b0c582a2c2556c29110b5a8",
+      "bytes": 11194
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B1_add__s0/model.pt": {
+      "sha256": "a5101b8bbb8040e16753aa192fab57245654969db5153c5cc85b1329dda49a41",
+      "bytes": 1356222
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B1_add__s0/predictions.pt": {
+      "sha256": "87ab4a9b2de93ae753ca6897f931423370b46cf545aada1aa686fbc2faeddf6e",
+      "bytes": 3978096
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B2__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B2__s0/metrics.json": {
+      "sha256": "3416ead05cfcbcaa1ce93eb669d7512fb1fb7e64b048b2a8158872fbe0a1c40f",
+      "bytes": 11199
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B2__s0/model.pt": {
+      "sha256": "c89332643617ccdb278c9089f2833e1d48b8126ea54780964d6c9c835d0f69fe",
+      "bytes": 1373300
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B2__s0/predictions.pt": {
+      "sha256": "bda2d3d4707f8b8626d434130aeddd645227bb3441f5fe3664bc3996c48524fd",
+      "bytes": 3978096
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B3__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B3__s0/metrics.json": {
+      "sha256": "ee75f6a15581c8d6acc32ac13342d903adcc907d1b5026e92b5a42ead1590726",
+      "bytes": 11158
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B3__s0/model.pt": {
+      "sha256": "8c4e7a47d2a64c455928f97d5449e408750762ed1e6706d20f1b0ee37bb70f6a",
+      "bytes": 5428670
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B3__s0/predictions.pt": {
+      "sha256": "e79af874de5553d42f5cfcddd4ea6ff5cae710f20ca3e2fd0c8853009ac00d6a",
+      "bytes": 3978096
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B4__s0/inputs.pt": {
+      "sha256": "d73bf232e204f3dd46acc5fc0080122b602a19508ba0ad985ae8f61853dfae6b",
+      "bytes": 899533
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B4__s0/metrics.json": {
+      "sha256": "597e938d83f96205d64d1ccbe535516071ac814dc65a07a313275ec3e9721d19",
+      "bytes": 11225
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B4__s0/model.pt": {
+      "sha256": "e7198c9e83330d7e6ce8cdaf264f83e69ddbbd74349826ee76a673c1358e085f",
+      "bytes": 6130006
+    },
+    "outputs/analysis/ontology_probe/probes/vg50__pair_ood__B4__s0/predictions.pt": {
+      "sha256": "2e21cc5b21cb694efc5529a4cd82b573a0e7851c33f28e52611dd4e36f24f686",
+      "bytes": 3978096
+    },
+    "outputs/analysis/ontology_probe/splits/split_audit.json": {
+      "sha256": "6537ac2962b9406ba400e066608898d9fcf496cf3dfeff178462e78b0c7ca0de",
+      "bytes": 6437
+    },
+    "outputs/analysis/ontology_probe/splits/split_pair_known.json": {
+      "sha256": "f27c77f8faddf3abc2c1fd90d4a6a460d60b612306ceff691069ce32a1c7c6f5",
+      "bytes": 3682386
+    },
+    "outputs/analysis/ontology_probe/splits/split_pair_ood.json": {
+      "sha256": "85951a413707e4ffb6a4d0eaae4b88d2df47159704e4a16307d491f327f66423",
+      "bytes": 3291548
+    },
+    "outputs/analysis/ontology_probe/splits/splits_index.json": {
+      "sha256": "5aecbd8f885c233035d589023be5930a2bb54e83bc770b584b13f7fc0b4e8bcb",
+      "bytes": 976
+    }
+  }
+}
