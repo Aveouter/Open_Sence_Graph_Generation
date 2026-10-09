@@ -132,6 +132,77 @@ class ShapeRuleTest(unittest.TestCase):
         )
 
 
+class ResearchRootRuleTest(unittest.TestCase):
+    """Every tools/ subtree must be declared, so a new one cannot arrive unseen.
+
+    R0 freezes the surface that is being extracted; it is silent about a research
+    tree that is not being extracted, which is how tools/ontology_probe stayed
+    invisible to this checker.
+    """
+
+    def test_undeclared_tools_subtree_is_a_finding(self) -> None:
+        finding = boundary.undeclared_research_root_finding("tools/whatever/run.py")
+        self.assertIsNotNone(finding)
+        self.assertIn("tools/whatever/", finding)
+
+    def test_declared_roots_and_loose_entry_points_are_clean(self) -> None:
+        """The rule must not fire on the trees it declares, nor outside tools/."""
+        for path in (
+            "tools/relational_emergence/simulator/world.py",
+            "tools/ontology_probe/common.py",
+            "tools/analysis/compute_collapse_metrics.py",
+            "tools/reproduction/check_repository_boundary.py",
+            "tools/checkpoints/download_sgb_motifs.py",
+            # CI entry points sit directly in tools/ and name no subtree
+            "tools/ci_validate.py",
+            "tools/ci_review.py",
+            "tools/make_sample_data.py",
+            # the supported runtime is governed by R1, not by this table
+            "src/core/metrics.py",
+            "utils/parser.py",
+            "CONTEXT.md",
+        ):
+            with self.subTest(path=path):
+                self.assertIsNone(boundary.undeclared_research_root_finding(path))
+
+    def test_declared_root_with_no_tracked_path_is_stale(self) -> None:
+        """A declaration that classifies nothing has stopped being true."""
+        blobs = {
+            "tools/reproduction/check_thing.py": "oid",
+            "tools/relational_emergence/v2/run.py": "oid",
+            "src/core/metrics.py": "oid",
+        }
+        declared = {
+            "tools/reproduction/": "supported-tooling",
+            "tools/relational_emergence/": "research-extracting",
+            # no tracked path under this one any more
+            "tools/analysis/": "research-in-main",
+        }
+
+        findings = boundary.stale_research_root_findings(blobs, declared)
+
+        self.assertTrue(any("tools/analysis/" in f for f in findings), findings)
+        self.assertFalse(any("tools/reproduction/" in f for f in findings), findings)
+        self.assertFalse(
+            any("tools/relational_emergence/" in f for f in findings), findings
+        )
+
+    def test_stale_declaration_is_enforced_only_on_this_repository(self) -> None:
+        """R6 is skipped on a fixture, so a wrongly-skipped real run stays visible."""
+        with tempfile.TemporaryDirectory() as directory:
+            other = Path(directory)
+            (other / "tools" / "reproduction").mkdir(parents=True)
+            (other / "tools" / "reproduction" / "check_repository_boundary.py").write_text("")
+            self.assertFalse(boundary.is_own_repository(other))
+        self.assertTrue(boundary.is_own_repository(REPO_ROOT))
+
+    def test_invalid_disposition_is_a_finding(self) -> None:
+        declared = {"tools/checkpoints/": "suported-tooling"}
+        findings = boundary.invalid_root_disposition_findings(declared)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("tools/checkpoints/", findings[0])
+
+
 class ImportRuleTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -149,7 +220,11 @@ class ImportRuleTest(unittest.TestCase):
             "import tools.relational_emergence\n",
             "from tools.relational_emergence.v2 import data\n",
             "import tools.relational_emergence.simulator.state as state\n",
+            "from tools import relational_emergence\n",
+            "from tools.ontology_probe import common\n",
+            "import tools.analysis.compute_collapse_metrics\n",
             "import importlib\nimportlib.import_module('tools.relational_emergence')\n",
+            "mod = __import__('tools.ontology_probe.common')\n",
             "mod = __import__('tools.relational_emergence.audits')\n",
         ):
             with self.subTest(source=source.strip()):
@@ -160,7 +235,7 @@ class ImportRuleTest(unittest.TestCase):
         for source in (
             "# tools.relational_emergence is discussed here\n",
             '"""See tools.relational_emergence for the research instrument."""\n',
-            "from tools.ontology_probe import common\n",
+            "from tools.checkpoints import download_sgb_motifs\n",
             "import tools\n",
         ):
             with self.subTest(source=source.strip()):
@@ -248,6 +323,39 @@ class RatchetFixtureTest(TempRepoTest):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("R3", result.stdout)
 
+    def test_supported_tool_importing_research_is_rejected(self) -> None:
+        """A declared supported-tooling root is held to R1, like the runtime is."""
+        self.write("tools/reproduction/check_thing.py", "x = 1\n")
+        self.write("tools/relational_emergence/simulator/state.py", "x = 1\n")
+        self.write("tools/ontology_probe/common.py", "x = 1\n")
+        self.commit()
+        self.freeze_current_tree()
+        self.write(
+            "tools/reproduction/check_thing.py",
+            "from tools.ontology_probe import common\n",
+        )
+        self.commit()
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("R1", result.stdout)
+
+    def test_undeclared_tools_subtree_is_rejected(self) -> None:
+        """A research tree that names no declared root cannot arrive unseen."""
+        self.write("tools/relational_emergence/simulator/state.py", "x = 1\n")
+        self.commit()
+        self.freeze_current_tree()
+        # Not a runner shape, so R3 stays silent; only R5 has anything to say.
+        self.write("tools/ontology_study/common.py", "x = 1\n")
+        self.commit()
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("R5", result.stdout)
+        self.assertNotIn("R3", result.stdout)
+
     def test_new_surface_path_is_rejected(self) -> None:
         self.write("tools/relational_emergence/v2/run.py", "x = 1\n")
         self.commit()
@@ -259,6 +367,17 @@ class RatchetFixtureTest(TempRepoTest):
 
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("R0 new research-surface path", result.stdout)
+
+    def test_stale_declaration_is_not_enforced_on_a_synthetic_repo(self) -> None:
+        """A fixture has its own layout; the roots table describes this repo."""
+        self.write("tools/relational_emergence/simulator/state.py", "x = 1\n")
+        self.commit()
+        self.freeze_current_tree()
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("R6", result.stdout)
 
     def test_modifying_a_frozen_file_is_rejected(self) -> None:
         target = self.write("tools/relational_emergence/v2/run.py", "x = 1\n")

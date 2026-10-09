@@ -22,8 +22,10 @@ The rules:
 
 ``R1`` (``core-imports-research``)
     A plain rule with no baseline: nothing in the supported runtime may import
-    the research package.  Its scope is a fixed tuple, never "all tracked .py",
-    so this checker, its test, and the baseline cannot trip it.
+    a declared research package.  Its scope is derived, never "all tracked .py": it is
+    the supported runtime plus every root ``_RESEARCH_ROOTS`` declares
+    ``supported-tooling``, so this checker, its test, and the baseline cannot
+    trip it.
 
 ``R2``/``R3``/``R4`` (secondary shape rules)
     These classify *shapes* rather than enumerating paths, so they outlive the
@@ -31,6 +33,14 @@ The rules:
     R0 has nothing left to say, and these are what still catch a generated
     research artifact (R2), an experiment runner (R3), or a retired decision
     record (R4) reappearing in main.
+
+``R5`` (``undeclared-tools-root``)
+    Every ``tools/`` subtree must name a declared root with a disposition.  R0
+    only knows the surface that is being *extracted*, so a research tree sitting
+    in main that nobody is extracting was invisible to it -- which is how
+    ``tools/ontology_probe`` (7,139 lines) went unclassified.  The disposition
+    determines which roots R1 protects: research roots are forbidden import
+    targets, while ``supported-tooling`` roots extend R1's scanning scope.
 
 Run ``--help`` for usage.  Findings are printed and the exit status is 1 when
 any rule fails.  This script never writes the baseline: a checker that rewrites
@@ -74,8 +84,6 @@ BASELINE_PROVENANCE_FIELDS = (
     "main_anchor_merge_mode",
 )
 
-RESEARCH_PACKAGE = "tools.relational_emergence"
-
 # R1 scope.  An explicit tuple on purpose: widening this to every tracked .py
 # would make the checker, its test, and its own baseline self-trip, since all
 # three necessarily contain the package name as a string literal.
@@ -97,6 +105,25 @@ _REPORTS_PREFIX = "outputs/reports/relational_emergence/"
 _RESEARCH_TEST = re.compile(r"^tests/analysis/test_relational_emergence.*\.py$")
 _RESEARCH_ADR = re.compile(r"^reproduction/adr/(?:000[5-9]|0010)-.*\.md$")
 _GLOSSARY = "CONTEXT.md"
+
+# R5: declared tools/ roots.  Every tracked path below a tools/ subtree has to
+# name one of these, so a research tree cannot sit in main unclassified -- which
+# is how tools/ontology_probe (7,139 lines) stayed invisible to this checker.
+# Only relational_emergence is frozen by R0, because only that tree is being
+# extracted.  A tree declared
+# ``research-in-main`` is research surface that nobody is extracting yet, and
+# freezing it would charge a migration record for every edit without buying
+# anything, since there is no second copy to diverge from.
+_RESEARCH_ROOTS: dict[str, str] = {
+    "tools/relational_emergence/": "research-extracting",
+    "tools/ontology_probe/": "research-in-main",
+    "tools/analysis/": "research-in-main",
+    "tools/reproduction/": "supported-tooling",
+    "tools/checkpoints/": "supported-tooling",
+}
+_RESEARCH_DISPOSITIONS = frozenset({"research-extracting", "research-in-main"})
+_ROOT_DISPOSITIONS = _RESEARCH_DISPOSITIONS | {"supported-tooling"}
+_TOOLS_PREFIX = "tools/"
 
 # R2: generated artifacts.  .gitignore already states this policy in prose
 # ("Anything that is not a report (a stray figure, csv or json) is still
@@ -252,7 +279,12 @@ def blob_digests(root: Path, oids: Iterable[str]) -> dict[str, tuple[str, int]]:
 
 
 def names_research_package(module: str) -> bool:
-    return module == RESEARCH_PACKAGE or module.startswith(RESEARCH_PACKAGE + ".")
+    return any(
+        module == package or module.startswith(package + ".")
+        for root, disposition in _RESEARCH_ROOTS.items()
+        if disposition in _RESEARCH_DISPOSITIONS
+        for package in (root.rstrip("/").replace("/", "."),)
+    )
 
 
 def research_import_lines(path: Path) -> list[str]:
@@ -279,10 +311,15 @@ def research_import_lines(path: Path) -> list[str]:
         elif isinstance(node, ast.ImportFrom):
             # level > 0 is a relative import and cannot name tools.*, so it can
             # never be a false negative here.
-            if node.level == 0 and node.module and names_research_package(node.module):
-                findings.append(
-                    f"R1 {path.as_posix()}:{node.lineno}: imports {node.module}"
-                )
+            if node.level == 0 and node.module:
+                imported = [node.module]
+                if node.module == "tools":
+                    imported.extend(f"tools.{alias.name}" for alias in node.names)
+                for module in imported:
+                    if names_research_package(module):
+                        findings.append(
+                            f"R1 {path.as_posix()}:{node.lineno}: imports {module}"
+                        )
         elif isinstance(node, ast.Call):
             func = node.func
             dynamic = (isinstance(func, ast.Name) and func.id == "__import__") or (
@@ -350,6 +387,86 @@ def retired_decision_record_finding(posix_path: str) -> str | None:
     if posix_path == _GLOSSARY:
         return f"R4 {posix_path}: research-only glossary in main"
     return None
+
+
+def tools_subtree(posix_path: str) -> str | None:
+    """The declared-root key a path would have to name, or ``None``.
+
+    Files sitting directly in ``tools/`` (the CI entry points) belong to no
+    subtree, so they are never a root and never a finding.  Anything nested
+    deeper names its first directory.
+    """
+    if not posix_path.startswith(_TOOLS_PREFIX):
+        return None
+    remainder = posix_path[len(_TOOLS_PREFIX) :]
+    if "/" not in remainder:
+        return None
+    return f"{_TOOLS_PREFIX}{remainder.split('/', 1)[0]}/"
+
+
+def undeclared_research_root_finding(posix_path: str) -> str | None:
+    """R5 -- a tools/ subtree that no declared root claims.
+
+    Scoped to ``tools/`` deliberately.  Widening it to every directory in the
+    repository would flag ``src/``, ``utils/`` and ``lib/``, which are the
+    supported runtime and are governed by R1 rather than by a roots table.
+    """
+    subtree = tools_subtree(posix_path)
+    if subtree is None or subtree in _RESEARCH_ROOTS:
+        return None
+    return (
+        f"R5 {posix_path}: {subtree} is not a declared tools/ root; add it to "
+        "_RESEARCH_ROOTS in tools/reproduction/check_repository_boundary.py "
+        "with a disposition"
+    )
+
+
+def stale_research_root_findings(
+    blobs: dict[str, str], declared: dict[str, str]
+) -> list[str]:
+    """R6 -- a declared tools/ root that no tracked path belongs to.
+
+    The counterpart of R0's stale-freeze check.  A table that keeps naming a
+    tree the repository no longer has has stopped describing it, and the next
+    reader would take its dispositions for current.
+
+    ``declared`` is a parameter rather than a module read so that the rule stays
+    pure: the caller decides which table applies to the repository under test.
+    """
+    present: set[str] = set()
+    for path in blobs:
+        subtree = tools_subtree(path)
+        if subtree is not None:
+            present.add(subtree)
+    return [
+        f"R6 {root}: declared root matches no tracked path; remove it from the "
+        "roots table or restore the tree"
+        for root in sorted(declared)
+        if root not in present
+    ]
+
+
+def invalid_root_disposition_findings(declared: dict[str, str]) -> list[str]:
+    """A misspelled disposition must not silently disable R1 protection."""
+    return [
+        f"R5 {root}: unknown disposition {disposition!r}; "
+        f"expected one of {sorted(_ROOT_DISPOSITIONS)}"
+        for root, disposition in sorted(declared.items())
+        if disposition not in _ROOT_DISPOSITIONS
+    ]
+
+
+def is_own_repository(root: Path) -> bool:
+    """Whether the checker is inspecting the repository that contains it.
+
+    ``_RESEARCH_ROOTS`` describes *this* repository's ``tools/`` layout, so R6
+    is enforced only against this repository -- a synthetic fixture repository
+    has its own layout and must not be told it is missing trees it never had.
+    R5 stays in force everywhere: "is this tree declared at all" is a question
+    the taxonomy can answer about any tree, but "has this taxonomy rotted" is a
+    question only its own repository can be asked.
+    """
+    return root.resolve() == Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +624,7 @@ def check_frozen_surface(
 
 
 def check_shape_rules(blobs: dict[str, str]) -> list[str]:
-    """R2-R4. Frozen surface paths are skipped; R0 already owns them."""
+    """R2-R5. Frozen surface paths are skipped; R0 already owns them."""
     findings: list[str] = []
     for path in sorted(blobs):
         if surface_group(path) is not None:
@@ -516,6 +633,7 @@ def check_shape_rules(blobs: dict[str, str]) -> list[str]:
             generated_artifact_finding,
             experiment_runner_finding,
             retired_decision_record_finding,
+            undeclared_research_root_finding,
         ):
             finding = rule(path)
             if finding:
@@ -523,16 +641,30 @@ def check_shape_rules(blobs: dict[str, str]) -> list[str]:
     return findings
 
 
+def supported_runtime_scope() -> tuple[str, ...]:
+    """The prefixes R1 scans: the supported runtime, plus the tooling roots.
+
+    Derived from ``_RESEARCH_ROOTS`` rather than listed, so a root declared
+    ``supported-tooling`` is held to R1 automatically.  That is what makes the
+    disposition load-bearing: ``tools/reproduction`` is supported tooling, so a
+    checker there may not import the research package either.
+    """
+    tooling = tuple(
+        root.rstrip("/")
+        for root, disposition in _RESEARCH_ROOTS.items()
+        if disposition == "supported-tooling"
+    )
+    return SUPPORTED_RUNTIME_SCOPE + tooling
+
+
 def check_core_imports(root: Path, blobs: dict[str, str]) -> list[str]:
     """R1."""
     findings: list[str] = []
+    scope = supported_runtime_scope()
     for path in sorted(blobs):
         if not path.endswith(".py"):
             continue
-        if not (
-            path == "train.py"
-            or any(path.startswith(scope + "/") for scope in SUPPORTED_RUNTIME_SCOPE)
-        ):
+        if not (path == "train.py" or any(path.startswith(s + "/") for s in scope)):
             continue
         findings.extend(research_import_lines(root / path))
     return findings
@@ -652,6 +784,11 @@ def main() -> int:
         notes.extend(surface_notes)
         findings.extend(check_core_imports(root, blobs))
         findings.extend(check_shape_rules(blobs))
+        findings.extend(invalid_root_disposition_findings(_RESEARCH_ROOTS))
+        # R6 asks whether this repository's own taxonomy has rotted, so it is
+        # asked only of this repository.  See is_own_repository.
+        if is_own_repository(root):
+            findings.extend(stale_research_root_findings(blobs, _RESEARCH_ROOTS))
 
     report: dict[str, Any] = {
         "root": str(root),
