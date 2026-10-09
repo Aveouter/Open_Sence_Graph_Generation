@@ -1,0 +1,78 @@
+{
+  "schema": "opensgg.issue110.cross_split_observational_audit.v1",
+  "status": "MEASURED_FAIL_REPORTED_BY_CHECKOUT_NOT_INDEPENDENTLY_RERUN_HERE",
+  "issue": 110,
+  "primary_source": "https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/110#issuecomment-6079523851",
+  "source_revision": "44c21cc1cfaa457979bd2977ac5bbdffa5e79754",
+  "audited_fitting": {
+    "train": "pair_ood.train",
+    "validation": "pair_ood.dev",
+    "evaluation": "pair_known.eval"
+  },
+  "input_integrity": {
+    "reporting_checkout": "reported hash-aligned rel.json/train.json, both split JSON, relation order SHA and original prior_cells.json",
+    "sha256_full": "PENDING_ATTACH_ORIGINAL_MANIFEST",
+    "current_work_session_raw_inputs": "NOT_AVAILABLE",
+    "historical_invocation_exact_code": "NOT_INDEPENDENTLY_RECONSTRUCTED"
+  },
+  "split_data": {
+    "eval_rows": 62428,
+    "eval_images": 11520,
+    "fitting_overlap_rows": 46406,
+    "fitting_overlap_images": 9172,
+    "train_overlap_rows": 41626,
+    "train_overlap_images": 8271,
+    "dev_overlap_rows": 4780,
+    "dev_overlap_images": 901,
+    "clean_rows": 16022,
+    "clean_images": 2348,
+    "clean_unordered_pairs": 3128,
+    "own_pair_known_train_eval_overlap_rows": 0,
+    "own_pair_known_train_eval_overlap_images": 0,
+    "strict_pair_ood_train_eval_overlap_rows": 0,
+    "strict_pair_ood_train_eval_overlap_images": 0,
+    "iid_val_train_images_overlap": 0
+  },
+  "prior_conflict": {
+    "definition": "seen unordered pair AND prior argmax incorrect; no confidence floor in shipped mask",
+    "historical_total_unordered": 27368,
+    "historical_total_ordered": 19372,
+    "historical_unordered_bins": {
+      "tau_ge_0_5": 12749,
+      "tau_ge_0_7": 968,
+      "tau_ge_0_9": 0
+    },
+    "historical_ordered_bins": {
+      "tau_ge_0_5": 11239,
+      "tau_ge_0_7": 4431,
+      "tau_ge_0_9": 217
+    },
+    "clean_unordered": 6079,
+    "clean_ordered": 4377,
+    "clean_unordered_bins": {
+      "tau_ge_0_5": 2828,
+      "tau_ge_0_7": 281,
+      "tau_ge_0_9": 0
+    },
+    "clean_ordered_bins": {
+      "tau_ge_0_5": 2517,
+      "tau_ge_0_7": 990,
+      "tau_ge_0_9": 65
+    },
+    "contaminated_conflict_fraction_reported": 0.4587,
+    "clean_conflict_fraction_reported": 0.3794,
+    "cohort_selection_bias_not_excluded": true,
+    "change_in_reported_fraction_not_a_causal_estimate": true
+  },
+  "interpretation": {
+    "historical_pair_known": "NON_HELD_OUT",
+    "iid": "NO_FIT_EVAL_IMAGE_OVERLAP_REPORTED",
+    "strict_pair_ood": "NO_FIT_EVAL_IMAGE_OVERLAP_REPORTED",
+    "clean_subset": "ELIGIBLE_ONLY_AFTER_SEPARATE_ROW_IMAGE_AND_PROVENANCE_VERIFICATION;SELECTION_BIAS_NOT_EXCLUDED",
+    "corrected_B2_B4_metrics": "NOT_COMPUTED",
+    "no_GPU_training": true,
+    "no_new_model_inference": true,
+    "historical_reports_preserved": true,
+    "recommended_change": "retain historical reports unchanged; add independent versioned audit record and rescore saved historical predictions on clean subset after verifying exact row alignment"
+  }
+}
