@@ -1,19 +1,35 @@
-"""The runtime method registry, built from :mod:`src.method_registry`.
+"""Resolve the selected runtime method without importing unrelated runtimes.
 
-``method_maps`` is what the runtime dispatches on -- ``src/exp.py`` does
-``method_maps[args.method](...)`` -- and it is the only thing callers of this
-package use.  The seventeen import lines it used to need are gone: the classes
-are resolved from the registry instead, so a method exists in exactly one place.
-
-The classes are still resolved *eagerly* here.  That is deliberate and keeps
-this module's behaviour unchanged: importing ``src.methods`` already pulled in
-every method module, and making it lazy would hide an import error that
-currently surfaces at startup rather than mid-run.
+``method_maps[key]`` retains the class lookup interface. Iterating items resolves
+every class, so the CI all-method import check still discovers broken imports.
 """
+
+from collections.abc import Mapping
 
 from src.method_registry import METHODS, resolve
 
-# 规范method name 为小写
-method_maps = {spec.key: resolve(spec) for spec in METHODS}
+
+class _MethodMap(Mapping):
+    def __init__(self):
+        self._specs = {spec.key: spec for spec in METHODS}
+        self._classes = {}
+
+    def __getitem__(self, key):
+        spec = self._specs[key]
+        if key not in self._classes:
+            self._classes[key] = resolve(spec)
+        return self._classes[key]
+
+    def __iter__(self):
+        return iter(self._specs)
+
+    def __len__(self):
+        return len(self._specs)
+
+    def __contains__(self, key):
+        return key in self._specs
+
+
+method_maps = _MethodMap()
 
 __all__ = ["method_maps"]

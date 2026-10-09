@@ -163,5 +163,33 @@ class CheckerRegistryTest(unittest.TestCase):
         self.assertTrue(any("Nonesuch" in e for e in errors), errors)
 
 
+class NewFileRegistrationTest(unittest.TestCase):
+    """A new method is registered by the registry, not by an import line.
+
+    ``src/methods/__init__.py`` no longer imports method modules -- it resolves
+    classes from the registry on lookup -- so the [5/5] check must not demand an
+    import the design deliberately removed.  Before this pin, every new method
+    file failed that check, including a correctly registered one.
+    """
+
+    def test_registered_method_files_pass_without_an_import_line(self) -> None:
+        from src.method_registry import METHODS
+
+        ci_validate = _load_ci_validate()
+
+        errors = ci_validate.validate_new_files(
+            [f"src/methods/{spec.method_module}.py" for spec in METHODS]
+        )
+
+        self.assertEqual(errors, [])
+
+    def test_unregistered_method_file_is_still_reported(self) -> None:
+        ci_validate = _load_ci_validate()
+
+        errors = ci_validate.validate_new_files(["src/methods/nonesuch_method.py"])
+
+        self.assertTrue(any("nonesuch" in e for e in errors), errors)
+
+
 if __name__ == "__main__":
     unittest.main()

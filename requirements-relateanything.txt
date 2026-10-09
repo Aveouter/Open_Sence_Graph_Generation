@@ -1,0 +1,13 @@
+# Optional isolated runtime; upstream Apache revision 4a07de9.
+# Python >=3.12 (verified with 3.13). Install CUDA torch separately when needed.
+torch~=2.13
+torchvision~=0.28
+transformers~=5.14
+numpy~=2.5
+Pillow~=12.3
+opencv-python-headless~=5.0
+scipy~=1.18
+safetensors~=0.8
+tqdm~=4.68
+pycocotools~=2.0
+huggingface_hub~=1.23

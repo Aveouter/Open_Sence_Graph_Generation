@@ -20,16 +20,20 @@ if __name__ == '__main__':
     from types import SimpleNamespace
     warnings.filterwarnings('ignore')
 
+    from src.method_registry import BY_CLI_NAME
+    from utils.parser import create_parser, default_parser
+
+    args = create_parser().parse_args()
+    if BY_CLI_NAME[args.method].runtime == "supplied_regions":
+        from src.relateanything_cli import main as run_regions
+        raise SystemExit(run_regions(args))
+
     # --- Framework imports ---
     import torch
 
     from src.config_contract import merge_exclude_keys, metrics_for_eval_mode
     from src.exp import BaseExperiment
-    from src.method_registry import BY_CLI_NAME
     from utils.main_utils import get_dist_info, load_config, update_config
-    from utils.parser import create_parser, default_parser
-
-    args = create_parser().parse_args()
     config = args.__dict__
 
     if args.config_file is None:

@@ -140,6 +140,20 @@ def create_parser():
     parser.add_argument('--align_loss_coef', default=0.2, type=float,
                         help='Weight coefficient for alignment loss')
 
+    regions = parser.add_argument_group('RelateAnything supplied-region runtime')
+    regions.add_argument('--image', help='Original image for supplied-region prediction')
+    regions.add_argument('--regions', help='JSON array of original-image pixel xyxy boxes; no labels')
+    regions.add_argument('--predicate_vocabulary', help='JSON array of predicate strings')
+    regions.add_argument('--full_vocabulary', action='store_true', help='Use the full checkpoint predicate bank')
+    regions.add_argument('--relation_topk', type=int, default=20)
+    regions.add_argument('--relation_masks', help='Optional binary [N,H,W] .npy region masks')
+    regions.add_argument('--relation_box_scores', help='Optional JSON detector confidence array')
+    regions.add_argument('--relation_decompose', action='store_true')
+    regions.add_argument('--relation_output', help='External output JSON path; default stdout')
+    regions.add_argument('--relation_protocol', choices=['A1', 'A3'], default='A1')
+    regions.add_argument('--relation_evidence', help='External full-input and strict-load evidence JSON')
+    regions.add_argument('--relation_official_root', help='Clean official checkout for provenance verification')
+    regions.add_argument('--relation_tau_calibration', help='A3 synonym matcher calibration JSON')
     return parser
 
 
