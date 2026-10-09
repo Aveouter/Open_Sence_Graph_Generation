@@ -221,7 +221,15 @@ def validate_parser_derives_from_registry(parser_path: Path) -> List[str]:
 
 
 def validate_new_files(changed_files: List[str]) -> List[str]:
-    """Check that newly added model/method/config files are properly registered."""
+    """Check that newly added model/method/config files are properly registered.
+
+    The method side checks the registry only.  ``src/methods/__init__.py`` used
+    to import every method module, and this check demanded a new method appear
+    in that import list; that file now resolves classes from the registry, so
+    the list no longer exists and demanding it would fail every new method.
+    Registry membership is the registration -- ``resolve()`` imports the module
+    named by the spec -- and step 3 checks the reverse direction.
+    """
     from src.method_registry import METHODS
 
     errors: List[str] = []
@@ -259,16 +267,9 @@ def validate_new_files(changed_files: List[str]) -> List[str]:
                     )
 
     if new_method_files:
-        methods_init = ROOT / "src" / "methods" / "__init__.py"
-        methods_imports = extract_imports_from_init(methods_init)
         known_keys = {spec.key for spec in METHODS}
         for f in new_method_files:
             stem = Path(f).stem.replace(".py", "")
-            if stem not in methods_imports:
-                errors.append(
-                    f"[NEW FILE] {f} is not imported in "
-                    f"src/methods/__init__.py — add: from .{stem} import ..."
-                )
             expected_key = stem.replace("_method", "")
             if expected_key not in known_keys:
                 errors.append(
