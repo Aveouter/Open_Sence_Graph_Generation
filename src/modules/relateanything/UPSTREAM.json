@@ -1,0 +1,39 @@
+{
+  "source_repo": "https://github.com/Maelic/RelateAnything",
+  "source_commit": "4a07de9d06f2e3f14309753b7907cf1d3a263b08",
+  "reference_commit": "06766fdf56752ca535fc9b971fca99ce563676d0",
+  "license": "Apache-2.0",
+  "modifications": {
+    "eval/evaluator.py": "Two absolute scoring imports made relative, plus a modification notice; no numerical changes."
+  },
+  "files": {
+    "__init__.py": "1c8301a0b9c53f0cdc8098296f54f1d0e83de3a000a4797b1b20e1b5e9199c3b",
+    "api.py": "6fa2bb531f2e6a28987a3b9dca9b83f05eac8f476d1d4b6f44e35765876eb55e",
+    "checkpoint.py": "e022901552b9d9e1e50d0f0a652d487791857eaa1ae34b35af587163116d7afd",
+    "config.py": "3825a55955e3ffacda5c39eba0d0c89792ca26cf8b227c8a85c2b21ed22f3ec3",
+    "corpus_type_map.json": "0e6230a1cfd747404a2b82f6d47a0111e1d45f403a48259fda257bf16750346d",
+    "decompose.py": "b4383f63bfc1c1c20ae3a66b307ec92f9ac8558fa65b942e2ed02ee08661c051",
+    "LICENSE": "b21ed74ddff430ae1739c7d008ff99fcbd57b41ee8bd7355b5ba3e3bd8b84e5c",
+    "scoring.py": "f17463248d42dba2ed31be810f5da136019e92f5092b6e88c5e6417ed2640421",
+    "THIRD_PARTY_NOTICES.md": "7eaa9bf235d10a0e480323b677ffcae524f6f14e9ede1896fd9dd4758e16856b",
+    "vocabulary.py": "36b247f0bbaaa99e0743adaf0555ee0ace28a96c6d415ba1a7446acfc67501de",
+    "data/__init__.py": "fec06fc945ffe18070a970fa48094d0a5005527f6f72fb3273f95f00b451ab71",
+    "data/dataset.py": "45e9961520a2d5dba36849d8ee72e9425670151cc8f3078eb8efb775220eb17c",
+    "data/rasters.py": "bc6820e2dba9bca943f4ae8f475566038652a51bde1763d0d1bbffe9c46bcd36",
+    "eval/__init__.py": "b2f1fd185ccd400fc4eeaf2e0cf4fdb7b0a819161ddddc6a5c394d6be35e0bd6",
+    "eval/evaluator.py": "f43d350fedacf89fa10ba2951eb4de7c1176c612d77e8e83b079dce97748472e",
+    "model/__init__.py": "858bce2828a216a160bc93b3d4d878a9140851a1e72d6d7af19a2976babbea73",
+    "model/backbone.py": "e97c6cdace95629b4ba99560281982bfd01b16757214bf6bb206e5efe839378c",
+    "model/deformable.py": "d3f4b3fd9e91ef6fac8affb211965b2103f3eeb53db730f82c6883bc38469fca",
+    "model/geometry.py": "a9baf7aec7b59d1ffa2dacca0f889c6b2ccd070ad54c7ad851ff81e5ffd2f5c2",
+    "model/pooling.py": "bf360af851f27f66102bc8f0f9b5f970fcccad078a2e233241bb98e7c637bc66",
+    "model/relsgg.py": "0529eb02935a178ede807d8e82f1a9e81f2c91c5f5d3678b993af5c008372053",
+    "model/sampler.py": "fb5a09985d3b9b5ef5f37fa4d0f92f4fd309b5362a3dfda508ba37d962586272",
+    "model/transformer.py": "2dad61a50d50e3e3012644042a2014c5bc0971b606f9091d0cb23ccdd2efb665",
+    "model/vocab_head.py": "472d02b270347cc5252794f1c590dcef30c4cb26dc0e14a9d5e59348a81964a2",
+    "text/__init__.py": "b264e9a94b8bed2c6170562bddf374a2358d6aa410fdf4f28f538614b9e0ae82",
+    "text/student.py": "1aaaa96118fb73b808ba288dd0450f3b87d26f7c44f531dbf9a2fc78a4764885",
+    "training/__init__.py": "d94e4dea027156776a9d254d60f1fab8fd8fbd9f683a1713ed4a259267726ef4",
+    "training/losses.py": "3eca56af3afcab320739467909882fde003380dfbf38d7546884786dcb523fc9"
+  }
+}

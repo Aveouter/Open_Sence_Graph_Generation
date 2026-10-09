@@ -41,6 +41,7 @@ class MethodSpec:
     method_module: str
     config_stems: tuple[str, ...]
     cli_aliases: tuple[str, ...] = ()
+    runtime: str = "lightning"
 
     @property
     def config_stem(self) -> str:
@@ -79,6 +80,8 @@ METHODS: tuple[MethodSpec, ...] = (
         ("RA_SGG", "RA_SGG_sgcls", "RA_SGG_sgdet"),
     ),
     MethodSpec("react", "REACT", "REACT_Method", "react_method", ("REACT",)),
+    MethodSpec("relateanything", "RelateAnything", "RelateAnything_Method",
+               "relateanything_method", ("RelateAnything",), runtime="supplied_regions"),
     MethodSpec("reltr", "RelTR", "RelTR_Method", "reltr_method", ("RelTR",)),
     MethodSpec(
         "shagcl",
@@ -106,7 +109,7 @@ BY_CLI_NAME: dict[str, MethodSpec] = {spec.cli_name: spec for spec in METHODS}
 
 
 def resolve(spec: MethodSpec):
-    """Import and return the Lightning method class ``spec`` names.
+    """Import and return the runtime method class ``spec`` names.
 
     Lazy by necessity: this is the only place the registry reaches for code that
     imports torch, and it happens when a run actually needs the class.

@@ -1,0 +1,19 @@
+# Preserve pinned third-party source bytes: CI must not rewrite imports.
+# Exceptions match findings already present in Apache upstream 4a07de9.
+# F821 is confined to postponed ScoreContract annotations in the evaluator.
+[lint.per-file-ignores]
+"__init__.py" = ["I001"]
+"api.py" = ["I001", "F401"]
+"checkpoint.py" = ["I001"]
+"data/__init__.py" = ["I001"]
+"data/dataset.py" = ["I001", "B905"]
+"decompose.py" = ["I001", "B905"]
+"eval/evaluator.py" = ["F821", "B905"]
+"model/__init__.py" = ["I001"]
+"model/backbone.py" = ["I001"]
+"model/pooling.py" = ["I001"]
+"model/relsgg.py" = ["I001", "B905"]
+"model/sampler.py" = ["I001"]
+"model/transformer.py" = ["I001"]
+"model/vocab_head.py" = ["F401"]
+"training/losses.py" = ["B905"]
