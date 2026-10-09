@@ -1,0 +1,478 @@
+{
+  "status": "diagnostic_experiment",
+  "not_a_reproduction": true,
+  "scope": "vg150_predicate_ontology_cross_pair_generalization",
+  "audit": "ontology_probe_cross_split",
+  "read_only": true,
+  "provenance": {
+    "rel_json_sha256": "ab5d435745d5683b4f672311a2ec8618d9126909d291b663deaf406c6497d32f",
+    "train_json_sha256": "a40fdfdc3894d16349f2e9955e2cbaa199d511c36e25ba46dd6ad8a60043b440",
+    "relation_order_sha256": "0996001baec61348f5dda1a7828a851420819a02e2f26882acc923deb95abfe3",
+    "n_relations": 315642,
+    "split_file_sha256": {
+      "pair_ood": "85951a413707e4ffb6a4d0eaae4b88d2df47159704e4a16307d491f327f66423",
+      "pair_known": "f27c77f8faddf3abc2c1fd90d4a6a460d60b612306ceff691069ce32a1c7c6f5"
+    }
+  },
+  "isolation": {
+    "fitting_set": "pair_ood.train + pair_ood.dev",
+    "comparisons": {
+      "fitting_vs_pair_known_eval": {
+        "n_rows_a": 234603,
+        "n_rows_b": 62428,
+        "shared_rows": 46406,
+        "shared_row_sample": [
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125
+        ],
+        "n_images_a": 46179,
+        "n_images_b": 11520,
+        "shared_images": 9172,
+        "shared_image_sample": [
+          498356,
+          498367,
+          498377,
+          498381,
+          498389,
+          498392,
+          498402,
+          712953,
+          712961,
+          712967,
+          712970,
+          712985,
+          712992,
+          713002,
+          713011,
+          713012,
+          713030,
+          713051,
+          713058,
+          713085
+        ],
+        "rows_in_b_on_shared_images": 46406,
+        "fraction_of_b_rows_shared": 0.7433523418978664,
+        "fraction_of_b_images_shared": 0.7961805555555556
+      },
+      "pair_ood_train_vs_pair_known_eval": {
+        "n_rows_a": 211219,
+        "n_rows_b": 62428,
+        "shared_rows": 41626,
+        "shared_row_sample": [
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125
+        ],
+        "n_images_a": 41562,
+        "n_images_b": 11520,
+        "shared_images": 8271,
+        "shared_image_sample": [
+          498356,
+          498367,
+          498377,
+          498381,
+          498392,
+          498402,
+          712953,
+          712961,
+          712967,
+          712970,
+          712985,
+          712992,
+          713002,
+          713011,
+          713012,
+          713030,
+          713051,
+          713058,
+          713085,
+          713100
+        ],
+        "rows_in_b_on_shared_images": 41626,
+        "fraction_of_b_rows_shared": 0.6667841353238931,
+        "fraction_of_b_images_shared": 0.71796875
+      },
+      "pair_ood_dev_vs_pair_known_eval": {
+        "n_rows_a": 23384,
+        "n_rows_b": 62428,
+        "shared_rows": 4780,
+        "shared_row_sample": [
+          293,
+          294,
+          295,
+          296,
+          297,
+          944,
+          945,
+          946,
+          947,
+          1197,
+          1198,
+          1199,
+          1200,
+          1201,
+          1202,
+          1749,
+          1750,
+          1751,
+          1752,
+          1753
+        ],
+        "n_images_a": 4617,
+        "n_images_b": 11520,
+        "shared_images": 901,
+        "shared_image_sample": [
+          498389,
+          713091,
+          713123,
+          713226,
+          713283,
+          713478,
+          713503,
+          713539,
+          713546,
+          713782,
+          713826,
+          1159353,
+          1159397,
+          1159399,
+          1159576,
+          1159812,
+          1159883,
+          1159888,
+          1159931,
+          1160012
+        ],
+        "rows_in_b_on_shared_images": 4780,
+        "fraction_of_b_rows_shared": 0.07656820657397322,
+        "fraction_of_b_images_shared": 0.07821180555555556
+      },
+      "pair_ood_train_vs_pair_ood_eval": {
+        "n_rows_a": 211219,
+        "n_rows_b": 18705,
+        "shared_rows": 0,
+        "shared_row_sample": [],
+        "n_images_a": 41562,
+        "n_images_b": 11544,
+        "shared_images": 0,
+        "shared_image_sample": [],
+        "rows_in_b_on_shared_images": 0,
+        "fraction_of_b_rows_shared": 0.0,
+        "fraction_of_b_images_shared": 0.0
+      },
+      "pair_known_train_vs_pair_known_eval": {
+        "n_rows_a": 227869,
+        "n_rows_b": 62428,
+        "shared_rows": 0,
+        "shared_row_sample": [],
+        "n_images_a": 41562,
+        "n_images_b": 11520,
+        "shared_images": 0,
+        "shared_image_sample": [],
+        "rows_in_b_on_shared_images": 0,
+        "fraction_of_b_rows_shared": 0.0,
+        "fraction_of_b_images_shared": 0.0
+      }
+    },
+    "iid_control": {
+      "eval_set": "VG val (every relation, as eval_matrix scores it)",
+      "n_val_images": 5000,
+      "n_fitting_images": 46179,
+      "shared_images": 0,
+      "shared_image_sample": []
+    }
+  },
+  "conflict": {
+    "alpha": 5.0,
+    "alpha_source": "pair_ood.dev calibration (same grid the shipped pipeline uses)",
+    "cohorts": {
+      "pair_known.eval": {
+        "unordered": {
+          "n_rows": 62428,
+          "n_rows_on_seen_pair": 58793,
+          "k>=1": {
+            "n": 27368,
+            "confidence_bins": {
+              "tau>=0.5": 12749,
+              "tau>=0.7": 968,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=2": {
+            "n": 27305,
+            "confidence_bins": {
+              "tau>=0.5": 12749,
+              "tau>=0.7": 968,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=5": {
+            "n": 27193,
+            "confidence_bins": {
+              "tau>=0.5": 12749,
+              "tau>=0.7": 968,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=10": {
+            "n": 26971,
+            "confidence_bins": {
+              "tau>=0.5": 12739,
+              "tau>=0.7": 967,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          }
+        },
+        "ordered": {
+          "n_rows": 62428,
+          "n_rows_on_seen_pair": 58730,
+          "k>=1": {
+            "n": 19372,
+            "confidence_bins": {
+              "tau>=0.5": 11239,
+              "tau>=0.7": 4431,
+              "tau>=0.9": 217
+            },
+            "max_confidence": 0.9766884857515968
+          },
+          "k>=2": {
+            "n": 19232,
+            "confidence_bins": {
+              "tau>=0.5": 11239,
+              "tau>=0.7": 4431,
+              "tau>=0.9": 217
+            },
+            "max_confidence": 0.9766884857515968
+          },
+          "k>=5": {
+            "n": 18943,
+            "confidence_bins": {
+              "tau>=0.5": 11238,
+              "tau>=0.7": 4431,
+              "tau>=0.9": 217
+            },
+            "max_confidence": 0.9766884857515968
+          },
+          "k>=10": {
+            "n": 18446,
+            "confidence_bins": {
+              "tau>=0.5": 11167,
+              "tau>=0.7": 4430,
+              "tau>=0.9": 217
+            },
+            "max_confidence": 0.9766884857515968
+          }
+        }
+      },
+      "pair_known.eval_clean_subset": {
+        "unordered": {
+          "n_rows": 16022,
+          "n_rows_on_seen_pair": 12390,
+          "k>=1": {
+            "n": 6079,
+            "confidence_bins": {
+              "tau>=0.5": 2828,
+              "tau>=0.7": 281,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=2": {
+            "n": 6038,
+            "confidence_bins": {
+              "tau>=0.5": 2828,
+              "tau>=0.7": 281,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=5": {
+            "n": 5984,
+            "confidence_bins": {
+              "tau>=0.5": 2828,
+              "tau>=0.7": 281,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=10": {
+            "n": 5886,
+            "confidence_bins": {
+              "tau>=0.5": 2822,
+              "tau>=0.7": 280,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          }
+        },
+        "ordered": {
+          "n_rows": 16022,
+          "n_rows_on_seen_pair": 12334,
+          "k>=1": {
+            "n": 4377,
+            "confidence_bins": {
+              "tau>=0.5": 2517,
+              "tau>=0.7": 990,
+              "tau>=0.9": 65
+            },
+            "max_confidence": 0.9761902079842717
+          },
+          "k>=2": {
+            "n": 4311,
+            "confidence_bins": {
+              "tau>=0.5": 2517,
+              "tau>=0.7": 990,
+              "tau>=0.9": 65
+            },
+            "max_confidence": 0.9761902079842717
+          },
+          "k>=5": {
+            "n": 4184,
+            "confidence_bins": {
+              "tau>=0.5": 2516,
+              "tau>=0.7": 990,
+              "tau>=0.9": 65
+            },
+            "max_confidence": 0.9761902079842717
+          },
+          "k>=10": {
+            "n": 3994,
+            "confidence_bins": {
+              "tau>=0.5": 2477,
+              "tau>=0.7": 989,
+              "tau>=0.9": 65
+            },
+            "max_confidence": 0.9761902079842717
+          }
+        }
+      },
+      "pair_known.eval_in_fitting_images": {
+        "unordered": {
+          "n_rows": 46406,
+          "n_rows_on_seen_pair": 46403,
+          "k>=1": {
+            "n": 21289,
+            "confidence_bins": {
+              "tau>=0.5": 9921,
+              "tau>=0.7": 687,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=2": {
+            "n": 21267,
+            "confidence_bins": {
+              "tau>=0.5": 9921,
+              "tau>=0.7": 687,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=5": {
+            "n": 21209,
+            "confidence_bins": {
+              "tau>=0.5": 9921,
+              "tau>=0.7": 687,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          },
+          "k>=10": {
+            "n": 21085,
+            "confidence_bins": {
+              "tau>=0.5": 9917,
+              "tau>=0.7": 687,
+              "tau>=0.9": 0
+            },
+            "max_confidence": 0.8883633698428692
+          }
+        },
+        "ordered": {
+          "n_rows": 46406,
+          "n_rows_on_seen_pair": 46396,
+          "k>=1": {
+            "n": 14995,
+            "confidence_bins": {
+              "tau>=0.5": 8722,
+              "tau>=0.7": 3441,
+              "tau>=0.9": 152
+            },
+            "max_confidence": 0.9766884857515968
+          },
+          "k>=2": {
+            "n": 14921,
+            "confidence_bins": {
+              "tau>=0.5": 8722,
+              "tau>=0.7": 3441,
+              "tau>=0.9": 152
+            },
+            "max_confidence": 0.9766884857515968
+          },
+          "k>=5": {
+            "n": 14759,
+            "confidence_bins": {
+              "tau>=0.5": 8722,
+              "tau>=0.7": 3441,
+              "tau>=0.9": 152
+            },
+            "max_confidence": 0.9766884857515968
+          },
+          "k>=10": {
+            "n": 14452,
+            "confidence_bins": {
+              "tau>=0.5": 8690,
+              "tau>=0.7": 3441,
+              "tau>=0.9": 152
+            },
+            "max_confidence": 0.9766884857515968
+          }
+        }
+      }
+    }
+  },
+  "clean_cohort_definition": "eval rows whose image is absent from the actual fitting set (pair_ood.train + pair_ood.dev); this is the part held out under the fitting protocol the pipeline actually uses",
+  "interpretation": {
+    "historical_pair_known_eval": "NON_HELD_OUT",
+    "clean_subset_status": "CLEAN_SUBSET / SELECTION_BIAS_NOT_EXCLUDED",
+    "scope": "measures isolation and cohort size only; it does not recompute any model metric and does not establish that contamination explains the conflict-rate difference between cohorts"
+  }
+}
