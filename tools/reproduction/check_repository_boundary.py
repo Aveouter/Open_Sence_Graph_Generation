@@ -22,7 +22,7 @@ The rules:
 
 ``R1`` (``core-imports-research``)
     A plain rule with no baseline: nothing in the supported runtime may import
-    the research package.  Its scope is derived, never "all tracked .py": it is
+    a declared research package.  Its scope is derived, never "all tracked .py": it is
     the supported runtime plus every root ``_RESEARCH_ROOTS`` declares
     ``supported-tooling``, so this checker, its test, and the baseline cannot
     trip it.
@@ -39,8 +39,8 @@ The rules:
     only knows the surface that is being *extracted*, so a research tree sitting
     in main that nobody is extracting was invisible to it -- which is how
     ``tools/ontology_probe`` (7,139 lines) went unclassified.  The disposition
-    is recorded rather than acted on, except that ``supported-tooling`` extends
-    R1's scope.
+    determines which roots R1 protects: research roots are forbidden import
+    targets, while ``supported-tooling`` roots extend R1's scanning scope.
 
 Run ``--help`` for usage.  Findings are printed and the exit status is 1 when
 any rule fails.  This script never writes the baseline: a checker that rewrites
@@ -84,8 +84,6 @@ BASELINE_PROVENANCE_FIELDS = (
     "main_anchor_merge_mode",
 )
 
-RESEARCH_PACKAGE = "tools.relational_emergence"
-
 # R1 scope.  An explicit tuple on purpose: widening this to every tracked .py
 # would make the checker, its test, and its own baseline self-trip, since all
 # three necessarily contain the package name as a string literal.
@@ -111,8 +109,8 @@ _GLOSSARY = "CONTEXT.md"
 # R5: declared tools/ roots.  Every tracked path below a tools/ subtree has to
 # name one of these, so a research tree cannot sit in main unclassified -- which
 # is how tools/ontology_probe (7,139 lines) stayed invisible to this checker.
-# The disposition is recorded rather than acted on: only relational_emergence is
-# frozen by R0, because only that tree is being extracted.  A tree declared
+# Only relational_emergence is frozen by R0, because only that tree is being
+# extracted.  A tree declared
 # ``research-in-main`` is research surface that nobody is extracting yet, and
 # freezing it would charge a migration record for every edit without buying
 # anything, since there is no second copy to diverge from.
@@ -123,6 +121,8 @@ _RESEARCH_ROOTS: dict[str, str] = {
     "tools/reproduction/": "supported-tooling",
     "tools/checkpoints/": "supported-tooling",
 }
+_RESEARCH_DISPOSITIONS = frozenset({"research-extracting", "research-in-main"})
+_ROOT_DISPOSITIONS = _RESEARCH_DISPOSITIONS | {"supported-tooling"}
 _TOOLS_PREFIX = "tools/"
 
 # R2: generated artifacts.  .gitignore already states this policy in prose
@@ -279,7 +279,12 @@ def blob_digests(root: Path, oids: Iterable[str]) -> dict[str, tuple[str, int]]:
 
 
 def names_research_package(module: str) -> bool:
-    return module == RESEARCH_PACKAGE or module.startswith(RESEARCH_PACKAGE + ".")
+    return any(
+        module == package or module.startswith(package + ".")
+        for root, disposition in _RESEARCH_ROOTS.items()
+        if disposition in _RESEARCH_DISPOSITIONS
+        for package in (root.rstrip("/").replace("/", "."),)
+    )
 
 
 def research_import_lines(path: Path) -> list[str]:
@@ -306,10 +311,15 @@ def research_import_lines(path: Path) -> list[str]:
         elif isinstance(node, ast.ImportFrom):
             # level > 0 is a relative import and cannot name tools.*, so it can
             # never be a false negative here.
-            if node.level == 0 and node.module and names_research_package(node.module):
-                findings.append(
-                    f"R1 {path.as_posix()}:{node.lineno}: imports {node.module}"
-                )
+            if node.level == 0 and node.module:
+                imported = [node.module]
+                if node.module == "tools":
+                    imported.extend(f"tools.{alias.name}" for alias in node.names)
+                for module in imported:
+                    if names_research_package(module):
+                        findings.append(
+                            f"R1 {path.as_posix()}:{node.lineno}: imports {module}"
+                        )
         elif isinstance(node, ast.Call):
             func = node.func
             dynamic = (isinstance(func, ast.Name) and func.id == "__import__") or (
@@ -436,6 +446,16 @@ def stale_research_root_findings(
     ]
 
 
+def invalid_root_disposition_findings(declared: dict[str, str]) -> list[str]:
+    """A misspelled disposition must not silently disable R1 protection."""
+    return [
+        f"R5 {root}: unknown disposition {disposition!r}; "
+        f"expected one of {sorted(_ROOT_DISPOSITIONS)}"
+        for root, disposition in sorted(declared.items())
+        if disposition not in _ROOT_DISPOSITIONS
+    ]
+
+
 def is_own_repository(root: Path) -> bool:
     """Whether the checker is inspecting the repository that contains it.
 
@@ -446,7 +466,7 @@ def is_own_repository(root: Path) -> bool:
     the taxonomy can answer about any tree, but "has this taxonomy rotted" is a
     question only its own repository can be asked.
     """
-    return (root / "tools" / "reproduction" / "check_repository_boundary.py").is_file()
+    return root.resolve() == Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +784,7 @@ def main() -> int:
         notes.extend(surface_notes)
         findings.extend(check_core_imports(root, blobs))
         findings.extend(check_shape_rules(blobs))
+        findings.extend(invalid_root_disposition_findings(_RESEARCH_ROOTS))
         # R6 asks whether this repository's own taxonomy has rotted, so it is
         # asked only of this repository.  See is_own_repository.
         if is_own_repository(root):

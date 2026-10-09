@@ -190,8 +190,17 @@ class ResearchRootRuleTest(unittest.TestCase):
     def test_stale_declaration_is_enforced_only_on_this_repository(self) -> None:
         """R6 is skipped on a fixture, so a wrongly-skipped real run stays visible."""
         with tempfile.TemporaryDirectory() as directory:
-            self.assertFalse(boundary.is_own_repository(Path(directory)))
+            other = Path(directory)
+            (other / "tools" / "reproduction").mkdir(parents=True)
+            (other / "tools" / "reproduction" / "check_repository_boundary.py").write_text("")
+            self.assertFalse(boundary.is_own_repository(other))
         self.assertTrue(boundary.is_own_repository(REPO_ROOT))
+
+    def test_invalid_disposition_is_a_finding(self) -> None:
+        declared = {"tools/checkpoints/": "suported-tooling"}
+        findings = boundary.invalid_root_disposition_findings(declared)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("tools/checkpoints/", findings[0])
 
 
 class ImportRuleTest(unittest.TestCase):
@@ -211,7 +220,11 @@ class ImportRuleTest(unittest.TestCase):
             "import tools.relational_emergence\n",
             "from tools.relational_emergence.v2 import data\n",
             "import tools.relational_emergence.simulator.state as state\n",
+            "from tools import relational_emergence\n",
+            "from tools.ontology_probe import common\n",
+            "import tools.analysis.compute_collapse_metrics\n",
             "import importlib\nimportlib.import_module('tools.relational_emergence')\n",
+            "mod = __import__('tools.ontology_probe.common')\n",
             "mod = __import__('tools.relational_emergence.audits')\n",
         ):
             with self.subTest(source=source.strip()):
@@ -222,7 +235,7 @@ class ImportRuleTest(unittest.TestCase):
         for source in (
             "# tools.relational_emergence is discussed here\n",
             '"""See tools.relational_emergence for the research instrument."""\n',
-            "from tools.ontology_probe import common\n",
+            "from tools.checkpoints import download_sgb_motifs\n",
             "import tools\n",
         ):
             with self.subTest(source=source.strip()):
@@ -314,11 +327,12 @@ class RatchetFixtureTest(TempRepoTest):
         """A declared supported-tooling root is held to R1, like the runtime is."""
         self.write("tools/reproduction/check_thing.py", "x = 1\n")
         self.write("tools/relational_emergence/simulator/state.py", "x = 1\n")
+        self.write("tools/ontology_probe/common.py", "x = 1\n")
         self.commit()
         self.freeze_current_tree()
         self.write(
             "tools/reproduction/check_thing.py",
-            "import tools.relational_emergence\n",
+            "from tools.ontology_probe import common\n",
         )
         self.commit()
 
