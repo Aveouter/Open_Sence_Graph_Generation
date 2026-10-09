@@ -92,9 +92,53 @@ rests on the artifacts' own recorded provenance — `training_subset:
 both consistent with the source at `44c21cc`. No captured invocation was
 recovered, so this is inference from artifacts.
 
-**Not done.** No metric on the clean cohort has been recomputed. The historical
-`pair_known` accuracies, macro recalls, Δ_ontology and VRR figures stand as
-published values on a non-held-out cohort; nothing here replaces them.
+**Independently cross-checked.** A second implementation of the isolation check,
+written separately, was run against the same inputs and reproduces every figure
+above — the two intersections, both wrong-argmax counts, and all six confidence
+tiers — and exits with its own "contaminated" status
+(`evidence/ontology_probe/independent_cross_check.json`). Two implementations
+agreeing is what lets these be treated as measured rather than as one script's
+arithmetic.
+
+### Phase 2 — the clean cohort, re-scored
+
+`evidence/ontology_probe/clean_cohort_metrics.json`, produced by
+`tools.ontology_probe.rescore_clean_cohort` (torch + numpy; analysis
+environment only). It hashes 152 inputs, verifies all twelve `pair_known`
+prediction tensors against their split rows **using the `rows` payload stored
+inside each tensor rather than the assumed order** (0 misaligned), and
+recomputes the metrics on the 16,022-row clean cohort.
+
+Fidelity is the licence to read it: on the *full* cohort the script reproduces
+the published `pair_known` values exactly — all nine micro accuracies and all
+nine macro recalls, to the four decimals those reports print. It is the same
+pipeline on other rows, not a different one.
+
+Measured on the clean cohort, B4 − B2 on micro accuracy is **−0.0110 (vg50),
+−0.0090 (L1_noise), −0.0149 (L2_entail)**; on the contaminated cohort it is
++0.0237, +0.0227 and +0.0106. The sign differs in all three label spaces. On
+vg50 the clean cohort gives VRR 0.1289, harm 0.1004, net −0.0110 against the
+contaminated cohort's 0.1767 / 0.0470 / +0.0237, and VRR at τ>0.9 is 0.0000 in
+every cohort and every label space. Intervals are 2000-draw percentile
+bootstraps resampling images, not rows.
+
+**This does not retract the historical reading.** The paired difference on a
+fixed cohort is internally valid — the same rows, neither arm fitted on the
+clean ones — but the clean cohort is the greedy holdout's complement, so it is
+`CLEAN_SUBSET / SELECTION_BIAS_NOT_EXCLUDED` and its *levels* are not population
+estimates. Selection bias is quantified rather than asserted: predicate-mix TVD
+is 0.0894, and every one of the fifteen largest predicates is harder there
+(`behind` 0.509 against 0.738, `near` 0.421 against 0.633). The two confounds
+that would separate a capacity effect from a visual-evidence effect are both
+absent: B2 and B4 differ in parameter count, and there is a single seed, so the
+McNemar p-values test rows within one trained pair and say nothing about
+seed-to-seed variance. Recording the flip is warranted; calling it the true
+effect is not.
+
+**Still not done.** No Δ_ontology, shuffling or per-predicate intervention
+figure has been recomputed on the clean cohort — only the prior-free probe arms
+above. The published Δ_ontology and VRR values in reports 04 and 05 stand as
+published values on a non-held-out cohort.
 
 ## Consequences
 
@@ -120,6 +164,31 @@ cohort sizes and conflict counts above. What may not be claimed: corrected
 accuracies, that any visual-evidence conclusion changes, or that the `iid` and
 `pair_ood` cells are affected — they are not, and the control channels show it.
 
-Next: recompute the `pair_known` cells on the clean cohort from saved
-predictions under #110, and decide separately whether the greedy holdout needs a
-construction fix. #112 remains deferred; no GPU work is authorized here.
+Next: recompute the Δ_ontology and intervention figures on the clean cohort the
+same way, and decide separately whether the greedy holdout needs a construction
+fix. #112 remains deferred; no GPU work is authorized here.
+
+## Review checklist
+
+Carried over from the transcription PR this record supersedes, so that closing
+it loses nothing:
+
+- [x] Full raw-input SHA256 manifest attached, not abbreviated hashes —
+      `evidence/ontology_probe/inputs_sha256.json`, 152 files.
+- [x] The committed verifier re-run on the real inputs, with its complete output
+      committed (`independent_cross_check.json`), raw VG data still untracked.
+- [x] Every reported cell cross-checked, including confidence-threshold
+      inclusivity. The threshold convention differs between the two scripts and
+      is recorded in both rather than reconciled silently: `audit_cross_split`
+      bins with `>=`, `rescue_rate` (and therefore the phase-2 block) uses
+      strictly `>`.
+- [x] Saved B2/B3/B4 predictions verified against the clean row/image indices
+      before any corrected metric was computed; 0 misaligned of 12 cells.
+- [x] Source provenance limitations preserved: the `training_subset` stamps and
+      HEAD code agree, but no historical command invocation was reconstructed.
+- [x] Selection bias investigated rather than assumed away — predicate-mix TVD,
+      per-predicate difficulty, and image-cluster intervals are all reported.
+- [x] All historical reports preserved unchanged.
+
+Not covered here, and left open: the Δ_ontology and shuffle/intervention
+figures, and any construction change to the greedy holdout.

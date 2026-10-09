@@ -1,0 +1,139 @@
+{
+  "actual_fit": "pair_ood.train",
+  "actual_validation": "pair_ood.dev",
+  "checks": {
+    "ACTUAL_fit_vs_known_eval": {
+      "clean": false,
+      "eval_rows": 62428,
+      "eval_rows_in_train_images": 41626,
+      "overlap_images": 8271,
+      "overlap_rows": 41626,
+      "sample_shared_images": [
+        498356,
+        498367,
+        498377,
+        498381,
+        498392,
+        498402,
+        712953,
+        712961,
+        712967,
+        712970
+      ],
+      "sample_shared_rows": [
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115
+      ],
+      "train_rows": 211219
+    },
+    "ACTUAL_validation_vs_known_eval": {
+      "clean": false,
+      "eval_rows": 62428,
+      "eval_rows_in_train_images": 4780,
+      "overlap_images": 901,
+      "overlap_rows": 4780,
+      "sample_shared_images": [
+        498389,
+        713091,
+        713123,
+        713226,
+        713283,
+        713478,
+        713503,
+        713539,
+        713546,
+        713782
+      ],
+      "sample_shared_rows": [
+        293,
+        294,
+        295,
+        296,
+        297,
+        944,
+        945,
+        946,
+        947,
+        1197
+      ],
+      "train_rows": 23384
+    },
+    "known_OWN_dev_vs_known_eval": {
+      "clean": true,
+      "eval_rows": 62428,
+      "eval_rows_in_train_images": 0,
+      "overlap_images": 0,
+      "overlap_rows": 0,
+      "sample_shared_images": [],
+      "sample_shared_rows": [],
+      "train_rows": 24785
+    },
+    "known_OWN_train_vs_known_eval": {
+      "clean": true,
+      "eval_rows": 62428,
+      "eval_rows_in_train_images": 0,
+      "overlap_images": 0,
+      "overlap_rows": 0,
+      "sample_shared_images": [],
+      "sample_shared_rows": [],
+      "train_rows": 227869
+    }
+  },
+  "evaluation": "pair_known.eval",
+  "n_rows": 315642,
+  "notes": [
+    "Source-set disjointness is tested against actual fitting and validation rows.",
+    "Own pair_known split clean != actual fitting subset clean.",
+    "Source-check is not a training rerun or independent benchmark replication."
+  ],
+  "pair_support": {
+    "directed": {
+      "eval_rows_pair_UNSEEN_in_ACTUAL_train": 3698,
+      "eval_rows_pair_seen_in_ACTUAL_train": 58730,
+      "train_unique_pairs": 4628
+    },
+    "undirected": {
+      "eval_rows_pair_UNSEEN_in_ACTUAL_train": 3635,
+      "eval_rows_pair_seen_in_ACTUAL_train": 58793,
+      "train_unique_pairs": 2920
+    }
+  },
+  "prior_conflict": {
+    "directed": {
+      "actual_fit_pair_eligible": 58730,
+      "alpha": 5.0,
+      "high_confidence_wrong_thresholds": {
+        "0.5": 11239,
+        "0.7": 4431,
+        "0.9": 217
+      },
+      "temperature": 1.0,
+      "unseen_in_actual_fit": 3698,
+      "wrong_argmax_seen_pair": 19372
+    },
+    "undirected": {
+      "actual_fit_pair_eligible": 58793,
+      "alpha": 5.0,
+      "high_confidence_wrong_thresholds": {
+        "0.5": 12749,
+        "0.7": 968,
+        "0.9": 0
+      },
+      "temperature": 1.0,
+      "unseen_in_actual_fit": 3635,
+      "wrong_argmax_seen_pair": 27368
+    }
+  },
+  "prior_conflict_provenance": "Historical pair_known dev-selected alpha/temperature; actual fitting rows from pair_ood.train. Confidence numbers are diagnostics, not valid held-out scores unless disjointness passes.",
+  "relation_sha256": "0996001baec61348f5dda1a7828a851420819a02e2f26882acc923deb95abfe3",
+  "scope": "READ_ONLY_ORIGINAL_INDEX_AUDIT",
+  "status": "CONTAMINATED"
+}
