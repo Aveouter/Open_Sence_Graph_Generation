@@ -23,6 +23,7 @@ if __name__ == '__main__':
     # --- Framework imports ---
     import torch
 
+    from src.config_contract import merge_exclude_keys, metrics_for_eval_mode
     from src.exp import BaseExperiment
     from src.method_registry import BY_CLI_NAME
     from utils.main_utils import get_dist_info, load_config, update_config
@@ -38,12 +39,11 @@ if __name__ == '__main__':
         cfg_path = args.config_file
     if args.overwrite:
         config = update_config(config, load_config(cfg_path),
-                               exclude_keys=['method'])
+                               exclude_keys=merge_exclude_keys(overwrite=True))
     else:
         loaded_cfg = load_config(cfg_path)
         config = update_config(config, loaded_cfg,
-                               exclude_keys=['method', 'val_batch_size',
-                                             'drop_path', 'warmup_epoch'])
+                               exclude_keys=merge_exclude_keys(overwrite=False))
         default_values = default_parser()
         for attribute in default_values.keys():
             if config[attribute] is None:
@@ -53,9 +53,7 @@ if __name__ == '__main__':
     # Re-derive metrics from the final eval_mode (which may differ from the
     # config file after CLI override).
     if hasattr(args, 'eval_mode'):
-        ks = [20, 50, 100]
-        args.metrics = [f"{args.eval_mode}_R@{k}" for k in ks] + \
-                       [f"{args.eval_mode}_mR@{k}" for k in ks]
+        args.metrics = metrics_for_eval_mode(args.eval_mode)
 
     print('>'*35 + ' training ' + '<'*35)
     exp = BaseExperiment(args)

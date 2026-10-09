@@ -1,18 +1,25 @@
 # Copyright (c) CIGIT HPC Lab. All rights reserved
-import traceback
-import cv2
-import os
 import logging
+import os
 import subprocess
 import sys
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict, defaultdict
 from typing import Tuple
 
+import cv2
 import torch
 import torchvision
 from torch import distributed as dist
 
+# Deliberate re-export: `update_config` lives in src.config_contract, which is
+# importable without cv2 or torch.  Kept importable from here too because seven
+# call sites reach it through this module.  The noqa is required rather than
+# cosmetic -- CI's lint step runs `ruff check --fix --select F401` and would
+# otherwise delete this line and break every one of them.
+from src.config_contract import update_config  # noqa: F401
+
 from .config_utils import Config
+
 
 def collect_env():
     """Collect the information of the running environments."""
@@ -80,8 +87,8 @@ def check_dir(path):
 
 
 def get_dataset(dataname, config):
-    from data.dataloaders.dataset_constant import dataset_parameters
     from data.dataloaders.dataloader import load_data
+    from data.dataloaders.dataset_constant import dataset_parameters
     # from data.dataloaders.dataloader_weather import load_data
     # Preserve model-specific keys (set by config file) from being
     # overwritten by dataset-wide defaults.
@@ -156,27 +163,6 @@ def load_config(filename:str = None, allow_missing: bool = False):
                 f'configs/<dataset>/, or use --config_file to specify a path.'
             ) from None
     return config
-
-def update_config(args, config, exclude_keys=None):
-    """Update the args dict with a new config dict.
-
-    CLI args (``args``) take priority: a config key is only applied when
-    the corresponding CLI arg is missing (not in args) or explicitly None.
-    Keys in ``exclude_keys`` are never overwritten by the config file.
-    """
-    if exclude_keys is None:
-        exclude_keys = []
-    assert isinstance(args, dict) and isinstance(config, dict)
-    for k in config.keys():
-        if k in exclude_keys:
-            continue  # keep command-line value, don't touch
-        if k in args and args[k] is not None:
-            if args[k] != config[k]:
-                print(f'overwrite config key -- {k}: {config[k]} -> {args[k]}')
-        else:
-            args[k] = config[k]
-    return args
-
 
 def weights_to_cpu(state_dict: OrderedDict) -> OrderedDict:
     """Copy a model state_dict to cpu.
