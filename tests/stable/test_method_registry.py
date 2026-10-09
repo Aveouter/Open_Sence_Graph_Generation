@@ -74,7 +74,12 @@ class RegistryCompletenessTest(unittest.TestCase):
                 )
 
     def test_cli_and_config_names_resolve_to_the_same_spec(self) -> None:
-        from src.method_registry import BY_CLI_NAME, BY_KEY, METHODS, key_for_config_stem
+        from src.method_registry import (
+            BY_CLI_NAME,
+            BY_KEY,
+            METHODS,
+            key_for_config_stem,
+        )
 
         self.assertEqual(len(BY_CLI_NAME), len(METHODS))
         self.assertEqual(len(BY_KEY), len(METHODS))

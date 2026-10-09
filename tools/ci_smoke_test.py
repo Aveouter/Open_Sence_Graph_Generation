@@ -34,7 +34,6 @@ sys.path.insert(0, str(ROOT))
 
 from src.method_registry import BY_KEY, key_for_config_stem
 
-
 # ---------------------------------------------------------------------------
 # CI synthetic data generator
 # ---------------------------------------------------------------------------

@@ -16,17 +16,17 @@ except (ImportError, ValueError, TypeError, AttributeError):
 
 if __name__ == '__main__':
     import os.path as osp
-    from types import SimpleNamespace
     import warnings
+    from types import SimpleNamespace
     warnings.filterwarnings('ignore')
 
     # --- Framework imports ---
-    from utils.main_utils import get_dist_info, load_config, update_config
+    import torch
+
     from src.exp import BaseExperiment
     from src.method_registry import BY_CLI_NAME
+    from utils.main_utils import get_dist_info, load_config, update_config
     from utils.parser import create_parser, default_parser
-
-    import torch
 
     args = create_parser().parse_args()
     config = args.__dict__
