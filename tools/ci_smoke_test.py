@@ -32,6 +32,7 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from src.method_registry import BY_KEY, key_for_config_stem
 
 # ---------------------------------------------------------------------------
 # CI synthetic data generator
@@ -55,48 +56,6 @@ def _verify_ci_data() -> bool:
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# Name matching helpers
-# ---------------------------------------------------------------------------
-
-# Config filenames that differ from method_maps keys for historical reasons.
-# New models where config filename == method key do NOT need an entry here.
-CONFIG_NAME_ALIASES: Dict[str, str] = {
-    "gps_net": "gpsnet",
-    "pe_net": "penet",
-    "sha_gcl": "shagcl",
-    "gpsnet": "gpsnet",
-    "penet": "penet",
-    "shagcl": "shagcl",
-    # RA-SGG task variants — same method, different eval_mode configs
-    "ra_sgg_sgcls": "ra_sgg",
-    "ra_sgg_sgdet": "ra_sgg",
-}
-
-# Mapping from method_maps keys (lowercase) to train.py --method choices
-# (PascalCase / mixed-case).  The method_maps registry and config files
-# use lowercase keys, but train.py's argparse expects the display names.
-METHOD_PARSER_CHOICES: Dict[str, str] = {
-    "cvc": "CVC",
-    "egtr": "EGTR",
-    "flowsg": "FlowSG",
-    "gpsnet": "GPSNet",
-    "hstrnet": "HSTRNet",
-    "imp": "IMP",
-    "motifs": "Motifs",
-    "penet": "PENet",
-    "ra_sgg": "RA_SGG",
-    "react": "REACT",
-    "reltr": "RelTR",
-    "shagcl": "SHAGCL",
-    "squat": "SQUAT",
-    "tde": "TDE",
-    "transformer": "Transformer",
-    "usg": "USG",
-    "vctree": "VCTree",
-}
-
-
 def _resolve_config_key(method_name: str) -> str:
     """Map a method or config filename stem to the canonical method_maps key.
 
@@ -104,7 +63,7 @@ def _resolve_config_key(method_name: str) -> str:
       GPS_Net.py → "gpsnet",  PE_NET.py → "penet",  SHA_GCL.py → "shagcl"
     All other methods: filename == method key (case-insensitive).
     """
-    return CONFIG_NAME_ALIASES.get(method_name.lower(), method_name.lower())
+    return key_for_config_stem(method_name) or method_name.lower()
 
 
 def _find_method_for_model(model_stem: str) -> Optional[str]:
@@ -534,7 +493,7 @@ def run_minimal_train(method_name: str) -> Tuple[bool, str, Optional[str]]:
     Returns (success, error_message, ckpt_path).
     """
     # Map lowercase method_maps key to train.py argparse choice
-    parser_name = METHOD_PARSER_CHOICES.get(method_name, method_name)
+    parser_name = BY_KEY[method_name].cli_name if method_name in BY_KEY else method_name
 
     cmd = [
         sys.executable,
@@ -615,7 +574,7 @@ def run_minimal_test(
 
     Returns (success, error_message).
     """
-    parser_name = METHOD_PARSER_CHOICES.get(method_name, method_name)
+    parser_name = BY_KEY[method_name].cli_name if method_name in BY_KEY else method_name
 
     cmd = [
         sys.executable,

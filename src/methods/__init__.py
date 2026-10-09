@@ -1,58 +1,19 @@
-from .hstrnet_method import HSTRNet_Method
-from .reltr_method import RelTR_Method
-from .egtr_method import EGTR_Method
-from .flowsg_method import FlowSG_Method
-from .motifs_method import Motifs_Method
-from .vctree_method import VCTree_Method
-from .tde_method import TDE_Method
-from .cvc_method import CVC_Method
-from .imp_method import IMP_Method
-from .transformer_method import TransformerSGG_Method
-from .gpsnet_method import GPSNet_Method
-from .penet_method import PENet_Method
-from .ra_sgg_method import RA_SGG_Method
-from .react_method import REACT_Method
-from .squat_method import Squat_Method
-from .shagcl_method import SHAGCL_Method
-from .usg_method import USG_Method
+"""The runtime method registry, built from :mod:`src.method_registry`.
+
+``method_maps`` is what the runtime dispatches on -- ``src/exp.py`` does
+``method_maps[args.method](...)`` -- and it is the only thing callers of this
+package use.  The seventeen import lines it used to need are gone: the classes
+are resolved from the registry instead, so a method exists in exactly one place.
+
+The classes are still resolved *eagerly* here.  That is deliberate and keeps
+this module's behaviour unchanged: importing ``src.methods`` already pulled in
+every method module, and making it lazy would hide an import error that
+currently surfaces at startup rather than mid-run.
+"""
+
+from src.method_registry import METHODS, resolve
 
 # 规范method name 为小写
-method_maps = {
-    "hstrnet": HSTRNet_Method,
-    "reltr": RelTR_Method,
-    "egtr": EGTR_Method,
-    "flowsg": FlowSG_Method,
-    "usg": USG_Method,
-    "motifs": Motifs_Method,
-    "vctree": VCTree_Method,
-    "tde": TDE_Method,
-    "cvc": CVC_Method,
-    "imp": IMP_Method,
-    "transformer": TransformerSGG_Method,
-    "gpsnet": GPSNet_Method,
-    "penet": PENet_Method,
-    "ra_sgg": RA_SGG_Method,
-    "react": REACT_Method,
-    "squat": Squat_Method,
-    "shagcl": SHAGCL_Method,
-}
+method_maps = {spec.key: resolve(spec) for spec in METHODS}
 
-__all__ = [
-    "hstrnet_method",
-    "reltr_method",
-    "egtr_method",
-    "flowsg_method",
-    "motifs_method",
-    "vctree_method",
-    "tde_method",
-    "cvc_method",
-    "imp_method",
-    "transformer_method",
-    "gpsnet_method",
-    "penet_method",
-    "ra_sgg_method",
-    "react_method",
-    "squat_method",
-    "shagcl_method",
-    "usg_method",
-]
+__all__ = ["method_maps"]

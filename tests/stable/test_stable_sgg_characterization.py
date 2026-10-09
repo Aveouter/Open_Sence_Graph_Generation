@@ -73,12 +73,8 @@ class RegisteredConfigTest(unittest.TestCase):
         ci_validate = _load_script("opensgg_ci_validate", "tools/ci_validate.py")
 
         try:
-            method_maps = ci_validate.extract_method_maps(
-                REPO_ROOT / "src" / "methods" / "__init__.py"
-            )
-            self.assertTrue(method_maps, "src/methods/__init__.py declared no methods")
-            errors = ci_validate.validate_configs(
-                REPO_ROOT / "configs" / "VisualGenome", method_maps
+            errors = ci_validate.validate_registry_configs(
+                REPO_ROOT / "configs" / "VisualGenome"
             )
         except SystemExit as exc:  # parse_py_file exits hard on a syntax error
             self.fail(f"config validation aborted: {exc}")

@@ -3,7 +3,10 @@
 CI Validation Script for OpenSGG.
 
 Validates the integrity of model/method/config registration without importing
-any project code (uses AST parsing, no PyTorch/lightning deps required).
+torch or lightning.  The one project module it imports is
+``src.method_registry``, which is stdlib-only by design -- the tables it
+replaced could not be read here at all, so this checker used to re-derive them
+by AST-parsing ``method_maps`` out of ``src/methods/__init__.py``.
 
 Scope:
   - Steps 2-4 (global consistency checks) only ERROR when the PR touches
@@ -12,23 +15,32 @@ Scope:
   - Step 5 (new-file registration) always errors — it is the core PR check.
 
 Checks:
-  1. Extract method_maps from src/methods/__init__.py
-  2. Every config file declares a valid 'method' field (error if touching configs/)
+  1. Read src/method_registry.py, the single source of truth for method identity
+  2. Every registered method has its config, and every config names a registered
+     method (error if touching configs/)
   3. Model ↔ method registration consistency (error if touching src/models/ or src/methods/)
-  4. method_maps keys match parser --method choices (error if touching parser.py or methods/__init__)
-  5. New files in the PR diff are properly registered in __init__.py files
+  4. utils/parser.py derives --method choices from the registry instead of listing
+     them (error if touching parser.py or methods/__init__)
+  5. New files in the PR diff are properly registered
 """
 
 from __future__ import annotations
 
 import ast
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import List, Set
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# The registry is the source of truth for method identity and is stdlib-only by
+# design, so this checker reads it directly instead of re-deriving the tables by
+# AST.  Run as a script, sys.path[0] is tools/, so the repository root has to be
+# added for `src.method_registry` to resolve.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 # This script is part of the required pre-PR workflow on whatever platform a
 # contributor uses, and its progress output contains a few non-ASCII glyphs
@@ -52,29 +64,6 @@ def parse_py_file(path: Path) -> ast.Module:
         sys.exit(1)
 
 
-def extract_method_maps(path: Path) -> Dict[str, str]:
-    """Extract the method_maps dict from src/methods/__init__.py."""
-    tree = parse_py_file(path)
-    method_maps: Dict[str, str] = {}
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "method_maps":
-                    if isinstance(node.value, ast.Dict):
-                        for key, value in zip(node.value.keys, node.value.values, strict=True):
-                            if isinstance(key, ast.Constant):
-                                name = key.value
-                                cls = (
-                                    value.id
-                                    if isinstance(value, ast.Name)
-                                    else ast.unparse(value)
-                                )
-                                method_maps[name] = cls
-
-    return method_maps
-
-
 def extract_imports_from_init(path: Path) -> Set[str]:
     """Extract the set of imported names (local modules) from an __init__.py."""
     tree = parse_py_file(path)
@@ -91,85 +80,66 @@ def extract_imports_from_init(path: Path) -> Set[str]:
     return imports
 
 
-def extract_parser_choices(path: Path) -> List[str]:
-    """Extract --method choices from utils/parser.py."""
-    tree = parse_py_file(path)
-    choices: List[str] = []
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Attribute) and func.attr == "add_argument":
-                args = node.args
-                kwargs = {
-                    kw.arg: kw.value for kw in node.keywords if kw.arg is not None
-                }
-                method_arg = any(
-                    isinstance(a, ast.Constant) and a.value in ("--method", "-m")
-                    for a in args
-                )
-                if method_arg and "choices" in kwargs:
-                    choices_node = kwargs["choices"]
-                    if isinstance(choices_node, ast.List):
-                        choices = [
-                            elt.value
-                            for elt in choices_node.elts
-                            if isinstance(elt, ast.Constant)
-                        ]
-    return choices
-
-
 # ---------------------------------------------------------------------------
 # Check functions
 # ---------------------------------------------------------------------------
 
 
-def validate_configs(config_dir: Path, method_maps: Dict[str, str]) -> List[str]:
-    """Validate all config files in config_dir."""
+def declared_method_value(cfg_path: Path) -> str | None:
+    """The ``method = '<name>'`` constant a config file assigns, if any."""
+    tree = parse_py_file(cfg_path)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == "method"
+                    and isinstance(node.value, ast.Constant)
+                ):
+                    return node.value.value
+    return None
+
+
+def validate_registry_configs(config_dir: Path) -> List[str]:
+    """Check ``config_dir`` against the registry, in both directions.
+
+    Replaces the ``method_maps``-based checker this file used to carry.  It asks
+    the same two questions -- does every registered method have a config, and
+    does every config declare a registered method -- but reads the answers from
+    ``src/method_registry``, which is stdlib-only.  ``method_maps`` is not: it
+    holds live classes, so importing it here would import torch and this checker
+    runs in the dependency-free CI job.
+    """
+    from src.method_registry import BY_KEY, METHODS
+
     errors: List[str] = []
 
     if not config_dir.exists():
         errors.append(f"Config directory not found: {config_dir}")
         return errors
 
-    config_files = sorted(config_dir.glob("*.py"))
-    if not config_files:
+    present = {path.stem for path in config_dir.glob("*.py")}
+    if not present:
         errors.append(f"No config files found in {config_dir}")
         return errors
 
-    config_methods: Set[str] = set()
+    for spec in METHODS:
+        for stem in spec.config_stems:
+            if stem not in present:
+                errors.append(
+                    f"[{spec.key}] the registry names config '{stem}' but "
+                    f"{config_dir.name}/{stem}.py does not exist"
+                )
 
-    for cfg_path in config_files:
-        tree = parse_py_file(cfg_path)
-        method_value = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if (
-                        isinstance(target, ast.Name)
-                        and target.id == "method"
-                        and isinstance(node.value, ast.Constant)
-                    ):
-                        method_value = node.value.value
-
-        if method_value is None:
-            errors.append(f"[{cfg_path.name}] Missing 'method' field assignment")
-            continue
-
-        method_lower = method_value.lower()
-        config_methods.add(method_lower)
-
-        if method_lower not in method_maps:
+    for path in sorted(config_dir.glob("*.py")):
+        declared = declared_method_value(path)
+        if declared is None:
+            errors.append(f"[{path.name}] Missing 'method' field assignment")
+        elif declared.lower() not in BY_KEY:
             errors.append(
-                f"[{cfg_path.name}] method='{method_value}' does not match "
-                f"any key in method_maps. Known: {sorted(method_maps.keys())}"
+                f"[{path.name}] method='{declared}' does not match any registered "
+                f"method. Known: {sorted(BY_KEY)}"
             )
-
-    missing_configs = set(method_maps.keys()) - config_methods
-    if missing_configs:
-        errors.append(
-            f"method_maps keys without config files: {sorted(missing_configs)}"
-        )
 
     return errors
 
@@ -178,18 +148,25 @@ def validate_model_method_mapping(
     models_dir: Path,
     methods_dir: Path,
     models_init: Path,
-    methods_init: Path,
-    method_maps: Dict[str, str],
 ) -> List[str]:
-    """Check that models and methods are consistently registered."""
+    """Check that models and methods are consistently registered.
+
+    The method side is checked against the registry rather than against the
+    import list in ``src/methods/__init__.py``: that file now resolves its
+    classes from the registry, so an import list no longer exists to check.
+    Whether every method module is registered is covered by
+    ``tests/stable/test_method_registry.py``.
+    """
+    from src.method_registry import METHODS
+
     errors: List[str] = []
 
-    for mm_key, mm_cls in method_maps.items():
-        expected_file = methods_dir / f"{mm_key}_method.py"
+    for spec in METHODS:
+        expected_file = methods_dir / f"{spec.method_module}.py"
         if not expected_file.exists():
             errors.append(
-                f"method_maps['{mm_key}'] → {mm_cls}, but "
-                f"src/methods/{mm_key}_method.py does not exist"
+                f"method_registry['{spec.key}'] → {spec.cls_name}, but "
+                f"src/methods/{spec.method_module}.py does not exist"
             )
 
     models_init_imports = extract_imports_from_init(models_init)
@@ -204,62 +181,49 @@ def validate_model_method_mapping(
                     f"src/models/__init__.py"
                 )
 
-    methods_init_imports = extract_imports_from_init(methods_init)
-    for p in sorted(methods_dir.glob("*_method.py")):
-        if p.name == "base_method.py":
+    return errors
+
+
+def validate_parser_derives_from_registry(parser_path: Path) -> List[str]:
+    """``--method`` must derive its choices from the registry, not list them.
+
+    Once the parser builds ``choices`` from ``METHODS`` the two cannot disagree,
+    so there is nothing left to cross-check -- what is worth guarding is that
+    the list does not come *back*.  A literal here is the drift this change
+    removes: the previous version of this checker existed only to notice when
+    that literal and ``method_maps`` fell out of step.
+    """
+    tree = parse_py_file(parser_path)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
             continue
-        stem = p.stem.replace(".py", "")
-        if stem not in methods_init_imports:
-            errors.append(
-                f"Method file src/methods/{p.name} is not imported in "
-                f"src/methods/__init__.py"
-            )
-
-    mm_keys = set(method_maps.keys())
-    methods_imported = {i.lower() for i in methods_init_imports}
-    for key in mm_keys:
-        expected_import = f"{key}_method"
-        if expected_import not in methods_imported:
-            errors.append(
-                f"method_maps['{key}'] is registered but "
-                f"{key}_method is not imported in src/methods/__init__.py"
-            )
-
-    return errors
-
-
-def validate_parser_choices(
-    parser_path: Path, method_maps: Dict[str, str]
-) -> List[str]:
-    """Ensure --method choices in parser.py match method_maps."""
-    errors: List[str] = []
-
-    parser_choices = extract_parser_choices(parser_path)
-    if not parser_choices:
-        errors.append("Could not extract --method choices from utils/parser.py")
-        return errors
-
-    parser_set = {c.lower() for c in parser_choices}
-    mm_set = set(method_maps.keys())
-
-    only_in_parser = parser_set - mm_set
-    only_in_maps = mm_set - parser_set
-
-    if only_in_parser:
-        errors.append(
-            f"--method choices in parser but NOT in method_maps: "
-            f"{sorted(only_in_parser)}"
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "add_argument"):
+            continue
+        method_arg = any(
+            isinstance(a, ast.Constant) and a.value in ("--method", "-m")
+            for a in node.args
         )
-    if only_in_maps:
-        errors.append(
-            f"method_maps keys NOT in --method parser choices: {sorted(only_in_maps)}"
-        )
+        if not method_arg:
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "choices":
+                continue
+            if isinstance(keyword.value, (ast.List, ast.Tuple)):
+                return [
+                    f"{parser_path.name}: --method choices are a literal; derive "
+                    "them from src.method_registry.METHODS so there is one table"
+                ]
+        return []
 
-    return errors
+    return [f"{parser_path.name}: no --method argument found"]
 
 
 def validate_new_files(changed_files: List[str]) -> List[str]:
     """Check that newly added model/method/config files are properly registered."""
+    from src.method_registry import METHODS
+
     errors: List[str] = []
 
     new_model_files = [
@@ -297,7 +261,7 @@ def validate_new_files(changed_files: List[str]) -> List[str]:
     if new_method_files:
         methods_init = ROOT / "src" / "methods" / "__init__.py"
         methods_imports = extract_imports_from_init(methods_init)
-        method_maps = extract_method_maps(methods_init)
+        known_keys = {spec.key for spec in METHODS}
         for f in new_method_files:
             stem = Path(f).stem.replace(".py", "")
             if stem not in methods_imports:
@@ -306,43 +270,25 @@ def validate_new_files(changed_files: List[str]) -> List[str]:
                     f"src/methods/__init__.py — add: from .{stem} import ..."
                 )
             expected_key = stem.replace("_method", "")
-            if expected_key not in method_maps:
+            if expected_key not in known_keys:
                 errors.append(
-                    f"[NEW FILE] {f}: method class should be registered in "
-                    f"method_maps under key '{expected_key}'"
+                    f"[NEW FILE] {f}: not registered in src/method_registry.py "
+                    f"under key '{expected_key}'"
                 )
 
     if new_config_files:
         for f in new_config_files:
             cfg_path = ROOT / f
             if cfg_path.exists():
-                try:
-                    tree = parse_py_file(cfg_path)
-                except SyntaxError:
-                    errors.append(f"[NEW FILE] {f} has syntax errors")
-                    continue
-
-                method_value = None
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Assign):
-                        for target in node.targets:
-                            if (
-                                isinstance(target, ast.Name)
-                                and target.id == "method"
-                                and isinstance(node.value, ast.Constant)
-                            ):
-                                method_value = node.value.value
+                method_value = declared_method_value(cfg_path)
 
                 if method_value is None:
                     errors.append(f"[NEW FILE] {f}: missing 'method' field assignment")
-                else:
-                    methods_init = ROOT / "src" / "methods" / "__init__.py"
-                    mm = extract_method_maps(methods_init)
-                    if method_value.lower() not in mm:
-                        errors.append(
-                            f"[NEW FILE] {f}: method='{method_value}' not found "
-                            f"in method_maps. Did you register it?"
-                        )
+                elif method_value.lower() not in known_keys:
+                    errors.append(
+                        f"[NEW FILE] {f}: method='{method_value}' not found in "
+                        f"src/method_registry.py. Did you register it?"
+                    )
 
     return errors
 
@@ -406,7 +352,6 @@ def main() -> int:
     errors: List[str] = []
     warnings: List[str] = []
 
-    methods_init = ROOT / "src" / "methods" / "__init__.py"
     models_init = ROOT / "src" / "models" / "__init__.py"
     models_dir = ROOT / "src" / "models"
     methods_dir = ROOT / "src" / "methods"
@@ -425,25 +370,24 @@ def main() -> int:
             print(f"  {f}")
 
     # ================================================================
-    # 1. Extract method_maps (fatal if empty)
+    # 1. Read the registry (fatal if empty)
     # ================================================================
-    print("\n[1/5] Extracting method_maps from src/methods/__init__.py ...")
-    method_maps = extract_method_maps(methods_init)
-    print(
-        f"  Found {len(method_maps)} registered methods: {sorted(method_maps.keys())}"
-    )
-    if not method_maps:
-        errors.append("No method_maps entries found!")
+    from src.method_registry import METHODS
+
+    print("\n[1/5] Reading src/method_registry.py ...")
+    print(f"  Found {len(METHODS)} registered methods: {sorted(s.key for s in METHODS)}")
+    if not METHODS:
+        errors.append("No registered methods found in src/method_registry.py!")
     else:
-        for key, cls_name in sorted(method_maps.items()):
-            print(f"    {key:20s} → {cls_name}")
+        for spec in sorted(METHODS, key=lambda s: s.key):
+            print(f"    {spec.key:20s} → {spec.cls_name}")
 
     # ================================================================
     # 2. Config validation
     #    → ERROR only when PR touches configs/ or methods/__init__.py
     # ================================================================
     print(f"\n[2/5] Validating configs in {config_dir} ...")
-    cfg_issues = validate_configs(config_dir, method_maps)
+    cfg_issues = validate_registry_configs(config_dir)
     cfg_touched = _any_changed(["configs/", "src/methods/__init__.py"], changed_files)
     if cfg_issues:
         for e in cfg_issues:
@@ -462,9 +406,7 @@ def main() -> int:
     #    → ERROR only when PR touches src/models/ or src/methods/
     # ================================================================
     print("\n[3/5] Validating model ↔ method registration ...")
-    map_issues = validate_model_method_mapping(
-        models_dir, methods_dir, models_init, methods_init, method_maps
-    )
+    map_issues = validate_model_method_mapping(models_dir, methods_dir, models_init)
     map_touched = _any_changed(["src/models/", "src/methods/"], changed_files)
     if map_issues:
         for e in map_issues:
@@ -482,7 +424,7 @@ def main() -> int:
     #    → ERROR only when PR touches utils/parser.py or methods/__init__.py
     # ================================================================
     print("\n[4/5] Validating parser --method choices ...")
-    parser_issues = validate_parser_choices(parser_path, method_maps)
+    parser_issues = validate_parser_derives_from_registry(parser_path)
     parser_touched = _any_changed(
         ["utils/parser.py", "src/methods/__init__.py"], changed_files
     )
@@ -495,7 +437,7 @@ def main() -> int:
                 print(f"  [WARN] (pre-existing) {e}")
                 warnings.append(e)
     if not parser_issues:
-        print("  Parser choices match method_maps exactly")
+        print("  Parser derives --method choices from the registry")
 
     # ================================================================
     # 5. New-file registration (always errors — PR-specific)
