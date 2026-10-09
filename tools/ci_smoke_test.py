@@ -696,6 +696,27 @@ def main() -> int:
             print("\nNo changed methods detected. Running import check only.")
             return _import_check_only()
 
+    # Optional supplied-region methods require released checkpoints. Verify
+    # their runtime contracts without pretending to run checkpoint parity.
+    region_methods = [name for name in methods_to_test
+                      if name in BY_KEY and BY_KEY[name].runtime == "supplied_regions"]
+    for name in region_methods:
+        prefix = "tests.reproduction.test_relateanything_port.RelateAnythingPortTest."
+        cases = ["test_main_cli_selects_relateanything_and_requires_a_checkpoint",
+                 "test_registered_region_method_can_be_resolved_without_legacy_dependencies",
+                 "test_evaluation_cli_requires_full_input_evidence_before_loading_weights",
+                 "test_source_identity_detects_a_changed_model_before_checkpoint_loading"]
+        check = subprocess.run([sys.executable, "-m", "unittest", *[prefix + case for case in cases]],
+                               cwd=ROOT, capture_output=True, text=True)
+        if check.returncode:
+            print(check.stdout + check.stderr)
+            return 1
+        print(f"[{name}] pipeline_smoke_only: runtime contracts passed; "
+              "checkpoint-backed parity requires external assets")
+    methods_to_test = [name for name in methods_to_test if name not in region_methods]
+    if not methods_to_test:
+        return 0
+
     # ---- Phase 1: Instantiation + forward pass ----
     print(f"\n{'=' * 40}")
     print("Phase 1: Method instantiation + forward pass")
