@@ -18,6 +18,20 @@ Include the relevant commit, command, dataset/config, checkpoint, or document.
 
 State what should change and what would count as resolved.
 
+## Mathematical Expressions
+
+Use `$...$` for inline math. For display math, use a fenced `math` block:
+
+````markdown
+```math
+P(R \mid C_s, C_o)
+```
+````
+
+Standalone `[` and `]` lines do not delimit GitHub math. If an issue body is
+generated through JSON, preserve LaTeX backslashes and check the rendered issue
+preview before submitting it.
+
 ## Reproduction Claim Boundary
 
 If this issue involves a baseline, checkpoint, metric, or paper result, use the
