@@ -3,6 +3,16 @@
 OpenSGG accepts changes that improve code correctness, reproducibility,
 documentation, or maintainability.
 
+## Writing Issues with Math
+
+GitHub renders LaTeX in issues when it is enclosed in `$...$` or a fenced
+`math` block. Use the example in `.github/ISSUE_TEMPLATE.md` for display math.
+Standalone `[` and `]` lines appear as plain text. When creating an issue
+through an API or script, preserve each LaTeX backslash (for example,
+`\text`, `\neq`, and `\rightarrow`) and review the rendered result. A JSON
+string with unescaped backslashes can turn those commands into control
+characters and break the formula.
+
 ## Pull Request Rules
 
 - Use a focused branch and keep unrelated changes out of the same PR.
