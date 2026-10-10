@@ -15,13 +15,20 @@ model, not a replacement architecture or a random-initialization demonstration.
 
 | Requirement | Evidence | Verdict |
 |---|---|---|
-| Official paper identified | arXiv:2609.12552v1; exact result table still to map | partial |
+| Official paper identified | arXiv:2609.12552v1 (73 pp.); retrieved and read in full for the #157 paper-code audit | identified |
 | Official repository identified | Maelic/RelateAnything at `06766fdf56752ca535fc9b971fca99ce563676d0` | identified |
 | Checkpoint provenance verified | External snapshot hashes recorded; strict loaders and empty key/shape mismatch reports verified | local release compatibility verified |
 | Config aligned | Source audit identifies defaults; no executed reference | partial |
 | Inference flow aligned | Released weights produce matching nonempty triplets and scores against official API; vocabulary switching checked | measured public API parity |
 | Evaluator semantics aligned | A1/A3 aggregation and release-layout gaps recorded | partial |
 | Metrics comparable to paper | No local full-split checkpoint-backed run | missing |
+
+The #157 paper-code audit is recorded separately in
+[paper_code_audit.md](paper_code_audit.md). It verifies that 24 of the 25 ported
+upstream modules are byte-identical to the pinned source (the 25th differs only
+in import paths, so metric semantics match), audits twelve components against
+the paper, and adds executed CPU fixtures for the #155 and #156 hypotheses.
+Neither produced a confirmed model failure, so it changes no verdict here.
 
 ## Current Blockers
 
