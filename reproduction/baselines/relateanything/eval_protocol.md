@@ -48,6 +48,17 @@ skip, so no reduced-denominator result is accepted as a baseline run.
 | A3 assets | Runner expects legacy path/NPZ schema | Port accepts released names/W with bound consumer evidence | Matcher tau still required |
 | Full split | Official pack | Access/inventory pending | No valid baseline denominator |
 
+## Data Availability (2026-10-10)
+
+The official VG150 evaluation pack is not publicly obtainable (see
+[ADR 0014](../../adr/0014-relateanything-open-data-deferral.md) and the
+[status](status.md) blocker section): `maelic/OV-SGG-Bench` returns 401
+anonymously, is absent from the author's public datasets, and has no mirror.
+Until access is restored the Official Protocol above cannot be executed. No
+local substitute is accepted: the three accessible VG150 sources disagree on
+the test denominator -- 26,404 (released pack), 26,446 (in-repo copy), 31,876
+(public `maelic/VG150-coco-format` parquet rows).
+
 ## Sources
 
 - [Pinned SPEC](https://github.com/Maelic/RelateAnything/blob/06766fdf56752ca535fc9b971fca99ce563676d0/benchmark/SPEC.md)

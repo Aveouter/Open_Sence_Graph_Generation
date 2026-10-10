@@ -121,6 +121,17 @@ If any global gate is missing, the status must remain one of:
 | EGTR-4 | Use EGTR-native evaluator semantics; do not claim parity from Motifs-style PredCls probing alone. |
 | EGTR-5 | Run benchmark-scale metrics or keep the method deferred with protocol mismatch documented. |
 
+### RelateAnything
+
+| Gate | Requirement |
+|---|---|
+| RA-1 | Pin the official source commit and the released checkpoint snapshot; strict-load evidence (missing/unexpected/shape/remapped all empty) bound to the source, snapshot and pack hashes. |
+| RA-2 | Obtain the official evaluation pack (`maelic/OV-SGG-Bench`, vg150) and record its revision. A locally rebuilt or re-split pack is a different dataset and needs its own protocol decision, not a substitution. |
+| RA-3 | Prove the full test split decodes and scores at the audited denominator (26,404 images) with every exclusion named, not hidden behind the official evaluator's skip rules. |
+| RA-4 | Run the official runner graph-constrained on the test split with the released snapshot, and record metrics, denominators and logs. |
+| RA-5 | Run the OpenSGG adapter on the same pack and compare per metric against both the official run and the reported reference (R@50 0.533 / mR@50 0.282 / F1@50 0.369), with every deviation explained. |
+| RA-6 | Keep A3 separate: it needs a matcher tau calibration bound to the released text space, which no shipped artifact provides. |
+
 ## PR Rule
 
 A PR may be opened while a method is deferred only if the title and body say

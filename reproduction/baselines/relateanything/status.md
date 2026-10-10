@@ -2,7 +2,10 @@
 
 ## Outcome
 
-`implementation_audit` / `not_reproduction_ready`.
+`implementation_audit` / `deferred_reproduction`. The port audit stands on its
+own evidence; the checkpoint-backed A1 run is deferred because the official
+evaluation pack is not publicly obtainable (see Data Access Blocker below and
+[ADR 0014](../../adr/0014-relateanything-open-data-deferral.md)).
 
 Issue: [#124](https://github.com/Aveouter/Open_Sence_Graph_Generation/issues/124).
 The requested work is a complete OpenSGG integration of the released relation
@@ -23,17 +26,45 @@ model, not a replacement architecture or a random-initialization demonstration.
 ## Current Blockers
 
 - Apache parent source and isolated runtime are recorded in ADR 0013; full data/protocol evidence remains pending.
-- Official dataset pack access, full input inventory and scored denominators are pending.
+- **Official evaluation pack is not publicly obtainable** (2026-10-10); full
+  input inventory and scored denominators are consequently blocked.
 - A3 runner does not consume released embeddings unchanged; deployment calibration
   is not a synonym-matcher tau calibration.
 - Exact paper variant/table and code-to-release compatibility are pending.
 
+## Data Access Blocker (2026-10-10)
+
+The evaluation environment is configured (CUDA torch in the isolated runtime,
+strict-load attestation produced, official runner importing, GPU inference
+demonstrated), but the official VG150 evaluation pack cannot be downloaded:
+
+- `maelic/OV-SGG-Bench` returns 401 to anonymous API and page requests while
+  the same endpoints return 200 for the author's public datasets; that listing
+  (PSG/IndoorVG/VG150/GQA200-coco-format, RA-4M) does not include it, and no
+  mirror exists (site-wide search returns zero datasets).
+- `maelic/RA-4M` carries only `packs/megasg/{train,val}`; the GitHub repos
+  publish no data releases.
+- The in-repo VG150 copy is not a substitute: its test split has 26,446 images
+  (all with >=2 boxes and >=1 relation) against the pack's audited 26,404, and
+  the public `maelic/VG150-coco-format` parquet reports 31,876 test rows --
+  three sources, three denominators, none reproducible from the others.
+
+Strict-load attestation produced before the blocker was hit (external,
+re-derivable with `tools/reproduction/produce_relateanything_evidence.py`):
+`D:\Code\RelateAnything_evidence\relateanything_evidence.json`, sha256
+`e29f460709a1c963345a64950e3b4235ca8344fbf94d63d9484fa1c1d786a32e` -- the four
+mismatch lists all empty, `used_ema_model=false`, snapshot revision
+`2db90096be5217bdc7a9003c042950f45723d105`, six pinned source hashes.
+
 ## Next Action
 
-Complete the checkpoint and evaluation evidence gates before running baseline
-metrics.
-The input checker is a gate over supplied attestations, not proof of model or
-evaluation parity. Its synthetic tests are not baseline results.
+Reopen when the official pack is obtainable again (author access restored, a
+mirror published, or a replacement location confirmed). The prepared pipeline
+then runs unchanged: pack -> hardlink images -> full-split audit -> input gate
+-> official A1 -> adapter leg -> comparison against the 0.533 / 0.282 / 0.369
+reference within a preregistered +-0.005 tolerance. The input checker is a gate
+over supplied attestations, not proof of model or evaluation parity. Its
+synthetic tests are not baseline results.
 
 ## Port Verification (2026-10-09)
 
