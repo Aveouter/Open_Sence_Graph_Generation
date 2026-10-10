@@ -180,3 +180,25 @@ def eligible_partners(relations, n: int = BOXES):
         for g, pairs in cfa_partner_groups(relations, n).items()
         if len(pairs) > 1
     }
+
+
+def loss_and_grad(model, relations, seed: int = 7, boxes_n: int = BOXES):
+    """Training loss and per-parameter gradient norms for one step.
+
+    Returns ``(loss, {param_name: grad_norm}, flat_grad)``. ``flat_grad`` is the
+    concatenation of every parameter gradient, so two runs can be compared with
+    a single max-abs difference. Used to check whether a controlled change
+    reaches the *training signal*, not only the forward outputs.
+    """
+    out = forward(model, relations, seed=seed, boxes_n=boxes_n)
+    loss = out["loss"]
+    model.zero_grad(set_to_none=True)
+    loss.backward()
+    norms: dict[str, float] = {}
+    flat: list = []
+    for name, param in model.named_parameters():
+        if param.grad is None:
+            continue
+        norms[name] = float(param.grad.detach().norm())
+        flat.append(param.grad.detach().reshape(-1))
+    return float(loss.detach()), norms, (torch.cat(flat) if flat else torch.zeros(0))

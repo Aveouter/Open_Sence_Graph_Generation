@@ -206,6 +206,68 @@ class CfaAnnotationOrderTest(unittest.TestCase):
         b = fx.forward(model, SINGLE_B)
         self.assertEqual(float((a["logits"] - b["logits"]).abs().max()), 0.0)
 
+    # -- the training signal itself ------------------------------------
+
+    def test_loss_and_gradients_are_order_invariant_with_cfa_off(self):
+        """Control for the two cases below: no CFA, no difference anywhere.
+
+        Bit-exact agreement on the loss *and* on every parameter gradient is
+        what licenses attributing the differences found with CFA on to CFA,
+        rather than to some other order-sensitive path in the step.
+        """
+        model = fx.build_model(cfa_prob=0.0)
+        loss_a, norms_a, grad_a = fx.loss_and_grad(model, ORDER_A)
+        loss_b, norms_b, grad_b = fx.loss_and_grad(model, ORDER_B)
+        self.assertEqual(loss_a, loss_b)
+        self.assertEqual(norms_a, norms_b)
+        self.assertEqual(float((grad_a - grad_b).abs().max()), 0.0)
+
+    def test_loss_and_gradients_differ_between_orders_when_cfa_is_on(self):
+        """CONFIRMED: the swap reaches the loss and the gradient, not only the logits.
+
+        This is the strongest statement this audit supports: a semantically
+        identical annotation set, differing only in row order, produces a
+        different training signal under the released augmentation. It is still
+        a statement about the *optimisation step*, not about model quality --
+        nothing here measures whether either gradient is better, and no
+        checkpoint or benchmark was involved.
+        """
+        model = fx.build_model(cfa_prob=1.0)
+        loss_a, norms_a, grad_a = fx.loss_and_grad(model, ORDER_A)
+        loss_b, norms_b, grad_b = fx.loss_and_grad(model, ORDER_B)
+        self.assertGreater(abs(loss_a - loss_b), 1e-9, "loss unchanged between orders")
+        self.assertGreater(
+            float((grad_a - grad_b).abs().max()),
+            1e-9,
+            "gradients unchanged between orders",
+        )
+        # At least one parameter block must actually move.
+        moved = [n for n in norms_a if abs(norms_a[n] - norms_b[n]) > 1e-9]
+        self.assertTrue(moved, "no parameter gradient norm changed")
+        # Sanity: both are finite, real training signals.
+        self.assertTrue(all(v == v and abs(v) < 1e6 for v in norms_a.values()))
+
+    def test_gradient_difference_is_concentrated_where_cfa_acts(self):
+        """Where the gradients move: the pair and query projections, not the vocabulary.
+
+        ``_mix_entities`` rewrites ``v_sub`` / ``v_obj_k`` before they are
+        projected, so the terms fed by those features should move while the
+        vocabulary matrix, which is an input rather than a parameter here,
+        should not.
+        """
+        model = fx.build_model(cfa_prob=1.0)
+        _, norms_a, _ = fx.loss_and_grad(model, ORDER_A)
+        _, norms_b, _ = fx.loss_and_grad(model, ORDER_B)
+        moved = {n for n in norms_a if abs(norms_a[n] - norms_b[n]) > 1e-9}
+        self.assertTrue(
+            any("pair_proj" in n for n in moved),
+            f"pair_proj did not move; moved={sorted(moved)}",
+        )
+        self.assertTrue(
+            any("sub_text_proj" in n or "obj_text_proj" in n for n in moved),
+            f"text projections did not move; moved={sorted(moved)}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

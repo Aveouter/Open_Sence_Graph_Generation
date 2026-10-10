@@ -267,9 +267,10 @@ the paper says", not "the model is good".
 - **Verdict** **CONFIRMED_TRAINING_PROTOCOL_SENSITIVITY.** The paper's stated
   mechanism (class-conditional matching for prototype smoothing) is *not*
   violated — every selected partner genuinely shares the selected predicate —
-  so this is a protocol sensitivity, not a paper contradiction. No
-  model-performance consequence was demonstrated. See §3.1 for the one narrow
-  internal-contract issue.
+  so this is a protocol sensitivity, not a paper contradiction. The dependence
+  reaches the forward pass and the loss and gradients of the optimisation step
+  (§3.1); **no model-performance consequence was demonstrated or tested**. See
+  §3.1 for the one narrow internal-contract issue.
 
 ### 2.10 Graph decoding and calibration
 
@@ -349,7 +350,8 @@ pair `(2,3)` carrying `{r1}`, and a pair `(0,2)` carrying `{r2}`. Two
 annotation tables that are permutations of one another, so the labelled set is
 identical and only row order differs.
 
-**Result.** The hypothesis is **CONFIRMED at the code and forward-pass level**:
+**Result.** The hypothesis is **CONFIRMED at the code, forward-pass and
+optimisation-step level**:
 
 | Observation | Order A | Order B |
 |---|---|---|
@@ -362,13 +364,26 @@ only the *content* changes. The difference reaches the model: with
 `cfa_prob=1.0`, `max|delta logits| = 1.38e-01` and
 `max|delta pair_features| = 4.43e-01`.
 
+It also reaches the **training signal**, which is the strongest statement this
+audit supports (plan.md §4 items 5 and 6):
+
+| `cfa_prob` | `loss` order A / B | `abs(delta loss)` | `max(abs(delta grad))` | Parameters with a changed grad norm |
+|---|---|---|---|---|
+| `0.0` (control) | 2.23927760 / 2.23927760 | `0.0` | `0.0` | 0 of 134 |
+| `1.0` | 2.01421618 / 2.22334290 | `2.09e-01` | `1.95e+00` (87% of the largest gradient) | 103 of 134 |
+
+The moved parameters are the ones `_mix_entities` feeds — `pair_proj`,
+`sub_text_proj` / `obj_text_proj`, `compose_norm`, the pair encoder — which is
+where the mixing enters the graph.
+
 **Controls, all passing.**
 
 1. *CFA disabled* (`cfa_prob=0.0`): the two orders agree **bit-exactly**
-   (`max|delta| = 0.0`) on both logits and pair features. This is the decisive
-   control — it proves no other part of the training forward pass (sampler
-   losses, slot-target lookup, loss reduction) is order sensitive, so the
-   entire effect is attributable to CFA.
+   (`max|delta| = 0.0`) on the logits, the pair features, the **loss and every
+   parameter gradient**. This is the decisive control — it proves no other part
+   of the training step (sampler losses, slot-target lookup, loss reduction,
+   backward order) is order sensitive, so the entire effect is attributable to
+   CFA.
 2. *Single-positive fixture* (`cfa_prob=1.0`): unchanged to `0.0`.
 3. *`build_slot_targets`*: multi-hot targets are invariant to row order and
    keep **both** positives, exactly as `PAPER` §3.3 and the code claim.
@@ -383,13 +398,28 @@ only the *content* changes. The difference reaches the model: with
 
 **Falsifiability.** The suites were mutation-tested. Replacing `_gt_grid` with
 a first-wins (set-valued) variant fails the two characterisation cases;
-disabling `_mix_entities` fails the forward-dependence case. The tests can
-fail, so their passing is evidence.
+disabling `_mix_entities` fails the forward-dependence and gradient cases. The
+tests can fail, so their passing is evidence.
 
-**Verdict.**
+**Verdict — scoped deliberately narrowly.**
 
-- `CONFIRMED_TRAINING_PROTOCOL_SENSITIVITY` — the CFA partner graph, and hence
-  the training forward pass, is not a function of the labelled set alone.
+In scope, and confirmed: the CFA partner graph, the forward pass, and the loss
+and gradients of one optimisation step are not functions of the labelled set
+alone. `CONFIRMED_TRAINING_PROTOCOL_SENSITIVITY`.
+
+Explicitly **out** of scope, and therefore *not* established either way:
+
+- Whether either of the two gradients is *better*. Nothing here measures
+  quality; a different gradient is not a worse gradient.
+- Any effect at trained-checkpoint level. No training run, no checkpoint, no
+  benchmark, no metric. This is **not** a model failure and must not be cited
+  as one.
+- Whether the effect survives to convergence, or is averaged out over an epoch
+  (the two orders still mix the same number of slots per step, so a mean over
+  batches could plausibly wash out — untested).
+
+Related findings:
+
 - *Not* a contradiction of the paper. `PAPER` §H.2 says the mechanism is
   "the class-conditional matching ... points to prototype smoothing", and
   every selected partner does genuinely share the selected predicate. The
@@ -455,21 +485,65 @@ box-corner tokens of *every* sampled pair. Consequence: any future attempt to
 ablate or stabilise context must remove all three, or it will silently keep the
 dependence.
 
-**Verdict.**
+**Verdict — scoped to the invariants that were actually tested.**
 
-- `EXPECTED_BEHAVIOR`. `PAPER` §7.4 attributes 87-93% of semantic-logit
-  variance to pair context; a large, masked, permutation-equivariant,
-  batch-separated dependence is precisely the designed mechanism.
-- The hypothesis "harmful distractor sensitivity" is **NOT_REPRODUCED**. No
-  harmful directional shift was demonstrated, and the masks that prevent
-  illegitimate leakage (padding width, batch neighbours) all hold.
-- `INCONCLUSIVE` for any *harm* claim. Adjudicating harm requires relation
-  truth that is unchanged under the intervention plus an independent cohort —
-  the issue's own bar, which needs the benchmark and a checkpoint.
+- `EXPECTED_BEHAVIOR` **for the code-level mechanism**. `PAPER` §7.4 attributes
+  87-93% of semantic-logit variance to pair context; a large, masked,
+  permutation-equivariant, batch-separated dependence is precisely the designed
+  mechanism. On the tested fixtures the implementation is behaving as specified.
+- The candidate **code defect** in those invariants is `NOT_REPRODUCED`: no
+  invariance violation was found, and the masks that prevent illegitimate
+  leakage (padding width, batch neighbours) all hold.
+- **`NOT_TESTED` / `INCONCLUSIVE` for harmful context interference on the
+  released model.** This is the claim the issue actually poses, and this audit
+  does *not* refute it — it never tested it. A stub backbone, random small
+  weights, synthetic feature maps and a widened candidate budget characterise
+  structure; they say nothing about whether the trained model's context
+  dependence is harmful. Adjudicating that needs relation truth unchanged
+  under the intervention plus an independent cohort — the issue's own bar,
+  which requires the benchmark and a checkpoint.
+
+So the honest summary is narrower than "refuted": **the mechanism is designed
+and the tested invariants hold; whether the designed dependence causes harm in
+the released model is still open.**
 
 ## 4. What this audit did not establish
 
-Stated plainly, because the guardrails in `AGENTS.md` exist for exactly this:
+Stated plainly, because the guardrails in `AGENTS.md` exist for exactly this.
+This audit's scope is **the pinned source under static inspection, plus
+CPU-only synthetic fixtures**. It is not a complete audit of the paper, not a
+complete audit of the upstream repository, and not an evaluation.
+
+### 4.1 Coverage checklist — audited vs not
+
+"Completed" is used nowhere in this document; the audited scope is stated
+explicitly instead. Uncovered items are listed so they cannot be assumed:
+
+| # | Area | Status |
+|---|---|---|
+| 1 | Backbone feature extraction and multi-layer fusion | Audited (source) |
+| 2 | SoftSpatialPool, object / union / contact features | Audited (source) |
+| 3 | Pair candidate generation and sampling | Audited (source); 99.79% figure unverified |
+| 4 | RelationTransformer and pair-context interaction | Audited (source + exec) |
+| 5 | Deformable relation readout | Audited (source + exec) |
+| 6 | Semantic / spatial query construction | Audited (source) |
+| 7 | Vocabulary embedding and predicate scoring | Audited (source) |
+| 8 | Training losses, positive supervision, negative handling | Audited (source) — **but the five Tab. 14 loss weights are not** |
+| 9 | CFA augmentation and multi-positive handling | Audited (source + exec) |
+| 10 | Graph decoding and calibration | Audited (source) |
+| 11 | Training / inference differences | Audited (source + exec) |
+| 12a | Official evaluation — A1-A4 | Audited (source + existing tests) |
+| 12b | Official evaluation — **A5** (`eval/haystack.py`) | **Not audited — module not ported** |
+| 12c | Official evaluation — **A6** (`eval/spatialsense.py`) | **Not audited — module not ported** |
+| 13 | Training loop and final loss assembly (`training/engine.py`) | **Not audited — module not ported** |
+| 14 | Corpus construction, RA-4M verification gate, generation prompts (§C, §J) | **Not audited** |
+| 15 | A2, A3, A4 numeric outcomes and the OvR-SGG leaderboard (§6) | **Not audited — author-reported only** |
+| 16 | Appendix H ablations in full (Tab. 30 recipe ladder, Tab. 32) | **Read, not reproduced** |
+| 17 | Appendices E, F, G, I (extra results, probes, backbone scaling, cost) | **Not read** |
+| 18 | Any behaviour of the released checkpoint | **Not audited — no checkpoint installed** |
+| 19 | Any metric on any split | **Not audited — no pack obtainable (#134)** |
+
+### 4.2 Explicitly not established
 
 - **No reproduction.** No checkpoint was loaded, no split was scored, no
   metric was computed. The baseline remains `DEFERRED_NOT_REPRODUCED;
@@ -493,34 +567,49 @@ Stated plainly, because the guardrails in `AGENTS.md` exist for exactly this:
 
 | Candidate issue | Verdict | Model-performance verdict |
 |---|---|---|
-| #155 CFA annotation-order sensitivity | `CONFIRMED_TRAINING_PROTOCOL_SENSITIVITY` (+ one narrow docstring/contract defect) | `INCONCLUSIVE` |
-| #156 Pair-set context dependence | `EXPECTED_BEHAVIOR` / hypothesis `NOT_REPRODUCED` | `INCONCLUSIVE` for harm |
-| #157 Paper-code audit | Paper retrieved and read; port parity verified; 12 components audited, 3 with recorded blockers | — |
+| #155 CFA annotation-order sensitivity | `CONFIRMED_TRAINING_PROTOCOL_SENSITIVITY` — partner graph, forward pass, **loss and gradients** all order-dependent (+ one narrow docstring/contract defect) | `INCONCLUSIVE` — no quality effect measured |
+| #156 Pair-set context dependence | `EXPECTED_BEHAVIOR` for the mechanism; candidate code defect in the tested invariants `NOT_REPRODUCED`; harmful interference on the released model `NOT_TESTED` | `INCONCLUSIVE` — not refuted, not tested |
+| #157 Paper-code audit | Scope stated, not "completed": paper retrieved and read (§1-§11, App. A-D, H); port parity verified; 12 components audited; 7 areas listed as not audited in §4.1 | — |
 
-Neither candidate issue is a confirmed model defect, and neither is dismissed:
-#155 records a genuine, reproducible protocol sensitivity with a clean
-mechanism; #156 records that the context path is stronger and more entangled
-than a single-layer reading suggests, while satisfying every invariance a
-correct implementation must satisfy.
+Neither candidate issue is a confirmed model defect, and neither is dismissed.
+#155 records a genuine, reproducible protocol sensitivity that propagates to
+the optimisation step, with a clean mechanism; #156 records that the context
+path is stronger and more entangled than a single-layer reading suggests, while
+satisfying every invariance a correct implementation must satisfy — and leaves
+the harm question open rather than refuting it.
+
+Both verdicts are about **source behaviour under synthetic fixtures**. Neither
+is evidence about the released model's accuracy.
 
 ## 6. Reproducing this audit
 
 ```bash
-# RED suites (CPU, ~0.1 s each, skip cleanly without torch)
+# RED suites (CPU, skip cleanly without torch; 14 + 9 cases, ~0.3 s each)
 python -m unittest tests.reproduction.test_relateanything_cfa_order -v
 python -m unittest tests.reproduction.test_relateanything_pair_context -v
 
 # Source-parity and provenance
 python -c "from src.modules.relateanything.provenance import verify_source; print(verify_source())"
 
-# Repository guardrails
+# Repository guardrails (see the note below on the two local-only failures)
 python tools/reproduction/run_reproduction_guardrails.py
 ```
 
+On this machine the aggregate guardrail script exits non-zero on **two
+pre-existing, unrelated local failures**: the Application Control policy blocks
+SciPy's `_interpnd` DLL (an *error* in `test_penet_adapter`), and the gitignored
+local extraction has advanced one commit past its frozen manifest record
+(`c312c54` vs `95397eb`, a *failure* in `test_check_repository_boundary`).
+Both are documented in [implementation_audit.md](implementation_audit.md).
+`check_reproduction_docs.py`, `check_reproduction_claims.py` and
+`check_repository_boundary.py` each pass individually, and CI's `validate` job
+runs the full suite green on ubuntu-latest, which confirms the failures are
+environmental rather than defects. Full local run: 561 tests, those two failing.
+
 Test-file hashes at the time of writing: `test_relateanything_cfa_order.py`
-`8709115a0fdb43fd` (211 lines), `test_relateanything_pair_context.py`
-`9167ca63119ac985` (408 lines), `_relateanything_audit_fixtures.py`
-`43e6cf1ab1a5955d` (182 lines).
+`5cca413e8689bfbd` (273 lines, 14 cases), `test_relateanything_pair_context.py`
+`9167ca63119ac985` (408 lines, 9 cases), `_relateanything_audit_fixtures.py`
+`1436fac2e0c15650` (204 lines).
 
 ### Falsifiability of the suites
 
@@ -531,7 +620,7 @@ re-run:
 | Mutation | Required outcome | Observed |
 |---|---|---|
 | `_gt_grid` made first-wins (set-valued) | #155 cases fail | Failed as required |
-| `_mix_entities` made a no-op | #155 forward case fails | Failed as required |
+| `_mix_entities` made a no-op | #155 forward **and gradient** cases fail | Failed as required |
 | Pair padding mask dropped in `RelationTransformer` | #156 padding case fails | Failed as required (`0.695` vs `1e-5` tolerance) |
 | Every cross-pair route removed | #156 distractor case fails | Failed as required (context reads as inert) |
 
