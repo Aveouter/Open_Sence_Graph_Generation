@@ -202,6 +202,14 @@ the evidence needed to keep the reproduction claim honest.
 
 ## RelateAnything input preflight (issue #124)
 
+Data availability note (2026-10-10): the pinned pack endpoint
+(`maelic/OV-SGG-Bench`) is no longer publicly accessible -- it returns 401
+anonymously, is absent from the author's public datasets, and has no mirror.
+The preflight below still applies unchanged once access is restored; until then
+the baseline is `deferred_reproduction` (see the [baseline
+status](baselines/relateanything/status.md) and [ADR
+0014](adr/0014-relateanything-open-data-deferral.md)).
+
 This supported input checker audits external official source, a release snapshot,
 and the VG150 test pack. It imports neither upstream code nor PyTorch, loads no
 weights, downloads nothing, and runs no metrics. Keep its JSON output, external
